@@ -5,6 +5,7 @@ pub mod csv_ops;
 pub mod dictionary_ops;
 pub mod filter_ops;
 pub mod json_ops;
+pub mod ndjson_ops;
 pub mod parquet_ops;
 pub mod tsv_ops;
 
@@ -49,7 +50,7 @@ impl MatrixEngine {
         Ok((clean_b.to_pyarrow(py)?.into(), trash_b.to_pyarrow(py)?.into()))
     }
 
-    /// Unified Smart Reader: Automatically detects file extension (.parquet, .csv, .json)
+    /// Unified Smart Reader: Automatically detects file extension (.parquet, .csv, .json, .ndjson, .jsonl)
     pub fn process_file(
         &self,
         py: Python<'_>,
@@ -65,11 +66,13 @@ impl MatrixEngine {
             self.process_tsv_file(py, file_path, batch_size)
         } else if ext == "json" {
             self.process_json_file(py, file_path, batch_size)
+        } else if ext == "ndjson" || ext == "jsonl" {
+            self.process_ndjson_file(py, file_path, batch_size)
         } else if ext == "parquet" || ext == "pq" {
             self.process_parquet_file(py, file_path, batch_size)
         } else {
             Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, parquet, pq",
+                "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
                 ext
             )))
         }

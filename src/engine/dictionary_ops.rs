@@ -78,7 +78,7 @@ impl MatrixEngine {
                 } else {
                     Err(anyhow::anyhow!("TSV file is empty"))
                 }
-            } else if ext == "json" {
+            } else if ext == "json" || ext == "ndjson" || ext == "jsonl" {
                 let file = File::open(&path)?;
                 let mut buf_reader = BufReader::new(file);
                 let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
@@ -94,7 +94,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("JSON file is empty"))
+                    Err(anyhow::anyhow!("JSON/NDJSON file is empty"))
                 }
             } else if ext == "parquet" || ext == "pq" {
                 let file = File::open(&path)?;
@@ -111,7 +111,7 @@ impl MatrixEngine {
                 }
             } else {
                 Err(anyhow::anyhow!(
-                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, parquet, pq",
+                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
                     ext
                 ))
             }
@@ -167,7 +167,7 @@ impl MatrixEngine {
                     .map(|n| Field::new(n, DataType::Utf8, true))
                     .collect();
                 Arc::new(Schema::new(fields))
-            } else if ext == "json" {
+            } else if ext == "json" || ext == "ndjson" || ext == "jsonl" {
                 let file = File::open(&sample_file_path)?;
                 let mut buf_reader = BufReader::new(file);
                 let schema_res = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100));
@@ -199,7 +199,7 @@ impl MatrixEngine {
                 builder.schema().clone()
             } else {
                 return Err(anyhow::anyhow!(
-                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, parquet, pq",
+                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
                     ext
                 ));
             };
