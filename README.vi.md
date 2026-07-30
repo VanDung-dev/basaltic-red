@@ -11,13 +11,26 @@ Ngôn ngữ: [English](README.md) | [Tiếng Việt](README.vi.md)
 
 ## Tổng Quan Dự Án
 
-**Basaltic-Red** là thư viện Python Native Extension tốc độ cao được viết bằng **Rust (PyO3)** và **Apache Arrow**. Thư viện chuyên dùng để lọc, phân rã và quản trị dữ liệu lớn Parquet với tốc độ **`500+ MB/s`** và khống chế lượng **RAM tối đa `< 2.0 GB`**, ngay cả khi xử lý các tập dữ liệu dung lượng Terabyte.
+**Basaltic-Red** là thư viện Python Native Extension tốc độ cao được viết bằng **Rust (PyO3)** và **Apache Arrow**. Thư viện chuyên dùng để lọc, phân rã và quản trị dữ liệu lớn Lakehouse với tốc độ từ **`500+ MB/s` đến `6000+ MB/s`** và khống chế lượng **RAM tối đa `< 2.0 GB`**, ngay cả khi xử lý các tập dữ liệu dung lượng Terabyte.
 
 ### Các Tính Năng Cốt Lõi
-- **Core SIMD Bitmask Engine**: Phân rã dữ liệu Parquet thô thành **Ma trận Sạch (Clean Matrix)** và **Ma trận Rác (Trash Matrix)** ở tốc độ native CPU.
+- **Đa Định Dạng Stream Engine**: Hỗ trợ xử lý trực tiếp **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, và **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.
+- **Core SIMD Bitmask Engine**: Phân rã dữ liệu thô thành **Ma trận Sạch (Clean Matrix)** và **Ma trận Rác (Trash Matrix)** ở tốc độ native CPU.
 - **Gắn Nhãn Mã Lỗi Audit (Audit Error Bitmask)**: Gán mã nhị phân (`0x01: Lỗi số khách`, `0x02: Lỗi cước phí`, `0x04: Lỗi tốc độ`) vào dữ liệu rác giúp kiểm toán 100% nguyên nhân rác.
 - **DuckDB 1.4.5 Preview Zero-Copy**: Cho phép DuckDB chạy SQL preview mẫu dữ liệu trong **`< 10ms`** không tốn bộ nhớ copy.
-- **Tự Động Sinh Từ Điển Dữ Liệu Markdown**: Đọc trực tiếp Schema tệp/thư mục Parquet thực tế và xuất file Markdown dạng Bảng Tiếng Anh gọn gàng.
+- **Tự Động Sinh Từ Điển Dữ Liệu Markdown**: Đọc trực tiếp Schema tệp/thư mục thực tế và xuất file Markdown dạng Bảng Tiếng Anh gọn gàng.
+
+---
+
+## Các Định Dạng Dữ Liệu Hỗ Trợ
+
+| Định Dạng | Đuôi Tệp | Engine Xử Lý Stream |
+| :--- | :--- | :--- |
+| **Parquet** | `.parquet`, `.pq` | Parallel multi-threaded ZSTD Reader/Writer (Rayon) |
+| **CSV** | `.csv` | Arrow CSV Streaming Reader (Tự suy luận Schema) |
+| **TSV** | `.tsv` | Arrow TSV Reader (Chế độ Utf8 an toàn cho dữ liệu thô) |
+| **JSON** | `.json` | Arrow JSON Reader |
+| **NDJSON / JSONL** | `.ndjson`, `.jsonl` | Zero-Copy Line Streaming Reader (Đệm bộ nhớ tối đa 1MB) |
 
 ---
 
@@ -41,7 +54,7 @@ maturin develop --release
 
 ## Cách Sử Dụng Cơ Bản
 
-### 1. Lọc Dữ Liệu Data Lake Parquet
+### 1. Xử Lý Tệp Dữ Liệu Đa Định Dạng (CSV, TSV, JSON, NDJSON, Parquet)
 ```python
 import basaltic_red as br
 
@@ -53,7 +66,13 @@ engine = br.MatrixEngine(
     max_speed_mph=100.0  # Tốc độ an toàn: <= 100 mph
 )
 
-# Lọc toàn bộ thư mục Data Lake
+# Đọc & xử lý stream định dạng bất kỳ
+total_rows, clean_rows, trash_rows = engine.process_file("demo.ndjson", batch_size=65536)
+print(f"Tổng: {total_rows:,} | Sạch: {clean_rows:,} | Rác: {trash_rows:,}")
+```
+
+### 2. Quét & Lọc Toàn Bộ Thư Mục Data Lake
+```python
 num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
     input_dir="data",
     clean_output_dir="output/clean_lake",
@@ -61,33 +80,15 @@ num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
     partition_filter=None,
     batch_size=65536
 )
-
-print(f"Đã xử lý {total_rows:,} dòng | Dòng Sạch: {clean_rows:,} | Dòng Rác: {trash_rows:,}")
+print(f"Đã quét {num_files} tệp | Tổng: {total_rows:,} | Dòng Sạch: {clean_rows:,} | Dòng Rác: {trash_rows:,}")
 ```
 
-### 2. Xuất File Bảng Từ Điển Dữ Liệu Markdown
+### 3. Xuất File Bảng Từ Điển Dữ Liệu Markdown
 ```python
-import basaltic_red as br
-
 engine = br.MatrixEngine()
 
-# Xuất bảng Từ điển dữ liệu dạng Markdown (Nhận file Parquet đơn lẻ hoặc thư mục data/)
-engine.export_data_dictionary_md("data", "data_dictionary.md")
-```
-
-### 3. Đọc Dữ Liệu Sạch & Rác Bằng DuckDB
-```python
-import duckdb
-
-con = duckdb.connect("matrix_warehouse.db")
-
-# Truy vấn Ma trận Sạch
-df_clean = con.execute("SELECT * FROM clean_matrix LIMIT 10").df()
-print(df_clean)
-
-# Truy vấn Ma trận Rác kèm mã lỗi Bitmask
-df_trash = con.execute("SELECT passenger_count, fare_amount, audit_error_code FROM trash_matrix LIMIT 10").df()
-print(df_trash)
+# Xuất bảng Từ điển dữ liệu dạng Markdown (Nhận file đơn lẻ hoặc thư mục data/)
+engine.export_data_dictionary_md("demo.parquet", "data_dictionary.md")
 ```
 
 ---

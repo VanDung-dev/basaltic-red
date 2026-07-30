@@ -11,13 +11,26 @@ Languages: [English](README.md) | [Tiếng Việt](README.vi.md)
 
 ## Project Overview
 
-**Basaltic-Red** is a high-performance Python Native Extension written in **Rust (PyO3)** and **Apache Arrow**. It is designed to filter, split, and govern enterprise Big Data Parquet files at **500+ MB/s throughput** while guaranteeing a **bounded memory footprint of `< 2.0 GB RAM`**, even when processing Terabyte-scale datasets.
+**Basaltic-Red** is a high-performance Python Native Extension written in **Rust (PyO3)** and **Apache Arrow**. It is designed to filter, split, and govern enterprise Big Data Lakehouse files at **500+ MB/s to 6000+ MB/s throughput** while guaranteeing a **bounded memory footprint of `< 2.0 GB RAM`**, even when processing Terabyte-scale datasets.
 
 ### Key Features
-- **Deterministic SIMD Bitmask Engine**: Splits raw Parquet data into **Clean Matrix** and **Trash Matrix** at CPU native speed.
+- **Multi-Format Unified Streaming Engine**: Seamlessly processes **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, and **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.
+- **Deterministic SIMD Bitmask Engine**: Splits raw Big Data into **Clean Matrix** and **Trash Matrix** at CPU native speed.
 - **Audit Error Bitmask Flagging**: Attaches binary error codes (`0x01: Invalid Passenger`, `0x02: Invalid Fare`, `0x04: Speed Anomaly`) to trash records for 100% auditability.
 - **Zero-Copy DuckDB 1.4.5 Preview**: Provides instant `< 10ms` SQL preview queries via PyCapsule Arrow zero-copy transfer.
-- **Native Data Dictionary Generator**: Automatically inspects Parquet schemas (files or directories) and exports a clean Markdown Data Dictionary table.
+- **Native Data Dictionary Generator**: Automatically inspects file and directory schemas and exports a clean Markdown Data Dictionary table.
+
+---
+
+## Supported Formats
+
+| Format | Extensions | Streaming Engine |
+| :--- | :--- | :--- |
+| **Parquet** | `.parquet`, `.pq` | Parallel multi-threaded ZSTD Reader/Writer (Rayon) |
+| **CSV** | `.csv` | Schema-inferred Arrow CSV Streaming Reader |
+| **TSV** | `.tsv` | Utf8 safe Arrow TSV Reader |
+| **JSON** | `.json` | Schema-inferred Arrow JSON Reader |
+| **NDJSON / JSONL** | `.ndjson`, `.jsonl` | 1MB Bounded-memory Zero-Copy Line Streaming Reader |
 
 ---
 
@@ -41,7 +54,7 @@ maturin develop --release
 
 ## Basic Usage
 
-### 1. Filter Parquet Data Lake
+### 1. Process Unified Files (CSV, TSV, JSON, NDJSON, Parquet)
 ```python
 import basaltic_red as br
 
@@ -53,7 +66,13 @@ engine = br.MatrixEngine(
     max_speed_mph=100.0  # Valid speed limit: <= 100 mph
 )
 
-# Process entire Data Lake directory
+# Process any supported format transparently
+total_rows, clean_rows, trash_rows = engine.process_file("demo.ndjson", batch_size=65536)
+print(f"Total: {total_rows:,} | Clean: {clean_rows:,} | Trash: {trash_rows:,}")
+```
+
+### 2. Process Entire Data Lake Directory
+```python
 num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
     input_dir="data",
     clean_output_dir="output/clean_lake",
@@ -61,33 +80,15 @@ num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
     partition_filter=None,
     batch_size=65536
 )
-
-print(f"Processed {total_rows:,} rows | Clean: {clean_rows:,} | Trash: {trash_rows:,}")
+print(f"Scanned {num_files} files | Total: {total_rows:,} | Clean: {clean_rows:,} | Trash: {trash_rows:,}")
 ```
 
-### 2. Export Data Dictionary Markdown Table
+### 3. Export Data Dictionary Markdown Table
 ```python
-import basaltic_red as br
-
 engine = br.MatrixEngine()
 
 # Export Data Dictionary table (accepts a single file or a directory)
-engine.export_data_dictionary_md("data", "data_dictionary.md")
-```
-
-### 3. Read Clean & Trash Data with DuckDB
-```python
-import duckdb
-
-con = duckdb.connect("matrix_warehouse.db")
-
-# Query Clean Matrix
-df_clean = con.execute("SELECT * FROM clean_matrix LIMIT 10").df()
-print(df_clean)
-
-# Query Trash Matrix with audit codes
-df_trash = con.execute("SELECT passenger_count, fare_amount, audit_error_code FROM trash_matrix LIMIT 10").df()
-print(df_trash)
+engine.export_data_dictionary_md("demo.parquet", "data_dictionary.md")
 ```
 
 ---
