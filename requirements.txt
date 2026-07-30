@@ -1,0 +1,6 @@
+pip>=26.0.0
+maturin==1.14.1
+pyarrow==25.0.0
+duckdb==1.4.5
+pandas==3.0.5
+numpy==2.5.1
