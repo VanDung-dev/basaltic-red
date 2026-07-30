@@ -1,4 +1,4 @@
-# Basaltic-Red: Core SIMD Matrix Engine for BigData Lakehouses
+# Basaltic-Red
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https.mit-license.org)
 [![Rust](https://img.shields.io/badge/Rust-1.96+-orange.svg)](https://www.rust-lang.org/)
@@ -11,7 +11,7 @@ Languages: [English](README.md) | [Tiếng Việt](README.vi.md)
 
 ## Project Overview
 
-**Basaltic-Red** is a high-performance Python Native Extension written in **Rust (PyO3)** and **Apache Arrow**. It is designed to filter, split, and govern enterprise Big Data Lakehouse files at **500+ MB/s to 6000+ MB/s throughput** while guaranteeing a **bounded memory footprint of `< 2.0 GB RAM`**, even when processing Terabyte-scale datasets.
+**Basaltic-Red** is a high-performance Python Native Extension written in **Rust (PyO3)** and **Apache Arrow**. It is designed to filter, split, and govern enterprise Big Data Lakehouse files at `500+ MB/s` while guaranteeing a **bounded memory footprint of `< 2.0 GB` RAM.
 
 ### Key Features
 - **Multi-Format Unified Streaming Engine**: Seamlessly processes **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, and **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.

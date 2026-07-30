@@ -1,4 +1,4 @@
-# Basaltic-Red: Core SIMD Matrix Engine cho BigData Lakehouse
+# Basaltic-Red
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https.mit-license.org)
 [![Rust](https://img.shields.io/badge/Rust-1.96+-orange.svg)](https://www.rust-lang.org/)
@@ -11,7 +11,7 @@ Ngôn ngữ: [English](README.md) | [Tiếng Việt](README.vi.md)
 
 ## Tổng Quan Dự Án
 
-**Basaltic-Red** là thư viện Python Native Extension tốc độ cao được viết bằng **Rust (PyO3)** và **Apache Arrow**. Thư viện chuyên dùng để lọc, phân rã và quản trị dữ liệu lớn Lakehouse với tốc độ từ **`500+ MB/s` đến `6000+ MB/s`** và khống chế lượng **RAM tối đa `< 2.0 GB`**, ngay cả khi xử lý các tập dữ liệu dung lượng Terabyte.
+**Basaltic-Red** là thư viện Python Native Extension tốc độ cao được viết bằng **Rust (PyO3)** và **Apache Arrow**. Thư viện chuyên dùng để lọc, phân rã và quản trị dữ liệu lớn Lakehouse với tốc độ **`500+ MB/s` và khống chế lượng RAM tối đa `< 2.0 GB`.
 
 ### Các Tính Năng Cốt Lõi
 - **Đa Định Dạng Stream Engine**: Hỗ trợ xử lý trực tiếp **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, và **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.
