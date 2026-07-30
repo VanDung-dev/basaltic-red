@@ -1,0 +1,13 @@
+use pyo3::prelude::*;
+
+pub mod engine;
+pub mod filter;
+pub mod utils;
+
+use engine::MatrixEngine;
+
+#[pymodule]
+fn basaltic_red(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<MatrixEngine>()?;
+    Ok(())
+}
