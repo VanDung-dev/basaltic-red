@@ -1,13 +1,13 @@
 use pyo3::prelude::*;
 use pyo3::{Py, types::PyAny};
 
-pub mod csv_ops;
-pub mod dictionary_ops;
-pub mod filter_ops;
-pub mod json_ops;
-pub mod ndjson_ops;
-pub mod parquet_ops;
-pub mod tsv_ops;
+pub mod csv;
+pub mod dictionary;
+pub mod filter;
+pub mod json;
+pub mod ndjson;
+pub mod parquet;
+pub mod tsv;
 
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
 #[pyclass]
@@ -156,8 +156,9 @@ mod tests {
     use std::sync::Arc;
     use arrow::array::{Float64Array, Int64Array, UInt64Array, RecordBatch};
     use arrow::datatypes::{DataType, Field, Schema};
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use parquet::arrow::ArrowWriter;
+    use ::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use ::parquet::arrow::ArrowWriter;
+
     use tempfile::{TempDir, NamedTempFile};
     use crate::filter::{ERR_INVALID_PASSENGER, ERR_INVALID_FARE};
 
