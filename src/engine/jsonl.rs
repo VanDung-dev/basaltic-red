@@ -5,8 +5,8 @@ use std::sync::Arc;
 use crate::engine::MatrixEngine;
 
 impl MatrixEngine {
-    /// NDJSON / Newline Delimited JSON Stream In-Memory Reader with SIMD Filter
-    pub fn process_ndjson_file(
+    /// JSONL Single-Line Compact JSON Array Streaming Reader
+    pub fn process_jsonl_file(
         &self,
         py: Python<'_>,
         file_path: &str,
@@ -26,7 +26,6 @@ impl MatrixEngine {
                 .with_batch_size(batch_size)
                 .build(buf_reader_2)?;
 
-
             self.process_reader(reader)
         });
 
@@ -36,4 +35,3 @@ impl MatrixEngine {
         }
     }
 }
-

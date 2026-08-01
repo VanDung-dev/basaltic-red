@@ -5,9 +5,12 @@ pub mod csv;
 pub mod dictionary;
 pub mod filter;
 pub mod json;
+pub mod jsonl;
 pub mod ndjson;
 pub mod parquet;
+pub mod psv;
 pub mod tsv;
+pub mod txt;
 
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
 #[pyclass]
@@ -50,7 +53,7 @@ impl MatrixEngine {
         Ok((clean_b.to_pyarrow(py)?.into(), trash_b.to_pyarrow(py)?.into()))
     }
 
-    /// Unified Smart Reader: Automatically detects file extension (.parquet, .csv, .json, .ndjson, .jsonl)
+    /// Unified Smart Reader: Automatically detects file extension (.parquet, .csv, .tsv, .psv, .txt, .json, .jsonl, .ndjson)
     pub fn process_file(
         &self,
         py: Python<'_>,
@@ -64,19 +67,26 @@ impl MatrixEngine {
             self.process_csv_file(py, file_path, batch_size)
         } else if ext == "tsv" {
             self.process_tsv_file(py, file_path, batch_size)
+        } else if ext == "psv" {
+            self.process_psv_file(py, file_path, batch_size)
+        } else if ext == "txt" {
+            self.process_txt_file(py, file_path, batch_size)
         } else if ext == "json" {
             self.process_json_file(py, file_path, batch_size)
-        } else if ext == "ndjson" || ext == "jsonl" {
+        } else if ext == "jsonl" {
+            self.process_jsonl_file(py, file_path, batch_size)
+        } else if ext == "ndjson" {
             self.process_ndjson_file(py, file_path, batch_size)
         } else if ext == "parquet" || ext == "pq" {
             self.process_parquet_file(py, file_path, batch_size)
         } else {
             Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
+                "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, jsonl, ndjson, parquet, pq",
                 ext
             )))
         }
     }
+
 
     /// Enterprise Multi-File Partition Handler & Async Parquet Writer
     pub fn process_and_write_lake(

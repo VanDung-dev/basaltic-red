@@ -1,12 +1,11 @@
 use pyo3::prelude::*;
 use std::fs::File;
-use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
 
 impl MatrixEngine {
-    /// NDJSON / Newline Delimited JSON Stream In-Memory Reader with SIMD Filter
-    pub fn process_ndjson_file(
+    /// PSV Streaming In-Memory Reader (Pipe-Separated Values)
+    pub fn process_psv_file(
         &self,
         py: Python<'_>,
         file_path: &str,
@@ -16,16 +15,18 @@ impl MatrixEngine {
 
         let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
             let file = File::open(&path)?;
-            let mut buf_reader = BufReader::new(file);
-            let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
+            let format = arrow_csv::reader::Format::default()
+                .with_delimiter(b'|')
+                .with_header(true);
+
+            let (schema, _) = format.infer_schema(file, Some(100))?;
 
             let file_for_reader = File::open(&path)?;
-            let buf_reader_2 = BufReader::new(file_for_reader);
-
-            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+            let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+                .with_delimiter(b'|')
+                .with_header(true)
                 .with_batch_size(batch_size)
-                .build(buf_reader_2)?;
-
+                .build(file_for_reader)?;
 
             self.process_reader(reader)
         });
@@ -36,4 +37,3 @@ impl MatrixEngine {
         }
     }
 }
-
