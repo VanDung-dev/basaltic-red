@@ -5,6 +5,7 @@ import basaltic_red as br
 
 def main():
     target = (sys.argv[1] if len(sys.argv) > 1 else input("Enter file/directory path: ")).strip("'\" ")
+    target = target.encode("utf-8", "ignore").decode("utf-8")
     if not os.path.exists(target):
         sys.exit(f"Error: Path '{target}' not found.")
 
