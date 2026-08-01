@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "tools/bigdata-gen"]
+resolver = "2"
+
 [package]
 name = "basaltic-red"
 version = "0.1.0"
