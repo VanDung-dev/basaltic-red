@@ -78,7 +78,27 @@ impl MatrixEngine {
                 } else {
                     Err(anyhow::anyhow!("TSV file is empty"))
                 }
-            } else if ext == "json" || ext == "ndjson" || ext == "jsonl" {
+            } else if ext == "ndjson" {
+                let file = File::open(&path)?;
+                let mut buf_reader = BufReader::new(file);
+                let schema = arrow_json::reader::infer_json_schema_from_iterator(
+                    arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100))
+                )?;
+
+                let file_for_reader = File::open(&path)?;
+                let buf_reader_2 = BufReader::new(file_for_reader);
+                let mut reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+                    .with_batch_size(limit_rows)
+                    .build(buf_reader_2)?;
+
+                if let Some(batch_res) = reader.next() {
+                    let batch = batch_res?;
+                    let rows = batch.num_rows();
+                    Ok(self.filter_batch_native(&batch, rows))
+                } else {
+                    Err(anyhow::anyhow!("NDJSON file is empty"))
+                }
+            } else if ext == "json" || ext == "jsonl" {
                 let file = File::open(&path)?;
                 let mut buf_reader = BufReader::new(file);
                 let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
@@ -94,7 +114,56 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("JSON/NDJSON file is empty"))
+                    Err(anyhow::anyhow!("JSON file is empty"))
+                }
+
+            } else if ext == "psv" {
+                let file = File::open(&path)?;
+                let (schema, _) = arrow_csv::reader::Format::default()
+                    .with_delimiter(b'|')
+                    .with_header(true)
+                    .infer_schema(file, Some(100))?;
+                let file_for_reader = File::open(&path)?;
+                let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+                    .with_delimiter(b'|')
+                    .with_header(true)
+                    .with_batch_size(limit_rows)
+                    .build(file_for_reader)?;
+                if let Some(batch_res) = reader.next() {
+                    let batch = batch_res?;
+                    let rows = batch.num_rows();
+                    Ok(self.filter_batch_native(&batch, rows))
+                } else {
+                    Err(anyhow::anyhow!("PSV file is empty"))
+                }
+            } else if ext == "txt" {
+                let file = File::open(&path)?;
+                let (schema, _) = arrow_csv::reader::Format::default()
+                    .with_delimiter(b';')
+                    .with_header(true)
+                    .infer_schema(file, Some(100))?;
+                let file_for_reader = File::open(&path)?;
+                let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+                    .with_delimiter(b';')
+                    .with_header(true)
+                    .with_batch_size(limit_rows)
+                    .build(file_for_reader)?;
+                if let Some(batch_res) = reader.next() {
+                    let batch = batch_res?;
+                    let rows = batch.num_rows();
+                    Ok(self.filter_batch_native(&batch, rows))
+                } else {
+                    Err(anyhow::anyhow!("TXT file is empty"))
+                }
+            } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
+                let file = File::open(&path)?;
+                let mut reader = arrow_ipc::reader::FileReader::try_new(file, None)?;
+                if let Some(batch_res) = reader.next() {
+                    let batch = batch_res?;
+                    let rows = batch.num_rows();
+                    Ok(self.filter_batch_native(&batch, rows))
+                } else {
+                    Err(anyhow::anyhow!("Feather file is empty"))
                 }
             } else if ext == "parquet" || ext == "pq" {
                 let file = File::open(&path)?;
@@ -111,7 +180,7 @@ impl MatrixEngine {
                 }
             } else {
                 Err(anyhow::anyhow!(
-                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
+                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, ndjson, jsonl, parquet, pq, feather, arrow, ipc, avro, xlsx, orc, msgpack",
                     ext
                 ))
             }
@@ -135,7 +204,7 @@ impl MatrixEngine {
             let sample_file_path = if path_obj.is_dir() {
                 let discovered = crate::utils::discover_data_files(path_obj, None)?;
                 if discovered.is_empty() {
-                    return Err(anyhow::anyhow!("No supported data files (csv, tsv, json, parquet) found in directory: {}", t_path));
+                    return Err(anyhow::anyhow!("No supported data files found in directory: {}", t_path));
                 }
                 discovered[0].clone()
             } else if path_obj.exists() {
@@ -152,57 +221,41 @@ impl MatrixEngine {
                     .infer_schema(file, Some(100))?;
                 Arc::new(schema)
             } else if ext == "tsv" {
-                // Read header to get col names, force Utf8 schema for dirty TSV data
-                let hdr_file = File::open(&sample_file_path)?;
-                let mut hdr_buf = BufReader::new(hdr_file);
-                let mut hdr_line = String::new();
-                hdr_buf.read_line(&mut hdr_line)?;
-                let col_names: Vec<String> = hdr_line
-                    .trim_end()
-                    .split('\t')
-                    .map(|s| s.to_string())
-                    .collect();
-                let fields: Vec<Field> = col_names
-                    .iter()
-                    .map(|n| Field::new(n, DataType::Utf8, true))
-                    .collect();
-                Arc::new(Schema::new(fields))
-            } else if ext == "json" || ext == "ndjson" || ext == "jsonl" {
                 let file = File::open(&sample_file_path)?;
-                let mut buf_reader = BufReader::new(file);
-                let schema_res = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100));
-                if let Ok((schema, _)) = schema_res {
-                    Arc::new(schema)
-                } else {
-                    let mut reader = std::io::BufReader::new(File::open(&sample_file_path)?);
-                    let mut line = String::new();
-                    let mut sample_lines = Vec::new();
-                    use std::io::BufRead;
-                    while reader.read_line(&mut line)? > 0 {
-                        let trimmed = line.trim();
-                        if trimmed.starts_with('{') && trimmed.ends_with('}') && !trimmed.contains("\"metadata\"") {
-                            sample_lines.push(trimmed.to_string());
-                            if sample_lines.len() >= 10 {
-                                break;
-                            }
-                        }
-                        line.clear();
-                    }
-                    let cursor = std::io::Cursor::new(sample_lines.join("\n"));
-                    let mut buf_c = BufReader::new(cursor);
-                    let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_c, Some(10))?;
-                    Arc::new(schema)
-                }
+                let (schema, _) = arrow_csv::reader::Format::default()
+                    .with_delimiter(b'\t')
+                    .with_header(true)
+                    .infer_schema(file, Some(100))?;
+                Arc::new(schema)
+            } else if ext == "psv" {
+                let file = File::open(&sample_file_path)?;
+                let (schema, _) = arrow_csv::reader::Format::default()
+                    .with_delimiter(b'|')
+                    .with_header(true)
+                    .infer_schema(file, Some(100))?;
+                Arc::new(schema)
+            } else if ext == "txt" {
+                let file = File::open(&sample_file_path)?;
+                let (schema, _) = arrow_csv::reader::Format::default()
+                    .with_delimiter(b';')
+                    .with_header(true)
+                    .infer_schema(file, Some(100))?;
+                Arc::new(schema)
+            } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
+                let file = File::open(&sample_file_path)?;
+                let reader = arrow_ipc::reader::FileReader::try_new(file, None)?;
+                reader.schema().clone()
             } else if ext == "parquet" || ext == "pq" {
                 let file = File::open(&sample_file_path)?;
                 let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
                 builder.schema().clone()
             } else {
-                return Err(anyhow::anyhow!(
-                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, json, ndjson, jsonl, parquet, pq",
-                    ext
-                ));
+                let file = File::open(&sample_file_path)?;
+                let mut buf_reader = BufReader::new(file);
+                let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
+                Arc::new(schema)
             };
+
 
             let mut md_lines = Vec::new();
             md_lines.push("| STT | Column Name | Data Type | Nullable | Description |".to_string());

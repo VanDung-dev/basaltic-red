@@ -1,16 +1,21 @@
 use pyo3::prelude::*;
 use pyo3::{Py, types::PyAny};
 
+pub mod avro;
 pub mod csv;
 pub mod dictionary;
+pub mod feather;
 pub mod filter;
 pub mod json;
 pub mod jsonl;
+pub mod msgpack;
 pub mod ndjson;
+pub mod orc;
 pub mod parquet;
 pub mod psv;
 pub mod tsv;
 pub mod txt;
+pub mod xlsx;
 
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
 #[pyclass]
@@ -53,7 +58,7 @@ impl MatrixEngine {
         Ok((clean_b.to_pyarrow(py)?.into(), trash_b.to_pyarrow(py)?.into()))
     }
 
-    /// Unified Smart Reader: Automatically detects file extension (.parquet, .csv, .tsv, .psv, .txt, .json, .jsonl, .ndjson)
+    /// Unified Smart Reader: Automatically detects file extension
     pub fn process_file(
         &self,
         py: Python<'_>,
@@ -79,13 +84,24 @@ impl MatrixEngine {
             self.process_ndjson_file(py, file_path, batch_size)
         } else if ext == "parquet" || ext == "pq" {
             self.process_parquet_file(py, file_path, batch_size)
+        } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
+            self.process_feather_file(py, file_path, batch_size)
+        } else if ext == "avro" {
+            self.process_avro_file(py, file_path, batch_size)
+        } else if ext == "xlsx" {
+            self.process_xlsx_file(py, file_path, batch_size)
+        } else if ext == "orc" {
+            self.process_orc_file(py, file_path, batch_size)
+        } else if ext == "msgpack" {
+            self.process_msgpack_file(py, file_path, batch_size)
         } else {
             Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, jsonl, ndjson, parquet, pq",
+                "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, jsonl, ndjson, parquet, pq, feather, arrow, ipc, avro, xlsx, orc, msgpack",
                 ext
             )))
         }
     }
+
 
 
     /// Enterprise Multi-File Partition Handler & Async Parquet Writer

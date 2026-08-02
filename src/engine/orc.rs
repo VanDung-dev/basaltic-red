@@ -1,12 +1,11 @@
 use pyo3::prelude::*;
 use std::fs::File;
-use std::io::BufReader;
-use std::sync::Arc;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
 
 impl MatrixEngine {
-    /// NDJSON Newline Delimited Stream Reader (1 complete JSON object per line, no outer array brackets)
-    pub fn process_ndjson_file(
+    /// Apache ORC Columnar Streaming Reader (using Parquet/Arrow Reader interface)
+    pub fn process_orc_file(
         &self,
         py: Python<'_>,
         file_path: &str,
@@ -16,18 +15,9 @@ impl MatrixEngine {
 
         let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
             let file = File::open(&path)?;
-            let mut buf_reader = BufReader::new(file);
-
-            let schema = arrow_json::reader::infer_json_schema_from_iterator(
-                arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100))
-            )?;
-
-            let file_for_reader = File::open(&path)?;
-            let buf_reader_2 = BufReader::new(file_for_reader);
-
-            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+            let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
                 .with_batch_size(batch_size)
-                .build(buf_reader_2)?;
+                .build()?;
 
             self.process_reader(reader)
         });

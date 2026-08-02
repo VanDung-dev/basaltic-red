@@ -20,7 +20,11 @@ pub fn discover_data_files(dir: &Path, filter_subfolder: Option<&str>) -> Result
             files.extend(discover_data_files(&path, filter_subfolder)?);
         } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             let ext_lower = ext.to_lowercase();
-            if ext_lower == "parquet" || ext_lower == "pq" || ext_lower == "csv" || ext_lower == "tsv" || ext_lower == "json" || ext_lower == "ndjson" || ext_lower == "jsonl" {
+            let is_supported = matches!(
+                ext_lower.as_str(),
+                "parquet" | "pq" | "csv" | "tsv" | "psv" | "txt" | "json" | "ndjson" | "jsonl" | "feather" | "arrow" | "ipc" | "avro" | "xlsx" | "orc" | "msgpack"
+            );
+            if is_supported {
                 if let Some(filter) = filter_subfolder {
                     let full_path_str = path.to_str().unwrap_or("");
                     if !full_path_str.contains(filter) {

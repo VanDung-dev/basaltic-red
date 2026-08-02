@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::engine::MatrixEngine;
 
 impl MatrixEngine {
-    /// JSONL Single-Line Compact JSON Array Streaming Reader
+    /// JSONL Single-Line Compact JSON Array Reader ([{"id":1,...},{"id":2,...}])
     pub fn process_jsonl_file(
         &self,
         py: Python<'_>,
@@ -16,17 +16,35 @@ impl MatrixEngine {
 
         let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
             let file = File::open(&path)?;
-            let mut buf_reader = BufReader::new(file);
-            let (schema, _) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
+            let reader = BufReader::new(file);
+            let json_val: serde_json::Value = serde_json::from_reader(reader)?;
 
-            let file_for_reader = File::open(&path)?;
-            let buf_reader_2 = BufReader::new(file_for_reader);
+            if let serde_json::Value::Array(arr) = json_val {
+                let total_rows = arr.len();
+                if total_rows == 0 {
+                    return Ok((0, 0, 0));
+                }
 
-            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                .with_batch_size(batch_size)
-                .build(buf_reader_2)?;
+                let mut ndjson_buf = String::with_capacity(total_rows * 250);
+                for item in &arr {
+                    ndjson_buf.push_str(&item.to_string());
+                    ndjson_buf.push('\n');
+                }
 
-            self.process_reader(reader)
+                let mut cursor = std::io::Cursor::new(ndjson_buf.as_bytes());
+                let schema = arrow_json::reader::infer_json_schema_from_iterator(
+                    arrow_json::reader::ValueIter::new(&mut cursor, Some(100))
+                )?;
+
+                let cursor_reader = std::io::Cursor::new(ndjson_buf.as_bytes());
+                let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+                    .with_batch_size(batch_size)
+                    .build(cursor_reader)?;
+
+                self.process_reader(reader)
+            } else {
+                Ok((0, 0, 0))
+            }
         });
 
         match stats {
