@@ -1,21 +1,12 @@
 use pyo3::prelude::*;
 use pyo3::{Py, types::PyAny};
 
-pub mod avro;
-pub mod csv;
 pub mod dictionary;
-pub mod feather;
 pub mod filter;
-pub mod json;
-pub mod jsonl;
-pub mod msgpack;
-pub mod ndjson;
-pub mod orc;
-pub mod parquet;
-pub mod psv;
-pub mod tsv;
-pub mod txt;
-pub mod xlsx;
+pub mod formats;
+
+pub use formats::*;
+
 
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
 #[pyclass]
