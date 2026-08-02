@@ -2,7 +2,7 @@ use std::fs::File;
 use anyhow::Result;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
-use parquet::basic::{Compression, ZstdLevel};
+use parquet::basic::{Compression};
 
 use crate::gen::{chunk_iter, schema};
 use crate::progress::ProgressItem;
