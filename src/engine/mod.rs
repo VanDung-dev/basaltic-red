@@ -6,6 +6,7 @@ pub mod dynamic_filter;
 pub mod filter;
 pub mod formats;
 pub mod graph;
+pub mod parallel_filter;
 pub mod slice;
 pub mod splitter;
 

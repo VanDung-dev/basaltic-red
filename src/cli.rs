@@ -109,11 +109,11 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Filter matrix file based on dynamic column rules into Clean & Trash matrices
+    /// Filter matrix file(s) or directory based on dynamic column rules into Clean & Trash matrices (Multi-threaded Parallel)
     Filter {
-        /// Path to the data file
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
+        /// Path to single file, directory, or glob pattern (e.g. data/*.parquet)
+        #[arg(value_name = "PATH")]
+        file: String,
 
         /// Filter rule expression (e.g. --rule "age >= 18" --rule "salary > 1000")
         #[arg(short, long)]
@@ -126,6 +126,10 @@ pub enum Commands {
         /// Output path for Trash Matrix (e.g. trash.parquet or trash.csv)
         #[arg(long, default_value = "trash.parquet")]
         trash_output: PathBuf,
+
+        /// Number of worker threads for parallel filtering (defaults to CPU logical core count)
+        #[arg(short, long)]
+        threads: Option<usize>,
     },
 }
 
