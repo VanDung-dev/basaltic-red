@@ -5,41 +5,20 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![Arrow](https://img.shields.io/badge/Arrow--rs-59.1.0-red.svg)](https://crates.io/crates/arrow)
 
-Languages: [English](README.md) | [Tiếng Việt](README.vi.md)
+---
+
+## Engine Performance & Memory Budget
+
+**Basaltic-Red** & **`bazan` CLI** are engineered for enterprise Big Data processing at `500+ MB/s` with a balanced, comfortable memory budget:
+- **Default Bounded RAM**: `< 2048 MB` (2 GB) RAM - Ideal for high-throughput zero-copy SIMD streaming.
 
 ---
 
-## Project Overview
+## Quick Start & Installation
 
-**Basaltic-Red** is a high-performance Python Native Extension written in **Rust (PyO3)** and **Apache Arrow**. It is designed to filter, split, and govern enterprise Big Data Lakehouse files at `500+ MB/s` while guaranteeing a **bounded memory footprint of `< 2.0 GB` RAM.
-
-### Key Features
-- **Multi-Format Unified Streaming Engine**: Seamlessly processes **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, and **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.
-- **Deterministic SIMD Bitmask Engine**: Splits raw Big Data into **Clean Matrix** and **Trash Matrix** at CPU native speed.
-- **Audit Error Bitmask Flagging**: Attaches binary error codes (`0x01: Invalid Passenger`, `0x02: Invalid Fare`, `0x04: Speed Anomaly`) to trash records for 100% auditability.
-- **Zero-Copy DuckDB 1.4.5 Preview**: Provides instant `< 10ms` SQL preview queries via PyCapsule Arrow zero-copy transfer.
-- **Native Data Dictionary Generator**: Automatically inspects file and directory schemas and exports a clean Markdown Data Dictionary table.
-
----
-
-## Supported Formats
-
-| Format | Extensions | Streaming Engine |
-| :--- | :--- | :--- |
-| **Parquet** | `.parquet`, `.pq` | Parallel multi-threaded ZSTD Reader/Writer (Rayon) |
-| **CSV** | `.csv` | Schema-inferred Arrow CSV Streaming Reader |
-| **TSV** | `.tsv` | Utf8 safe Arrow TSV Reader |
-| **JSON** | `.json` | Schema-inferred Arrow JSON Reader |
-| **NDJSON / JSONL** | `.ndjson`, `.jsonl` | 1MB Bounded-memory Zero-Copy Line Streaming Reader |
-
----
-
-## Quick Start
-
-### Installation
 
 ```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/vandungdev/basaltic-red.git
 cd basaltic-red
 
@@ -48,47 +27,48 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 maturin develop --release
+
+# Build standalone bazan CLI executable
+cargo build --release --bin bazan
 ```
 
 ---
 
-## Basic Usage
+## `bazan` CLI & Python SDK Equivalents
 
-### 1. Process Unified Files (CSV, TSV, JSON, NDJSON, Parquet)
+**Basaltic-Red** provides dual interfaces: high-speed Terminal CLI (**`bazan`**) and Python SDK (**`import basaltic_red`**).
+
+| Action / Operation | Terminal CLI (`bazan`) | Python SDK Equivalent (`import basaltic_red`) |
+| :--- | :--- | :--- |
+| **Slice Row Range** | `bazan slice-rows data.parquet --offset 100 --limit 50` | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
+| **Slice Column Projection** | `bazan slice-cols data.csv --cols id,email --limit 50` | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
+| **Dynamic Column Filter** | `bazan filter data.csv --rule "price >= 50.0"` | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
+| **Split Matrix File** | `bazan split data.csv --max-rows 100000 --output-dir ./parts` | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
+| **Preview Top N Rows** | `bazan preview data.parquet --limit 20` | `engine.slice_rows("data.parquet", offset=0, limit=20)` |
+| **Export Data Dictionary** | `bazan dict data.parquet --output schema.md` | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
+| **Generate ER Diagram** | `bazan graph data/relational --output er.md` | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
+
+---
+
+## Basic Python Example
+
 ```python
 import basaltic_red as br
 
-# Initialize Engine with domain rules
-engine = br.MatrixEngine(
-    min_passenger=1,     # Valid passenger count: 1 to 9
-    max_passenger=9,
-    min_fare=0.01,       # Valid fare amount: >= $0.01
-    max_speed_mph=100.0  # Valid speed limit: <= 100 mph
-)
-
-# Process any supported format transparently
-total_rows, clean_rows, trash_rows = engine.process_file("demo.ndjson", batch_size=65536)
-print(f"Total: {total_rows:,} | Clean: {clean_rows:,} | Trash: {trash_rows:,}")
-```
-
-### 2. Process Entire Data Lake Directory
-```python
-num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
-    input_dir="data",
-    clean_output_dir="output/clean_lake",
-    trash_output_dir="output/trash_lake",
-    partition_filter=None,
-    batch_size=65536
-)
-print(f"Scanned {num_files} files | Total: {total_rows:,} | Clean: {clean_rows:,} | Trash: {trash_rows:,}")
-```
-
-### 3. Export Data Dictionary Markdown Table
-```python
+# Initialize Engine
 engine = br.MatrixEngine()
 
-# Export Data Dictionary table (accepts a single file or a directory)
-engine.export_data_dictionary_md("demo.parquet", "data_dictionary.md")
+# 1. Zero-copy row slicing (Returns PyArrow Table)
+table = engine.slice_rows("data/sample.parquet", offset=100, limit=50)
+
+# 2. Selected column projection slicing
+cols_table = engine.slice_cols("data/sample.csv", selected_cols=["id", "email"], offset=0, limit=50)
+
+# 3. Split giant matrix file into part files
+parts_count = engine.split_file("data/sample.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")
+
+# 4. Generate Mermaid ER Diagram
+mermaid_code = engine.generate_er_graph_py("data/relational", output_path="er_graph.md")
 ```
 
 ---

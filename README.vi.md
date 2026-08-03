@@ -5,38 +5,17 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![Arrow](https://img.shields.io/badge/Arrow--rs-59.1.0-red.svg)](https://crates.io/crates/arrow)
 
-Ngôn ngữ: [English](README.md) | [Tiếng Việt](README.vi.md)
+---
+
+## Hiệu Năng Engine & Giới Hạn Bộ Nhớ RAM
+
+**Basaltic-Red** & **`bazan` CLI** được tối ưu để xử lý Big Data doanh nghiệp với tốc độ `500+ MB/s` cùng hạn mức bộ nhớ RAM được cân bằng hợp lý:
+- **Hạn Mức Mặc Định (Bounded RAM)**: `< 2048 MB` (2 GB) RAM - Tối ưu cho xử lý stream SIMD zero-copy tốc độ cao.
 
 ---
 
-## Tổng Quan Dự Án
+## Cài Đặt & Biên Dịch Trực Tiếp
 
-**Basaltic-Red** là thư viện Python Native Extension tốc độ cao được viết bằng **Rust (PyO3)** và **Apache Arrow**. Thư viện chuyên dùng để lọc, phân rã và quản trị dữ liệu lớn Lakehouse với tốc độ **`500+ MB/s` và khống chế lượng RAM tối đa `< 2.0 GB`.
-
-### Các Tính Năng Cốt Lõi
-- **Đa Định Dạng Stream Engine**: Hỗ trợ xử lý trực tiếp **Parquet (`.parquet`, `.pq`)**, **CSV (`.csv`)**, **TSV (`.tsv`)**, **JSON (`.json`)**, và **NDJSON / JSON Lines (`.ndjson`, `.jsonl`)**.
-- **Core SIMD Bitmask Engine**: Phân rã dữ liệu thô thành **Ma trận Sạch (Clean Matrix)** và **Ma trận Rác (Trash Matrix)** ở tốc độ native CPU.
-- **Gắn Nhãn Mã Lỗi Audit (Audit Error Bitmask)**: Gán mã nhị phân (`0x01: Lỗi số khách`, `0x02: Lỗi cước phí`, `0x04: Lỗi tốc độ`) vào dữ liệu rác giúp kiểm toán 100% nguyên nhân rác.
-- **DuckDB 1.4.5 Preview Zero-Copy**: Cho phép DuckDB chạy SQL preview mẫu dữ liệu trong **`< 10ms`** không tốn bộ nhớ copy.
-- **Tự Động Sinh Từ Điển Dữ Liệu Markdown**: Đọc trực tiếp Schema tệp/thư mục thực tế và xuất file Markdown dạng Bảng Tiếng Anh gọn gàng.
-
----
-
-## Các Định Dạng Dữ Liệu Hỗ Trợ
-
-| Định Dạng | Đuôi Tệp | Engine Xử Lý Stream |
-| :--- | :--- | :--- |
-| **Parquet** | `.parquet`, `.pq` | Parallel multi-threaded ZSTD Reader/Writer (Rayon) |
-| **CSV** | `.csv` | Arrow CSV Streaming Reader (Tự suy luận Schema) |
-| **TSV** | `.tsv` | Arrow TSV Reader (Chế độ Utf8 an toàn cho dữ liệu thô) |
-| **JSON** | `.json` | Arrow JSON Reader |
-| **NDJSON / JSONL** | `.ndjson`, `.jsonl` | Zero-Copy Line Streaming Reader (Đệm bộ nhớ tối đa 1MB) |
-
----
-
-## Hướng Dẫn Cài Đặt
-
-### Cài Đặt Môi Trường
 
 ```bash
 # Clone repository
@@ -48,47 +27,48 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 maturin develop --release
+
+# Biên dịch công cụ dòng lệnh bazan CLI
+cargo build --release --bin bazan
 ```
 
 ---
 
-## Cách Sử Dụng Cơ Bản
+## Bảng Đối Chiếu Lệnh Terminal CLI `bazan` & Python SDK
 
-### 1. Xử Lý Tệp Dữ Liệu Đa Định Dạng (CSV, TSV, JSON, NDJSON, Parquet)
+**Basaltic-Red** hỗ trợ giao diện kép: Thao tác cực nhanh qua dòng lệnh Terminal (**`bazan`**) hoặc gọi trực tiếp trong code Python (**`import basaltic_red`**).
+
+| Thao Tác / Tính Năng | Lệnh Terminal CLI (`bazan`) | Cú Pháp Python Tương Ứng (`import basaltic_red`) |
+| :--- | :--- | :--- |
+| **Cắt Khoảng Dòng Zero-Copy** | `bazan slice-rows data.parquet --offset 100 --limit 50` | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
+| **Lọc Chọn Cột (Projection)** | `bazan slice-cols data.csv --cols id,email --limit 50` | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
+| **Lọc Quy Tắc Cột Động** | `bazan filter data.csv --rule "price >= 50.0"` | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
+| **Chia Tách File Ma Trận** | `bazan split data.csv --max-rows 100000 --output-dir ./parts` | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
+| **Xem Nhanh N Dòng Bảng** | `bazan preview data.parquet --limit 20` | `engine.slice_rows("data.parquet", offset=0, limit=20)` |
+| **Xuất Từ Điển Dữ Liệu** | `bazan dict data.parquet --output schema.md` | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
+| **Tạo Sơ Đồ Mermaid ER Graph** | `bazan graph data/relational --output er.md` | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
+
+---
+
+## Ví Dụ Minh Họa Trong Python
+
 ```python
 import basaltic_red as br
 
-# Khởi tạo Engine với các quy tắc nghiệp vụ
-engine = br.MatrixEngine(
-    min_passenger=1,     # Số hành khách hợp lệ: 1 đến 9
-    max_passenger=9,
-    min_fare=0.01,       # Cước phí hợp lệ: >= $0.01
-    max_speed_mph=100.0  # Tốc độ an toàn: <= 100 mph
-)
-
-# Đọc & xử lý stream định dạng bất kỳ
-total_rows, clean_rows, trash_rows = engine.process_file("demo.ndjson", batch_size=65536)
-print(f"Tổng: {total_rows:,} | Sạch: {clean_rows:,} | Rác: {trash_rows:,}")
-```
-
-### 2. Quét & Lọc Toàn Bộ Thư Mục Data Lake
-```python
-num_files, total_rows, clean_rows, trash_rows = engine.process_and_write_lake(
-    input_dir="data",
-    clean_output_dir="output/clean_lake",
-    trash_output_dir="output/trash_lake",
-    partition_filter=None,
-    batch_size=65536
-)
-print(f"Đã quét {num_files} tệp | Tổng: {total_rows:,} | Dòng Sạch: {clean_rows:,} | Dòng Rác: {trash_rows:,}")
-```
-
-### 3. Xuất File Bảng Từ Điển Dữ Liệu Markdown
-```python
+# Khởi tạo Engine
 engine = br.MatrixEngine()
 
-# Xuất bảng Từ điển dữ liệu dạng Markdown (Nhận file đơn lẻ hoặc thư mục data/)
-engine.export_data_dictionary_md("demo.parquet", "data_dictionary.md")
+# 1. Cắt dòng zero-copy (Trả về PyArrow Table)
+table = engine.slice_rows("data/sample.parquet", offset=100, limit=50)
+
+# 2. Lọc chọn cột và khoảng dòng
+cols_table = engine.slice_cols("data/sample.csv", selected_cols=["id", "email"], offset=0, limit=50)
+
+# 3. Tách file dữ liệu khổng lồ thành các file phần
+parts_count = engine.split_file("data/sample.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")
+
+# 4. Xuất sơ đồ Mermaid ER Diagram
+mermaid_code = engine.generate_er_graph_py("data/relational", output_path="er_graph.md")
 ```
 
 ---
