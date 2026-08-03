@@ -2,10 +2,15 @@ use pyo3::prelude::*;
 use pyo3::{Py, types::PyAny};
 
 pub mod dictionary;
+pub mod dynamic_filter;
 pub mod filter;
 pub mod formats;
+pub mod graph;
+pub mod slice;
+pub mod splitter;
 
 pub use formats::*;
+
 
 
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
@@ -118,6 +123,91 @@ impl MatrixEngine {
             Ok(res) => Ok(res),
             Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
         }
+    }
+
+    /// Read a specific row range zero-copy as PyArrow Table
+    pub fn slice_rows<'py>(
+        &self,
+        py: Python<'py>,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+    ) -> PyResult<Py<PyAny>> {
+        use arrow::pyarrow::ToPyArrow;
+        let path = file_path.to_string();
+        let batch = py.detach(|| self.slice_rows_native(&path, offset, limit))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(batch.to_pyarrow(py)?.into())
+    }
+
+    /// Read selected columns & row range zero-copy as PyArrow Table
+    pub fn slice_cols<'py>(
+        &self,
+        py: Python<'py>,
+        file_path: &str,
+        selected_cols: Vec<String>,
+        offset: usize,
+        limit: usize,
+    ) -> PyResult<Py<PyAny>> {
+        use arrow::pyarrow::ToPyArrow;
+        let path = file_path.to_string();
+        let batch = py.detach(|| self.slice_cols_native(&path, &selected_cols, offset, limit))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(batch.to_pyarrow(py)?.into())
+    }
+
+    /// Split large matrix file into smaller part files
+    pub fn split_file(
+        &self,
+        py: Python<'_>,
+        file_path: &str,
+        max_rows_per_file: usize,
+        output_dir: &str,
+        format: &str,
+    ) -> PyResult<usize> {
+        let path = file_path.to_string();
+        let out_dir = output_dir.to_string();
+        let fmt = format.to_string();
+        py.detach(|| self.split_file_native(&path, max_rows_per_file, &out_dir, &fmt))
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    }
+
+    /// Generate Mermaid ER Diagram from matrix schemas
+    pub fn generate_er_graph_py(
+        &self,
+        py: Python<'_>,
+        path: &str,
+        output_path: Option<&str>,
+    ) -> PyResult<String> {
+        let input_path = path.to_string();
+        let out_path = output_path.map(|s| s.to_string());
+        py.detach(|| self.generate_er_graph(&input_path, out_path.as_deref()))
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    }
+
+    /// Dynamic Column Rules Filter: Evaluates rules and returns (Clean PyArrow Table, Trash PyArrow Table)
+    pub fn filter_matrix<'py>(
+        &self,
+        py: Python<'py>,
+        file_path: &str,
+        rules: Vec<String>,
+    ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        use arrow::pyarrow::ToPyArrow;
+        use crate::engine::dynamic_filter::FilterRule;
+
+        let path = file_path.to_string();
+        let parsed_rules: Vec<FilterRule> = rules.iter()
+            .map(|r| FilterRule::parse(r))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let (clean_b, trash_b) = py.detach(|| -> Result<_, anyhow::Error> {
+            let batch = self.slice_rows_native(&path, 0, usize::MAX)?;
+            let res = self.filter_batch_dynamic(&batch, &parsed_rules)?;
+            Ok(res)
+        }).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+
+        Ok((clean_b.to_pyarrow(py)?.into(), trash_b.to_pyarrow(py)?.into()))
     }
 
     /// Clean Gold Table Generator & Versioning
