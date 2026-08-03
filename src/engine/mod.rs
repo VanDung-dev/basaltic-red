@@ -39,6 +39,24 @@ impl MatrixEngine {
         }
     }
 
+    /// Pack a directory into a .bazan container file
+    pub fn pack_directory(&self, input_dir: &str, output_file: &str) -> PyResult<(usize, u64)> {
+        let input_path = std::path::Path::new(input_dir);
+        let output_path = std::path::Path::new(output_file);
+        self.pack_directory_to_bazan(input_path, output_path)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Execute SQL query directly and return PyArrow Table
+    pub fn execute_sql_py<'py>(&self, py: Python<'py>, query: &str) -> PyResult<Bound<'py, PyAny>> {
+        use arrow::pyarrow::ToPyArrow;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let batch = rt.block_on(self.execute_sql(query))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        batch.to_pyarrow(py)
+    }
+
     /// Filters a PyArrow RecordBatch into Clean RecordBatch and Trash RecordBatch (with Audit Error Bitmask)
     pub fn process_batch<'py>(
         &self,
