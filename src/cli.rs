@@ -135,5 +135,23 @@ pub enum Commands {
         #[arg(short, long)]
         partition_filter: Option<String>,
     },
+
+    /// Pack a directory hierarchy and Hive partitions into a single container file (.bazan)
+    Pack {
+        /// Path to input directory containing data files / Hive partitions
+        #[arg(value_name = "DIR")]
+        input_dir: PathBuf,
+
+        /// Output .bazan container file path
+        #[arg(short, long, default_value = "lakehouse.bazan")]
+        output: PathBuf,
+    },
+
+    /// Inspect tables, Hive partition entries, row counts & catalog manifest inside a .bazan container file
+    Inspect {
+        /// Path to .bazan container file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+    },
 }
 
