@@ -11,6 +11,7 @@ pub mod parallel_filter;
 pub mod partition;
 pub mod slice;
 pub mod splitter;
+pub mod sql;
 
 pub use formats::*;
 

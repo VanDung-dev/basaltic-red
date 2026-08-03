@@ -3,7 +3,8 @@ use basaltic_red::cli::{Cli, Commands};
 use basaltic_red::engine::MatrixEngine;
 use anyhow::Result;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
 
@@ -147,6 +148,55 @@ fn main() -> Result<()> {
             }
 
             println!("{table}");
+        }
+        Commands::Sql { query, output } => {
+            use basaltic_red::engine::parallel_filter::save_batch_to_file;
+            use std::time::Instant;
+            use comfy_table::{Table, Cell, Color, Attribute, ContentArrangement};
+            use comfy_table::presets::UTF8_FULL;
+
+            let start = Instant::now();
+            let batch = engine.execute_sql(&query).await?;
+            let elapsed = start.elapsed();
+
+            println!("🏛️ Apache DataFusion SQL Engine Execution Summary:");
+            println!("   Executed Query   : \"{}\"", query);
+            println!("   Result Shape     : {} rows × {} columns", batch.num_rows(), batch.num_columns());
+            println!("   Execution Time   : {:.2?}\n", elapsed);
+
+            let schema = batch.schema();
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic);
+
+            let mut header_cells = Vec::new();
+            for field in schema.fields() {
+                header_cells.push(Cell::new(field.name()).add_attribute(Attribute::Bold).fg(Color::Cyan));
+            }
+            table.set_header(header_cells);
+
+            // Render up to first 50 rows for clean CLI preview
+            let preview_rows = batch.num_rows().min(50);
+            for row_idx in 0..preview_rows {
+                let mut row_cells = Vec::new();
+                for col_idx in 0..batch.num_columns() {
+                    let col = batch.column(col_idx);
+                    let val_str = arrow::util::display::array_value_to_string(col, row_idx).unwrap_or_else(|_| "NULL".to_string());
+                    row_cells.push(Cell::new(val_str));
+                }
+                table.add_row(row_cells);
+            }
+
+            println!("{table}");
+            if batch.num_rows() > 50 {
+                println!("\n💡 Displaying first 50 rows of {}. Export to file using --output for full results.", batch.num_rows());
+            }
+
+            if let Some(out_path) = output {
+                save_batch_to_file(&batch, &out_path)?;
+                println!("\n💾 Saved SQL Query Results ({}) to {}", batch.num_rows(), out_path.display());
+            }
         }
     }
 

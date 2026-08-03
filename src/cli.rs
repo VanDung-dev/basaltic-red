@@ -153,5 +153,16 @@ pub enum Commands {
         #[arg(value_name = "FILE")]
         file: PathBuf,
     },
+
+    /// Execute SQL query directly on .bazan container files, Parquet/CSV files, or directory trees
+    Sql {
+        /// SQL query string (e.g. "SELECT id, salary FROM 'lakehouse.bazan' WHERE age >= 18")
+        #[arg(value_name = "QUERY")]
+        query: String,
+
+        /// Optional output file path to save SQL query results (e.g. output.parquet or output.csv)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 

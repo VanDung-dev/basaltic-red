@@ -45,6 +45,7 @@ glob = "0.3.1"
 walkdir = "2.5.0"
 bytes = "1.6.0"
 comfy-table = "7.1.1"
+datafusion = "48.0.0"
 
 
 [dev-dependencies]
