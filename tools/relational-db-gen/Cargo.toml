@@ -1,0 +1,15 @@
+[package]
+name = "relational-db-gen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arrow = { version = "59.1.0", features = ["csv", "ipc"] }
+arrow-array = "59.1.0"
+arrow-schema = "59.1.0"
+arrow-csv = "59.1.0"
+arrow-ipc = "59.1.0"
+parquet = { version = "59.1.0", features = ["arrow"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0.82"
+serde_json = "1.0"
