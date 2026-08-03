@@ -130,6 +130,10 @@ pub enum Commands {
         /// Number of worker threads for parallel filtering (defaults to CPU logical core count)
         #[arg(short, long)]
         threads: Option<usize>,
+
+        /// Explicit Hive partition subfolder filter pattern (e.g. -p "year=2026/month=08")
+        #[arg(short, long)]
+        partition_filter: Option<String>,
     },
 }
 

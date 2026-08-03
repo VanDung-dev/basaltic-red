@@ -7,6 +7,7 @@ pub mod filter;
 pub mod formats;
 pub mod graph;
 pub mod parallel_filter;
+pub mod partition;
 pub mod slice;
 pub mod splitter;
 

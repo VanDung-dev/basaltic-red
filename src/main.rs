@@ -67,7 +67,7 @@ fn main() -> Result<()> {
                 println!("📊 Mermaid ER Diagram saved to {}", output.unwrap().display());
             }
         }
-        Commands::Filter { file, rule, clean_output, trash_output, threads } => {
+        Commands::Filter { file, rule, clean_output, trash_output, threads, partition_filter } => {
             use basaltic_red::engine::dynamic_filter::FilterRule;
             use basaltic_red::engine::parallel_filter::save_batch_to_file;
             use std::time::Instant;
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             let start = Instant::now();
-            let summary = engine.filter_files_parallel(&file, &parsed_rules, threads)?;
+            let summary = engine.filter_files_parallel(&file, &parsed_rules, partition_filter.as_deref(), threads)?;
             let elapsed = start.elapsed();
 
             if let Some(ref clean_b) = summary.clean_batch {
@@ -87,8 +87,9 @@ fn main() -> Result<()> {
                 save_batch_to_file(trash_b, &trash_output)?;
             }
 
-            println!("⚡ Parallel Multi-Threaded Filter Summary for '{}':", file);
+            println!("⚡ Parallel & Partition-Pruned Filter Summary for '{}':", file);
             println!("   Total Files Processed: {}", summary.total_files);
+            println!("   Pruned Subdirectories: {} (Skipped I/O completely)", summary.pruned_dirs);
             println!("   Total Rows Evaluated : {}", summary.total_rows);
             println!("   Clean Rows           : {} -> Saved to {}", summary.clean_rows, clean_output.display());
             println!("   Trash Rows           : {} -> Saved to {}", summary.trash_rows, trash_output.display());

@@ -7,11 +7,12 @@ use glob::glob;
 
 use crate::engine::MatrixEngine;
 use crate::engine::dynamic_filter::FilterRule;
-use crate::utils::discover_data_files;
+use crate::engine::partition::discover_and_prune_files;
 
 #[derive(Debug)]
 pub struct ParallelFilterSummary {
     pub total_files: usize,
+    pub pruned_dirs: usize,
     pub total_rows: usize,
     pub clean_rows: usize,
     pub trash_rows: usize,
@@ -19,8 +20,12 @@ pub struct ParallelFilterSummary {
     pub trash_batch: Option<RecordBatch>,
 }
 
-/// Collect files to process based on single file path, directory path, or glob pattern
-pub fn collect_target_files(path_pattern: &str) -> Result<Vec<PathBuf>> {
+/// Collect files to process based on single file path, directory path, or glob pattern, applying partition pruning
+pub fn collect_target_files(
+    path_pattern: &str,
+    rules: &[FilterRule],
+    explicit_partition_filter: Option<&str>,
+) -> Result<(Vec<PathBuf>, usize)> {
     let is_glob = path_pattern.contains('*') || path_pattern.contains('?') || path_pattern.contains('[');
 
     if is_glob {
@@ -31,7 +36,7 @@ pub fn collect_target_files(path_pattern: &str) -> Result<Vec<PathBuf>> {
                 files.push(path);
             }
         }
-        Ok(files)
+        Ok((files, 0))
     } else {
         let path = Path::new(path_pattern);
         if !path.exists() {
@@ -39,10 +44,10 @@ pub fn collect_target_files(path_pattern: &str) -> Result<Vec<PathBuf>> {
         }
 
         if path.is_file() {
-            Ok(vec![path.to_path_buf()])
+            Ok((vec![path.to_path_buf()], 0))
         } else if path.is_dir() {
-            let discovered = discover_data_files(path, None)?;
-            Ok(discovered)
+            let (discovered, pruned_dirs) = discover_and_prune_files(path, rules, explicit_partition_filter)?;
+            Ok((discovered, pruned_dirs))
         } else {
             Err(anyhow!("Invalid target path: {}", path_pattern))
         }
@@ -50,14 +55,15 @@ pub fn collect_target_files(path_pattern: &str) -> Result<Vec<PathBuf>> {
 }
 
 impl MatrixEngine {
-    /// Multi-threaded parallel file filtering engine powered by Rayon
+    /// Multi-threaded parallel file filtering engine powered by Rayon & Stream Partition Pruning
     pub fn filter_files_parallel(
         &self,
         path_pattern: &str,
         rules: &[FilterRule],
+        explicit_partition_filter: Option<&str>,
         num_threads: Option<usize>,
     ) -> Result<ParallelFilterSummary> {
-        let files = collect_target_files(path_pattern)?;
+        let (files, pruned_dirs) = collect_target_files(path_pattern, rules, explicit_partition_filter)?;
         if files.is_empty() {
             return Err(anyhow!("No valid data files found matching path: '{}'", path_pattern));
         }
@@ -121,6 +127,7 @@ impl MatrixEngine {
 
         Ok(ParallelFilterSummary {
             total_files,
+            pruned_dirs,
             total_rows,
             clean_rows,
             trash_rows,
@@ -185,7 +192,7 @@ mod tests {
         let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
         let rules = vec![FilterRule::parse("age >= 18")?];
 
-        let summary = engine.filter_files_parallel(dir.path().to_str().unwrap(), &rules, Some(2))?;
+        let summary = engine.filter_files_parallel(dir.path().to_str().unwrap(), &rules, None, Some(2))?;
 
         assert_eq!(summary.total_files, 2);
         assert_eq!(summary.total_rows, 4);
