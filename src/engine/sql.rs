@@ -1,4 +1,3 @@
-use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
@@ -10,36 +9,6 @@ use datafusion::datasource::MemTable;
 
 use crate::engine::MatrixEngine;
 use crate::engine::container::{read_bazan_manifest, read_bazan_entry_batch};
-
-/// Convert arrow v59 RecordBatch to datafusion's internal RecordBatch via IPC Stream
-pub fn to_df_batch(batch: &RecordBatch) -> Result<datafusion::arrow::array::RecordBatch> {
-    let mut writer = arrow::ipc::writer::StreamWriter::try_new(Vec::new(), &batch.schema())?;
-    writer.write(batch)?;
-    let bytes = writer.into_inner()?;
-
-    let cursor = Cursor::new(bytes);
-    let mut reader = datafusion::arrow::ipc::reader::StreamReader::try_new(cursor, None)?;
-    if let Some(res) = reader.next() {
-        Ok(res?)
-    } else {
-        Err(anyhow!("Failed to convert batch to DataFusion Arrow format"))
-    }
-}
-
-/// Convert datafusion's internal RecordBatch back to arrow v59 RecordBatch via IPC Stream
-pub fn from_df_batch(batch: &datafusion::arrow::array::RecordBatch) -> Result<RecordBatch> {
-    let mut writer = datafusion::arrow::ipc::writer::StreamWriter::try_new(Vec::new(), &batch.schema())?;
-    writer.write(batch)?;
-    let bytes = writer.into_inner()?;
-
-    let cursor = Cursor::new(bytes);
-    let mut reader = arrow::ipc::reader::StreamReader::try_new(cursor, None)?;
-    if let Some(res) = reader.next() {
-        Ok(res?)
-    } else {
-        Err(anyhow!("Failed to convert batch from DataFusion Arrow format"))
-    }
-}
 
 impl MatrixEngine {
     /// Execute SQL query directly on .bazan container files, Parquet/CSV files, or directory trees
@@ -63,8 +32,7 @@ impl MatrixEngine {
 
                         for entry in manifest.entries {
                             let batch = read_bazan_entry_batch(path_obj, &entry)?;
-                            let df_batch = to_df_batch(&batch)?;
-                            df_batches.push(df_batch);
+                            df_batches.push(batch);
                         }
 
                         if df_batches.is_empty() {
@@ -97,14 +65,8 @@ impl MatrixEngine {
             return Err(anyhow!("SQL query executed successfully but returned 0 rows"));
         }
 
-        let mut arrow_batches = Vec::with_capacity(df_batches.len());
-        for df_batch in df_batches {
-            let batch = from_df_batch(&df_batch)?;
-            arrow_batches.push(batch);
-        }
-
-        let schema = arrow_batches[0].schema();
-        let concatenated = concat_batches(&schema, &arrow_batches)?;
+        let schema = df_batches[0].schema();
+        let concatenated = concat_batches(&schema, &df_batches)?;
         Ok(concatenated)
     }
 }
