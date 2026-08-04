@@ -1,15 +1,15 @@
+use apache_avro::types::Value;
+use apache_avro::Reader as AvroReader;
+use arrow_array::builder::*;
+use arrow_array::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
-use apache_avro::Reader as AvroReader;
-use apache_avro::types::Value;
-use arrow_array::builder::*;
-use arrow_array::*;
 
-use arrow_schema::{DataType, Field, Schema};
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
+use arrow_schema::{DataType, Field, Schema};
 
 /// Apache Avro Streaming Reader
 pub struct AvroHandler;
@@ -75,7 +75,10 @@ impl FormatHandler for AvroHandler {
     }
 }
 
-fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
+fn avro_values_to_record_batch(
+    values: &[Value],
+    schema: &Arc<Schema>,
+) -> Result<RecordBatch, BazanError> {
     let n = values.len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 
@@ -84,13 +87,12 @@ fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result
             DataType::Int64 => {
                 let mut builder = Int64Builder::with_capacity(n);
                 for v in values {
-                    if let Value::Record(ref fields) = v {
-                        if let Some((_, val)) = fields.get(col_idx) {
-                            if let Value::Long(num) = val {
-                                builder.append_value(*num);
-                                continue;
-                            }
-                        }
+                    if let Some((_, Value::Long(num))) = match v {
+                        Value::Record(fields) => fields.get(col_idx),
+                        _ => None,
+                    } {
+                        builder.append_value(*num);
+                        continue;
                     }
                     builder.append_null();
                 }
@@ -99,13 +101,12 @@ fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result
             DataType::Int32 => {
                 let mut builder = Int32Builder::with_capacity(n);
                 for v in values {
-                    if let Value::Record(ref fields) = v {
-                        if let Some((_, val)) = fields.get(col_idx) {
-                            if let Value::Int(num) = val {
-                                builder.append_value(*num);
-                                continue;
-                            }
-                        }
+                    if let Some((_, Value::Int(num))) = match v {
+                        Value::Record(fields) => fields.get(col_idx),
+                        _ => None,
+                    } {
+                        builder.append_value(*num);
+                        continue;
                     }
                     builder.append_null();
                 }
@@ -114,13 +115,12 @@ fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result
             DataType::Float64 => {
                 let mut builder = Float64Builder::with_capacity(n);
                 for v in values {
-                    if let Value::Record(ref fields) = v {
-                        if let Some((_, val)) = fields.get(col_idx) {
-                            if let Value::Double(num) = val {
-                                builder.append_value(*num);
-                                continue;
-                            }
-                        }
+                    if let Some((_, Value::Double(num))) = match v {
+                        Value::Record(fields) => fields.get(col_idx),
+                        _ => None,
+                    } {
+                        builder.append_value(*num);
+                        continue;
                     }
                     builder.append_null();
                 }
@@ -129,13 +129,12 @@ fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result
             DataType::Boolean => {
                 let mut builder = BooleanBuilder::with_capacity(n);
                 for v in values {
-                    if let Value::Record(ref fields) = v {
-                        if let Some((_, val)) = fields.get(col_idx) {
-                            if let Value::Boolean(b) = val {
-                                builder.append_value(*b);
-                                continue;
-                            }
-                        }
+                    if let Some((_, Value::Boolean(b))) = match v {
+                        Value::Record(fields) => fields.get(col_idx),
+                        _ => None,
+                    } {
+                        builder.append_value(*b);
+                        continue;
                     }
                     builder.append_null();
                 }

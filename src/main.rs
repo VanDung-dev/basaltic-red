@@ -1,7 +1,7 @@
-use clap::Parser;
+use anyhow::Result;
 use basaltic_red::cli::{Cli, Commands};
 use basaltic_red::engine::MatrixEngine;
-use anyhow::Result;
+use clap::Parser;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -9,31 +9,60 @@ async fn main() -> Result<()> {
     let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
 
     match cli.command {
-        Commands::SliceRows { file, offset, limit, output } => {
+        Commands::SliceRows {
+            file,
+            offset,
+            limit,
+            output,
+        } => {
             let file_str = file.to_str().unwrap();
             let batch = engine.slice_rows_native(file_str, offset, limit)?;
-            println!("✅ Sliced {} rows from offset {} (Total columns: {})", batch.num_rows(), offset, batch.num_columns());
-            
-            if let Some(out_path) = output {
-                let out_str = out_path.to_str().unwrap();
-                println!("💾 Saving output to {}...", out_str);
-            }
-        }
-        Commands::SliceCols { file, cols, offset, limit, output } => {
-            let file_str = file.to_str().unwrap();
-            let batch = engine.slice_cols_native(file_str, &cols, offset, limit)?;
-            println!("✅ Sliced {} rows and {} columns: {:?}", batch.num_rows(), batch.num_columns(), cols);
+            println!(
+                "✅ Sliced {} rows from offset {} (Total columns: {})",
+                batch.num_rows(),
+                offset,
+                batch.num_columns()
+            );
 
             if let Some(out_path) = output {
                 let out_str = out_path.to_str().unwrap();
                 println!("💾 Saving output to {}...", out_str);
             }
         }
-        Commands::Split { file, max_rows, output_dir, format } => {
+        Commands::SliceCols {
+            file,
+            cols,
+            offset,
+            limit,
+            output,
+        } => {
+            let file_str = file.to_str().unwrap();
+            let batch = engine.slice_cols_native(file_str, &cols, offset, limit)?;
+            println!(
+                "✅ Sliced {} rows and {} columns: {:?}",
+                batch.num_rows(),
+                batch.num_columns(),
+                cols
+            );
+
+            if let Some(out_path) = output {
+                let out_str = out_path.to_str().unwrap();
+                println!("💾 Saving output to {}...", out_str);
+            }
+        }
+        Commands::Split {
+            file,
+            max_rows,
+            output_dir,
+            format,
+        } => {
             let file_str = file.to_str().unwrap();
             let out_dir_str = output_dir.to_str().unwrap();
             let parts = engine.split_file_native(file_str, max_rows, out_dir_str, &format)?;
-            println!("✅ Split matrix into {} part files in directory '{}'", parts, out_dir_str);
+            println!(
+                "✅ Split matrix into {} part files in directory '{}'",
+                parts, out_dir_str
+            );
         }
         Commands::Preview { file, limit } => {
             let file_str = file.to_str().unwrap();
@@ -48,7 +77,12 @@ async fn main() -> Result<()> {
 
             let mut dict = String::from("# Data Dictionary\n\n| Column Name | Data Type | Nullable |\n| :--- | :--- | :--- |\n");
             for field in schema.fields() {
-                dict.push_str(&format!("| `{}` | `{}` | `{}` |\n", field.name(), field.data_type(), field.is_nullable()));
+                dict.push_str(&format!(
+                    "| `{}` | `{}` | `{}` |\n",
+                    field.name(),
+                    field.data_type(),
+                    field.is_nullable()
+                ));
             }
 
             if let Some(out_path) = output {
@@ -62,23 +96,35 @@ async fn main() -> Result<()> {
             let path_str = path.to_str().unwrap();
             let out_str = output.as_ref().map(|p| p.to_str().unwrap());
             let mermaid = engine.generate_er_graph(path_str, out_str)?;
-            if output.is_none() {
-                println!("{}", mermaid);
-            } else {
-                println!("📊 Mermaid ER Diagram saved to {}", output.unwrap().display());
+            match output {
+                None => println!("{}", mermaid),
+                Some(p) => println!("📊 Mermaid ER Diagram saved to {}", p.display()),
             }
         }
-        Commands::Filter { file, rule, clean_output, trash_output, threads, partition_filter } => {
+        Commands::Filter {
+            file,
+            rule,
+            clean_output,
+            trash_output,
+            threads,
+            partition_filter,
+        } => {
             use basaltic_red::engine::dynamic_filter::FilterRule;
             use basaltic_red::engine::parallel_filter::save_batch_to_file;
             use std::time::Instant;
 
-            let parsed_rules: Vec<FilterRule> = rule.iter()
+            let parsed_rules: Vec<FilterRule> = rule
+                .iter()
                 .map(|r| FilterRule::parse(r))
                 .collect::<Result<Vec<_>, basaltic_red::error::BazanError>>()?;
 
             let start = Instant::now();
-            let summary = engine.filter_files_parallel(&file, &parsed_rules, partition_filter.as_deref(), threads)?;
+            let summary = engine.filter_files_parallel(
+                &file,
+                &parsed_rules,
+                partition_filter.as_deref(),
+                threads,
+            )?;
             let elapsed = start.elapsed();
 
             if let Some(ref clean_b) = summary.clean_batch {
@@ -88,31 +134,50 @@ async fn main() -> Result<()> {
                 save_batch_to_file(trash_b, &trash_output)?;
             }
 
-            println!("⚡ Parallel & Partition-Pruned Filter Summary for '{}':", file);
+            println!(
+                "⚡ Parallel & Partition-Pruned Filter Summary for '{}':",
+                file
+            );
             println!("   Total Files Processed: {}", summary.total_files);
-            println!("   Pruned Subdirectories: {} (Skipped I/O completely)", summary.pruned_dirs);
+            println!(
+                "   Pruned Subdirectories: {} (Skipped I/O completely)",
+                summary.pruned_dirs
+            );
             println!("   Total Rows Evaluated : {}", summary.total_rows);
-            println!("   Clean Rows           : {} -> Saved to {}", summary.clean_rows, clean_output.display());
-            println!("   Trash Rows           : {} -> Saved to {}", summary.trash_rows, trash_output.display());
+            println!(
+                "   Clean Rows           : {} -> Saved to {}",
+                summary.clean_rows,
+                clean_output.display()
+            );
+            println!(
+                "   Trash Rows           : {} -> Saved to {}",
+                summary.trash_rows,
+                trash_output.display()
+            );
             println!("   Execution Time       : {:.2?}", elapsed);
         }
         Commands::Pack { input_dir, output } => {
             use std::time::Instant;
             let start = Instant::now();
-            let (total_entries, total_bytes) = engine.pack_directory_to_bazan(&input_dir, &output)?;
+            let (total_entries, total_bytes) =
+                engine.pack_directory_to_bazan(&input_dir, &output)?;
             let elapsed = start.elapsed();
 
             println!("📦 Container Pack Completed Successfully!");
             println!("   Input Directory  : {}", input_dir.display());
-            println!("   Output Container : {} ({:.2} MB)", output.display(), total_bytes as f64 / 1_048_576.0);
+            println!(
+                "   Output Container : {} ({:.2} MB)",
+                output.display(),
+                total_bytes as f64 / 1_048_576.0
+            );
             println!("   Packed Tables/Files: {}", total_entries);
             println!("   Pack Duration    : {:.2?}", elapsed);
         }
         Commands::Inspect { file } => {
             use basaltic_red::engine::container::read_bazan_manifest;
-            use std::time::Instant;
-            use comfy_table::{Table, Cell, Color, Attribute, ContentArrangement};
             use comfy_table::presets::UTF8_FULL;
+            use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
+            use std::time::Instant;
 
             let start = Instant::now();
             let manifest = read_bazan_manifest(&file)?;
@@ -128,11 +193,21 @@ async fn main() -> Result<()> {
                 .load_preset(UTF8_FULL)
                 .set_content_arrangement(ContentArrangement::Dynamic)
                 .set_header(vec![
-                    Cell::new("STT").add_attribute(Attribute::Bold).fg(Color::Cyan),
-                    Cell::new("Entry Internal Path").add_attribute(Attribute::Bold).fg(Color::Green),
-                    Cell::new("Format").add_attribute(Attribute::Bold).fg(Color::Yellow),
-                    Cell::new("Rows Count").add_attribute(Attribute::Bold).fg(Color::Magenta),
-                    Cell::new("Byte Size").add_attribute(Attribute::Bold).fg(Color::Blue),
+                    Cell::new("STT")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Cyan),
+                    Cell::new("Entry Internal Path")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Green),
+                    Cell::new("Format")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Yellow),
+                    Cell::new("Rows Count")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Magenta),
+                    Cell::new("Byte Size")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Blue),
                     Cell::new("Byte Offset").add_attribute(Attribute::Bold),
                 ]);
 
@@ -151,9 +226,9 @@ async fn main() -> Result<()> {
         }
         Commands::Sql { query, output } => {
             use basaltic_red::engine::parallel_filter::save_batch_to_file;
-            use std::time::Instant;
-            use comfy_table::{Table, Cell, Color, Attribute, ContentArrangement};
             use comfy_table::presets::UTF8_FULL;
+            use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
+            use std::time::Instant;
 
             let start = Instant::now();
             let batch = engine.execute_sql(&query).await?;
@@ -161,7 +236,11 @@ async fn main() -> Result<()> {
 
             println!("🏛️ Apache DataFusion SQL Engine Execution Summary:");
             println!("   Executed Query   : \"{}\"", query);
-            println!("   Result Shape     : {} rows × {} columns", batch.num_rows(), batch.num_columns());
+            println!(
+                "   Result Shape     : {} rows × {} columns",
+                batch.num_rows(),
+                batch.num_columns()
+            );
             println!("   Execution Time   : {:.2?}\n", elapsed);
 
             let schema = batch.schema();
@@ -172,7 +251,11 @@ async fn main() -> Result<()> {
 
             let mut header_cells = Vec::new();
             for field in schema.fields() {
-                header_cells.push(Cell::new(field.name()).add_attribute(Attribute::Bold).fg(Color::Cyan));
+                header_cells.push(
+                    Cell::new(field.name())
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Cyan),
+                );
             }
             table.set_header(header_cells);
 
@@ -182,7 +265,8 @@ async fn main() -> Result<()> {
                 let mut row_cells = Vec::new();
                 for col_idx in 0..batch.num_columns() {
                     let col = batch.column(col_idx);
-                    let val_str = arrow::util::display::array_value_to_string(col, row_idx).unwrap_or_else(|_| "NULL".to_string());
+                    let val_str = arrow::util::display::array_value_to_string(col, row_idx)
+                        .unwrap_or_else(|_| "NULL".to_string());
                     row_cells.push(Cell::new(val_str));
                 }
                 table.add_row(row_cells);
@@ -195,11 +279,14 @@ async fn main() -> Result<()> {
 
             if let Some(out_path) = output {
                 save_batch_to_file(&batch, &out_path)?;
-                println!("\n💾 Saved SQL Query Results ({}) to {}", batch.num_rows(), out_path.display());
+                println!(
+                    "\n💾 Saved SQL Query Results ({}) to {}",
+                    batch.num_rows(),
+                    out_path.display()
+                );
             }
         }
     }
 
     Ok(())
 }
-

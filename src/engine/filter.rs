@@ -1,13 +1,17 @@
-use std::sync::Arc;
-use arrow::array::{Array, BooleanArray, Float64Array, Int64Array, UInt64Array, RecordBatch};
+use arrow::array::{Array, BooleanArray, Float64Array, Int64Array, RecordBatch, UInt64Array};
 use arrow::compute::{filter_record_batch, not};
-use arrow::datatypes::{Field, Schema, DataType};
+use arrow::datatypes::{DataType, Field, Schema};
+use std::sync::Arc;
 
 use crate::engine::MatrixEngine;
-use crate::filter::{ERR_INVALID_PASSENGER, ERR_INVALID_FARE, ERR_INVALID_SPEED};
+use crate::filter::{ERR_INVALID_FARE, ERR_INVALID_PASSENGER, ERR_INVALID_SPEED};
 
 impl MatrixEngine {
-    pub fn filter_batch_native(&self, record_batch: &RecordBatch, total_rows: usize) -> (RecordBatch, RecordBatch) {
+    pub fn filter_batch_native(
+        &self,
+        record_batch: &RecordBatch,
+        total_rows: usize,
+    ) -> (RecordBatch, RecordBatch) {
         let passenger_col = record_batch
             .column_by_name("passenger_count")
             .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
@@ -28,7 +32,10 @@ impl MatrixEngine {
 
             // 1. Validate passenger_count
             if let Some(p_arr) = passenger_col {
-                if !p_arr.is_valid(i) || p_arr.value(i) < self.min_passenger || p_arr.value(i) > self.max_passenger {
+                if !p_arr.is_valid(i)
+                    || p_arr.value(i) < self.min_passenger
+                    || p_arr.value(i) > self.max_passenger
+                {
                     err_flags |= ERR_INVALID_PASSENGER;
                 }
             }
@@ -59,7 +66,7 @@ impl MatrixEngine {
         let trash_bitmask = not(&clean_bitmask).unwrap();
 
         let clean_batch = filter_record_batch(record_batch, &clean_bitmask).unwrap();
-        
+
         // Build Trash Batch with attached audit_error_code column
         let trash_filtered_base = filter_record_batch(record_batch, &trash_bitmask).unwrap();
         let error_code_arr = UInt64Array::from(error_code_builder);

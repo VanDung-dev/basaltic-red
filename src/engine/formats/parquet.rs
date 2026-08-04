@@ -1,11 +1,11 @@
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
-use parquet::file::properties::WriterProperties;
 use parquet::basic::Compression;
-use std::fs::{File, create_dir_all, write};
+use parquet::file::properties::WriterProperties;
+use rayon::prelude::*;
+use std::fs::{create_dir_all, write, File};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use rayon::prelude::*;
 
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -56,7 +56,8 @@ impl MatrixEngine {
             .par_iter()
             .filter_map(|file_path| {
                 let file = File::open(file_path).ok()?;
-                let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?
+                let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+                    .ok()?
                     .with_batch_size(batch_size);
                 let mut reader = builder.build().ok()?;
 
@@ -72,19 +73,29 @@ impl MatrixEngine {
                 let mut f_clean = 0;
                 let mut f_trash = 0;
 
-                for batch_res in reader.by_ref() {
-                    if let Ok(batch) = batch_res {
-                        let rows = batch.num_rows();
-                        f_total += rows;
+                for batch in reader.by_ref().flatten() {
+                    let rows = batch.num_rows();
+                    f_total += rows;
 
-                        let (c_b, t_b) = self.filter_batch_native(&batch, rows);
+                    let (c_b, t_b) = self.filter_batch_native(&batch, rows);
 
-                        // Write Clean RecordBatch if non-empty
-                        write_batch_to_file(&c_b, &clean_out_path, &mut clean_writer, &writer_props, &mut f_clean);
+                    // Write Clean RecordBatch if non-empty
+                    write_batch_to_file(
+                        &c_b,
+                        &clean_out_path,
+                        &mut clean_writer,
+                        &writer_props,
+                        &mut f_clean,
+                    );
 
-                        // Write Trash RecordBatch if non-empty
-                        write_batch_to_file(&t_b, &trash_out_path, &mut trash_writer, &writer_props, &mut f_trash);
-                    }
+                    // Write Trash RecordBatch if non-empty
+                    write_batch_to_file(
+                        &t_b,
+                        &trash_out_path,
+                        &mut trash_writer,
+                        &writer_props,
+                        &mut f_trash,
+                    );
                 }
 
                 if let Some(w) = clean_writer {
@@ -126,7 +137,8 @@ impl MatrixEngine {
             .par_iter()
             .filter_map(|file_path| {
                 let file = File::open(file_path).ok()?;
-                let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?
+                let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+                    .ok()?
                     .with_batch_size(batch_size);
                 let mut reader = builder.build().ok()?;
 
@@ -136,13 +148,17 @@ impl MatrixEngine {
                 let mut gold_writer: Option<ArrowWriter<File>> = None;
                 let mut f_clean = 0;
 
-                for batch_res in reader.by_ref() {
-                    if let Ok(batch) = batch_res {
-                        let rows = batch.num_rows();
-                        let (c_b, _) = self.filter_batch_native(&batch, rows);
+                for batch in reader.by_ref().flatten() {
+                    let rows = batch.num_rows();
+                    let (c_b, _) = self.filter_batch_native(&batch, rows);
 
-                        write_batch_to_file(&c_b, &gold_out_path, &mut gold_writer, &writer_props, &mut f_clean);
-                    }
+                    write_batch_to_file(
+                        &c_b,
+                        &gold_out_path,
+                        &mut gold_writer,
+                        &writer_props,
+                        &mut f_clean,
+                    );
                 }
 
                 if let Some(w) = gold_writer {
@@ -179,6 +195,10 @@ impl MatrixEngine {
         }
         write(&manifest_path, manifest_content)?;
 
-        Ok((total_files, total_gold_rows, manifest_path.to_str().unwrap_or("").to_string()))
+        Ok((
+            total_files,
+            total_gold_rows,
+            manifest_path.to_str().unwrap_or("").to_string(),
+        ))
     }
 }

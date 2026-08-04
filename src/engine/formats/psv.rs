@@ -1,6 +1,6 @@
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
 
 /// PSV Streaming In-Memory Reader (Pipe-Separated Values)
 pub struct PsvHandler;

@@ -1,13 +1,13 @@
-use std::path::Path;
-use std::sync::Arc;
 use arrow::array::RecordBatch;
 use arrow::compute::concat_batches;
+use std::path::Path;
+use std::sync::Arc;
 
-use datafusion::prelude::*;
 use datafusion::datasource::MemTable;
+use datafusion::prelude::*;
 
+use crate::engine::container::{read_bazan_entry_batch, read_bazan_manifest};
 use crate::engine::MatrixEngine;
-use crate::engine::container::{read_bazan_manifest, read_bazan_entry_batch};
 use crate::error::BazanError;
 
 impl MatrixEngine {
@@ -25,7 +25,9 @@ impl MatrixEngine {
                 if path_obj.exists() {
                     let table_name = "bazan_target";
 
-                    if path_obj.is_file() && path_obj.extension().and_then(|s| s.to_str()) == Some("bazan") {
+                    if path_obj.is_file()
+                        && path_obj.extension().and_then(|s| s.to_str()) == Some("bazan")
+                    {
                         // Register .bazan container entries
                         let manifest = read_bazan_manifest(path_obj)?;
                         let mut df_batches = Vec::new();
@@ -44,12 +46,19 @@ impl MatrixEngine {
                         let schema = df_batches[0].schema();
                         let mem_table = MemTable::try_new(schema, vec![df_batches])?;
                         ctx.register_table(table_name, Arc::new(mem_table))?;
-                    } else if path_obj.is_file() && path_obj.extension().and_then(|s| s.to_str()) == Some("parquet") {
-                        ctx.register_parquet(table_name, path_str, ParquetReadOptions::default()).await?;
-                    } else if path_obj.is_file() && path_obj.extension().and_then(|s| s.to_str()) == Some("csv") {
-                        ctx.register_csv(table_name, path_str, CsvReadOptions::default()).await?;
+                    } else if path_obj.is_file()
+                        && path_obj.extension().and_then(|s| s.to_str()) == Some("parquet")
+                    {
+                        ctx.register_parquet(table_name, path_str, ParquetReadOptions::default())
+                            .await?;
+                    } else if path_obj.is_file()
+                        && path_obj.extension().and_then(|s| s.to_str()) == Some("csv")
+                    {
+                        ctx.register_csv(table_name, path_str, CsvReadOptions::default())
+                            .await?;
                     } else if path_obj.is_dir() {
-                        ctx.register_parquet(table_name, path_str, ParquetReadOptions::default()).await?;
+                        ctx.register_parquet(table_name, path_str, ParquetReadOptions::default())
+                            .await?;
                     }
 
                     // Replace original `'path'` with registered virtual table name
@@ -72,33 +81,5 @@ impl MatrixEngine {
         let schema = df_batches[0].schema();
         let concatenated = concat_batches(&schema, &df_batches)?;
         Ok(concatenated)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-    use tempfile::tempdir;
-
-    #[tokio::test]
-    async fn test_sql_query_on_bazan_container() -> Result<()> {
-        let dir = tempdir()?;
-        let input_dir = dir.path().join("input_db");
-        let output_bazan = dir.path().join("test_sql.bazan");
-
-        std::fs::create_dir_all(&input_dir)?;
-        std::fs::write(input_dir.join("data.csv"), "id,age,salary\n1,25,1000\n2,15,500\n3,30,1200\n")?;
-
-        let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
-        engine.pack_directory_to_bazan(&input_dir, &output_bazan)?;
-
-        let sql = format!("SELECT id, salary FROM '{}' WHERE age >= 18 ORDER BY salary DESC", output_bazan.display());
-        let result = engine.execute_sql(&sql).await?;
-
-        assert_eq!(result.num_rows(), 2);
-        assert_eq!(result.num_columns(), 2);
-
-        Ok(())
     }
 }

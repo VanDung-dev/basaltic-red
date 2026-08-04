@@ -1,6 +1,6 @@
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
 
 /// Apache ORC Columnar Streaming Reader (using Parquet/Arrow Reader interface)
 pub struct OrcHandler;

@@ -50,12 +50,19 @@ impl MatrixEngine {
     }
 
     /// Helper to write a RecordBatch to specified format file
-    fn write_batch_to_file(&self, batch: &RecordBatch, output_path: &str, format: &str) -> Result<(), BazanError> {
+    fn write_batch_to_file(
+        &self,
+        batch: &RecordBatch,
+        output_path: &str,
+        format: &str,
+    ) -> Result<(), BazanError> {
         let file = File::create(output_path)?;
         match format.to_lowercase().as_str() {
             "parquet" | "pq" => {
                 let props = WriterProperties::builder()
-                    .set_compression(parquet::basic::Compression::ZSTD(parquet::basic::ZstdLevel::default()))
+                    .set_compression(parquet::basic::Compression::ZSTD(
+                        parquet::basic::ZstdLevel::default(),
+                    ))
                     .build();
                 let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(props))?;
                 writer.write(batch)?;
@@ -66,7 +73,12 @@ impl MatrixEngine {
                 writer.write(batch)?;
             }
 
-            _ => return Err(BazanError::Message(format!("Unsupported output format: {}", format))),
+            _ => {
+                return Err(BazanError::Message(format!(
+                    "Unsupported output format: {}",
+                    format
+                )))
+            }
         }
         Ok(())
     }

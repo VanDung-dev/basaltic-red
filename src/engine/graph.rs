@@ -9,7 +9,11 @@ use crate::error::BazanError;
 
 impl MatrixEngine {
     /// Auto-detect relationships & generate Mermaid ER Diagram
-    pub fn generate_er_graph(&self, path: &str, output_path: Option<&str>) -> Result<String, BazanError> {
+    pub fn generate_er_graph(
+        &self,
+        path: &str,
+        output_path: Option<&str>,
+    ) -> Result<String, BazanError> {
         let input_path = Path::new(path);
         let mut schemas: Vec<(String, Arc<Schema>)> = Vec::new();
         let mut seen_tables: HashSet<String> = HashSet::new();
@@ -19,7 +23,11 @@ impl MatrixEngine {
                 let entry = entry?;
                 let p = entry.path();
                 if p.is_file() {
-                    let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("Table").to_string();
+                    let name = p
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Table")
+                        .to_string();
                     if !seen_tables.contains(&name) {
                         if let Ok(batch) = self.slice_rows_native(p.to_str().unwrap(), 0, 1) {
                             seen_tables.insert(name.clone());
@@ -30,7 +38,11 @@ impl MatrixEngine {
             }
         } else if input_path.is_file() {
             let batch = self.slice_rows_native(path, 0, 1)?;
-            let name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("Table").to_string();
+            let name = input_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Table")
+                .to_string();
             schemas.push((name, batch.schema()));
         }
 
@@ -75,7 +87,8 @@ impl MatrixEngine {
                     });
 
                     if is_linked {
-                        mermaid.push_str(&format!("    {} }}|--|| {} : \"{}\"\n", t1, t2, fk_plural));
+                        mermaid
+                            .push_str(&format!("    {} }}|--|| {} : \"{}\"\n", t1, t2, fk_plural));
                     }
                 }
             }

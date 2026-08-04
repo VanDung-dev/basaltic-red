@@ -1,8 +1,8 @@
-use std::fs::File;
-use arrow_ipc::reader::FileReader as ArrowFileReader;
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
+use arrow_ipc::reader::FileReader as ArrowFileReader;
+use std::fs::File;
 
 /// Arrow IPC / Feather Streaming Reader
 pub struct FeatherHandler;

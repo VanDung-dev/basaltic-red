@@ -10,16 +10,26 @@ pub const DEFAULT_MAX_BATCH_SIZE: usize = 1 << 20;
 
 impl MatrixEngine {
     /// Read a specific row range (offset..offset+limit) zero-copy from any supported format
-    pub fn slice_rows_native(&self, file_path: &str, offset: usize, limit: usize) -> Result<RecordBatch, BazanError> {
+    pub fn slice_rows_native(
+        &self,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<RecordBatch, BazanError> {
         let path = std::path::Path::new(file_path);
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         let target_batch_size = offset.saturating_add(limit).min(DEFAULT_MAX_BATCH_SIZE);
 
         if ext == "parquet" || ext == "pq" {
             let file = File::open(file_path)?;
-            let builder = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)?;
+            let builder =
+                parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)?;
             let reader = builder.with_batch_size(target_batch_size).build()?;
-            
+
             let mut accumulated_rows = 0;
             let mut matched_batches = Vec::new();
 
@@ -28,9 +38,14 @@ impl MatrixEngine {
                 let b_len = batch.num_rows();
 
                 if accumulated_rows + b_len > offset {
-                    let start_in_batch = if accumulated_rows < offset { offset - accumulated_rows } else { 0 };
-                    let len_in_batch = (limit - matched_batches.iter().map(|b: &RecordBatch| b.num_rows()).sum::<usize>()).min(b_len - start_in_batch);
-                    
+                    let start_in_batch = offset.saturating_sub(accumulated_rows);
+                    let len_in_batch = (limit
+                        - matched_batches
+                            .iter()
+                            .map(|b: &RecordBatch| b.num_rows())
+                            .sum::<usize>())
+                    .min(b_len - start_in_batch);
+
                     if len_in_batch > 0 {
                         matched_batches.push(batch.slice(start_in_batch, len_in_batch));
                     }
@@ -43,13 +58,19 @@ impl MatrixEngine {
             }
 
             if matched_batches.is_empty() {
-                let schema = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(File::open(file_path)?)?
+                let schema =
+                    parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(
+                        File::open(file_path)?,
+                    )?
                     .schema()
                     .clone();
                 return Ok(RecordBatch::new_empty(schema));
             }
 
-            Ok(arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)?)
+            Ok(arrow::compute::concat_batches(
+                &matched_batches[0].schema(),
+                &matched_batches,
+            )?)
         } else if ext == "csv" || ext == "tsv" || ext == "psv" || ext == "txt" {
             let delimiter = match ext.as_str() {
                 "tsv" => b'\t',
@@ -79,8 +100,13 @@ impl MatrixEngine {
                 let b_len = batch.num_rows();
 
                 if accumulated_rows + b_len > offset {
-                    let start_in_batch = if accumulated_rows < offset { offset - accumulated_rows } else { 0 };
-                    let len_in_batch = (limit - matched_batches.iter().map(|b: &RecordBatch| b.num_rows()).sum::<usize>()).min(b_len - start_in_batch);
+                    let start_in_batch = offset.saturating_sub(accumulated_rows);
+                    let len_in_batch = (limit
+                        - matched_batches
+                            .iter()
+                            .map(|b: &RecordBatch| b.num_rows())
+                            .sum::<usize>())
+                    .min(b_len - start_in_batch);
 
                     if len_in_batch > 0 {
                         matched_batches.push(batch.slice(start_in_batch, len_in_batch));
@@ -97,7 +123,10 @@ impl MatrixEngine {
                 return Ok(RecordBatch::new_empty(Arc::new(schema)));
             }
 
-            Ok(arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)?)
+            Ok(arrow::compute::concat_batches(
+                &matched_batches[0].schema(),
+                &matched_batches,
+            )?)
         } else {
             Err(BazanError::Message(format!(
                 "Format '.{}' slicing not supported yet",

@@ -1,13 +1,13 @@
+use arrow_array::builder::*;
+use arrow_array::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
-use arrow_array::builder::*;
-use arrow_array::*;
 
-use arrow_schema::{DataType, Field, Schema};
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
+use arrow_schema::{DataType, Field, Schema};
 
 /// MessagePack (.msgpack) Binary JSON Reader
 pub struct MsgpackHandler;
@@ -77,7 +77,10 @@ impl FormatHandler for MsgpackHandler {
     }
 }
 
-fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
+fn msgpack_values_to_record_batch(
+    values: &[rmpv::Value],
+    schema: &Arc<Schema>,
+) -> Result<RecordBatch, BazanError> {
     let n = values.len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 
@@ -99,7 +102,9 @@ fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) 
                                 }
                             }
                         }
-                        if !found { builder.append_null(); }
+                        if !found {
+                            builder.append_null();
+                        }
                     } else {
                         builder.append_null();
                     }
@@ -120,7 +125,9 @@ fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) 
                                 }
                             }
                         }
-                        if !found { builder.append_null(); }
+                        if !found {
+                            builder.append_null();
+                        }
                     } else {
                         builder.append_null();
                     }
@@ -141,7 +148,9 @@ fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) 
                                 }
                             }
                         }
-                        if !found { builder.append_null(); }
+                        if !found {
+                            builder.append_null();
+                        }
                     } else {
                         builder.append_null();
                     }
@@ -162,7 +171,9 @@ fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) 
                                 }
                             }
                         }
-                        if !found { builder.append_null(); }
+                        if !found {
+                            builder.append_null();
+                        }
                     } else {
                         builder.append_null();
                     }

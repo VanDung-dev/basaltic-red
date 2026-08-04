@@ -1,4 +1,6 @@
-use arrow::array::{Array, BooleanArray, Float64Array, Int64Array, StringArray, UInt64Array, RecordBatch};
+use arrow::array::{
+    Array, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray, UInt64Array,
+};
 use arrow::compute::{filter_record_batch, not};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
@@ -8,12 +10,12 @@ use crate::error::BazanError;
 
 #[derive(Debug, Clone)]
 pub enum Operator {
-    Gt,     // >
-    Gte,    // >=
-    Lt,     // <
-    Lte,    // <=
-    Eq,     // ==
-    Neq,    // !=
+    Gt,  // >
+    Gte, // >=
+    Lt,  // <
+    Lte, // <=
+    Eq,  // ==
+    Neq, // !=
 }
 
 #[derive(Debug, Clone)]
@@ -26,13 +28,28 @@ pub struct FilterRule {
 impl FilterRule {
     pub fn parse(expr: &str) -> Result<Self, BazanError> {
         let expr = expr.trim();
-        let ops = [(">=", Operator::Gte), ("<=", Operator::Lte), ("==", Operator::Eq), ("!=", Operator::Neq), (">", Operator::Gt), ("<", Operator::Lt)];
+        let ops = [
+            (">=", Operator::Gte),
+            ("<=", Operator::Lte),
+            ("==", Operator::Eq),
+            ("!=", Operator::Neq),
+            (">", Operator::Gt),
+            ("<", Operator::Lt),
+        ];
 
         for (op_str, op) in ops {
             if let Some(idx) = expr.find(op_str) {
                 let col_name = expr[..idx].trim().to_string();
-                let val_str = expr[idx + op_str.len()..].trim().trim_matches('\'').trim_matches('"').to_string();
-                return Ok(FilterRule { col_name, op, val_str });
+                let val_str = expr[idx + op_str.len()..]
+                    .trim()
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .to_string();
+                return Ok(FilterRule {
+                    col_name,
+                    op,
+                    val_str,
+                });
             }
         }
 
@@ -45,14 +62,18 @@ impl FilterRule {
 
 impl MatrixEngine {
     /// Evaluate dynamic rules on a RecordBatch and split into Clean and Trash RecordBatches
-    pub fn filter_batch_dynamic(&self, batch: &RecordBatch, rules: &[FilterRule]) -> Result<(RecordBatch, RecordBatch), BazanError> {
+    pub fn filter_batch_dynamic(
+        &self,
+        batch: &RecordBatch,
+        rules: &[FilterRule],
+    ) -> Result<(RecordBatch, RecordBatch), BazanError> {
         let total_rows = batch.num_rows();
         let mut clean_mask_builder = vec![true; total_rows];
         let mut error_code_builder = vec![0u64; total_rows];
 
         for (rule_idx, rule) in rules.iter().enumerate() {
             let bitmask_flag = 1u64 << (rule_idx % 64);
-            
+
             if let Some(col) = batch.column_by_name(&rule.col_name) {
                 let dt = col.data_type();
                 match dt {
@@ -60,7 +81,8 @@ impl MatrixEngine {
                         if let Some(arr) = col.as_any().downcast_ref::<Int64Array>() {
                             if let Ok(target) = rule.val_str.parse::<i64>() {
                                 for i in 0..total_rows {
-                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op) {
+                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op)
+                                    {
                                         clean_mask_builder[i] = false;
                                         error_code_builder[i] |= bitmask_flag;
                                     }
@@ -72,7 +94,8 @@ impl MatrixEngine {
                         if let Some(arr) = col.as_any().downcast_ref::<Float64Array>() {
                             if let Ok(target) = rule.val_str.parse::<f64>() {
                                 for i in 0..total_rows {
-                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op) {
+                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op)
+                                    {
                                         clean_mask_builder[i] = false;
                                         error_code_builder[i] |= bitmask_flag;
                                     }
@@ -84,7 +107,9 @@ impl MatrixEngine {
                         if let Some(arr) = col.as_any().downcast_ref::<StringArray>() {
                             let target = &rule.val_str;
                             for i in 0..total_rows {
-                                if !arr.is_valid(i) || !eval_cmp(arr.value(i), target.as_str(), &rule.op) {
+                                if !arr.is_valid(i)
+                                    || !eval_cmp(arr.value(i), target.as_str(), &rule.op)
+                                {
                                     clean_mask_builder[i] = false;
                                     error_code_builder[i] |= bitmask_flag;
                                 }

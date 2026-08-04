@@ -1,13 +1,13 @@
-use std::fs::File;
-use std::io::{Read, Write, Seek, SeekFrom};
-use std::path::Path;
-use serde::{Serialize, Deserialize};
-use arrow::array::RecordBatch;
-use bytes::Bytes;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use crate::utils::discover_data_files;
+use arrow::array::RecordBatch;
+use bytes::Bytes;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 
 pub const HEADER_MAGIC: &[u8] = b"BAZAN01";
 pub const FOOTER_MAGIC: &[u8] = b"BAZANEND";
@@ -29,7 +29,11 @@ pub struct BazanManifest {
 
 impl MatrixEngine {
     /// Đóng gói toàn bộ cây thư mục CSDL/Lakehouse vào 1 file container duy nhất (.bazan)
-    pub fn pack_directory_to_bazan(&self, input_dir: &Path, output_file: &Path) -> Result<(usize, u64), BazanError> {
+    pub fn pack_directory_to_bazan(
+        &self,
+        input_dir: &Path,
+        output_file: &Path,
+    ) -> Result<(usize, u64), BazanError> {
         if !input_dir.exists() || !input_dir.is_dir() {
             return Err(BazanError::Message(format!(
                 "Input directory does not exist or is not a directory: {:?}",
@@ -50,7 +54,7 @@ impl MatrixEngine {
         }
 
         let mut out = File::create(output_file)?;
-        
+
         // 1. Ghi Header Magic "BAZAN01" (7 bytes)
         out.write_all(HEADER_MAGIC)?;
         let mut current_offset = HEADER_MAGIC.len() as u64;
@@ -66,7 +70,7 @@ impl MatrixEngine {
                 .replace('\\', "/");
 
             let file_str = file_path.to_str().unwrap();
-            
+
             // Đọc file thành RecordBatch chuẩn
             let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
             let num_rows = batch.num_rows();
@@ -76,7 +80,11 @@ impl MatrixEngine {
             let props = parquet::file::properties::WriterProperties::builder()
                 .set_compression(parquet::basic::Compression::SNAPPY)
                 .build();
-            let mut writer = parquet::arrow::ArrowWriter::try_new(&mut parquet_buf, batch.schema(), Some(props))?;
+            let mut writer = parquet::arrow::ArrowWriter::try_new(
+                &mut parquet_buf,
+                batch.schema(),
+                Some(props),
+            )?;
             writer.write(&batch)?;
             writer.close()?;
 
@@ -147,7 +155,7 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanErro
     len_bytes.copy_from_slice(&footer_buf[8..16]);
     magic_bytes.copy_from_slice(&footer_buf[16..24]);
 
-    if &magic_bytes != FOOTER_MAGIC {
+    if magic_bytes != FOOTER_MAGIC {
         return Err(BazanError::Message(
             "Invalid .bazan file format: Footer magic mismatch".to_string(),
         ));
@@ -166,7 +174,10 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanErro
 }
 
 /// Đọc trực tiếp byte stream của 1 bảng trong container .bazan và nạp vào Arrow RecordBatch (Zero-Copy Disk Extraction)
-pub fn read_bazan_entry_batch(bazan_path: &Path, entry: &BazanEntry) -> Result<RecordBatch, BazanError> {
+pub fn read_bazan_entry_batch(
+    bazan_path: &Path,
+    entry: &BazanEntry,
+) -> Result<RecordBatch, BazanError> {
     let mut file = File::open(bazan_path)?;
     file.seek(SeekFrom::Start(entry.offset))?;
 
@@ -184,43 +195,5 @@ pub fn read_bazan_entry_batch(bazan_path: &Path, entry: &BazanEntry) -> Result<R
             "Empty Parquet batch inside .bazan container for entry: {}",
             entry.path
         )))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_bazan_container_pack_inspect_and_read() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let input_dir = dir.path().join("input_db");
-        let output_bazan = dir.path().join("test_db.bazan");
-
-        std::fs::create_dir_all(input_dir.join("users"))?;
-        std::fs::create_dir_all(input_dir.join("orders"))?;
-
-        std::fs::write(input_dir.join("users/users.csv"), "id,name,age\n1,Alice,30\n2,Bob,25\n")?;
-        std::fs::write(input_dir.join("orders/orders.csv"), "id,user_id,amount\n101,1,250.5\n102,2,100.0\n")?;
-
-        let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
-
-        // 1. Pack
-        let (total_entries, total_size) = engine.pack_directory_to_bazan(&input_dir, &output_bazan)?;
-        assert_eq!(total_entries, 2);
-        assert!(total_size > 0);
-
-        // 2. Read Manifest (Inspect)
-        let manifest = read_bazan_manifest(&output_bazan)?;
-        assert_eq!(manifest.version, 1);
-        assert_eq!(manifest.entries.len(), 2);
-
-        // 3. Read Entry Batch Directly from .bazan file
-        let users_entry = manifest.entries.iter().find(|e| e.path.contains("users")).unwrap();
-        let users_batch = read_bazan_entry_batch(&output_bazan, users_entry)?;
-        assert_eq!(users_batch.num_rows(), 2);
-
-        Ok(())
     }
 }

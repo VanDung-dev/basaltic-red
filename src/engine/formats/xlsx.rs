@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use calamine::{open_workbook, Data, Reader, Xlsx};
 use arrow_array::builder::*;
 use arrow_array::*;
+use calamine::{open_workbook, Data, Reader, Xlsx};
+use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, Schema};
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
+use arrow_schema::{DataType, Field, Schema};
 
 /// Excel (.xlsx) Streaming Reader via Calamine
 pub struct XlsxHandler;
@@ -22,10 +22,12 @@ impl FormatHandler for XlsxHandler {
 
         let range = match workbook.worksheet_range_at(0) {
             Some(Ok(r)) => r,
-            _ => return Err(BazanError::Message(format!(
-                "No sheet found in Excel workbook: {}",
-                file_path
-            ))),
+            _ => {
+                return Err(BazanError::Message(format!(
+                    "No sheet found in Excel workbook: {}",
+                    file_path
+                )))
+            }
         };
 
         let mut rows_iter = range.rows();
@@ -69,7 +71,6 @@ impl FormatHandler for XlsxHandler {
                 })
                 .collect();
 
-
             row_batch.push(string_row);
 
             if row_batch.len() >= batch_size {
@@ -96,7 +97,10 @@ impl FormatHandler for XlsxHandler {
     }
 }
 
-fn string_rows_to_record_batch(rows: &[Vec<String>], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
+fn string_rows_to_record_batch(
+    rows: &[Vec<String>],
+    schema: &Arc<Schema>,
+) -> Result<RecordBatch, BazanError> {
     let n = rows.len();
     let num_cols = schema.fields().len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);

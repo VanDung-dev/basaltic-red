@@ -1,6 +1,6 @@
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
 
 /// TXT Streaming In-Memory Reader (Semicolon-Separated Values)
 pub struct TxtHandler;

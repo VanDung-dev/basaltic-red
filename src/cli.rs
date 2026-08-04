@@ -32,7 +32,6 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
 
-
     /// Slice selected columns & row range from a matrix file (Column Projection)
     SliceCols {
         /// Path to the data file
@@ -55,7 +54,6 @@ pub enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
-
 
     /// Split a large matrix file into smaller part files
     Split {
@@ -165,4 +163,3 @@ pub enum Commands {
         output: Option<PathBuf>,
     },
 }
-

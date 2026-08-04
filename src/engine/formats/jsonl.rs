@@ -1,9 +1,9 @@
+use super::FormatHandler;
+use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
-use crate::engine::MatrixEngine;
-use crate::error::BazanError;
-use super::FormatHandler;
 
 /// JSONL Single-Line Compact JSON Array Reader ([{"id":1,...},{"id":2,...}])
 pub struct JsonlHandler;
@@ -33,7 +33,7 @@ impl FormatHandler for JsonlHandler {
 
             let mut cursor = std::io::Cursor::new(ndjson_buf.as_bytes());
             let schema = arrow_json::reader::infer_json_schema_from_iterator(
-                arrow_json::reader::ValueIter::new(&mut cursor, Some(100))
+                arrow_json::reader::ValueIter::new(&mut cursor, Some(100)),
             )?;
 
             let cursor_reader = std::io::Cursor::new(ndjson_buf.as_bytes());

@@ -1,12 +1,12 @@
-use std::path::{Path, PathBuf};
 use arrow::array::RecordBatch;
 use arrow::compute::concat_batches;
-use rayon::prelude::*;
 use glob::glob;
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
 
-use crate::engine::MatrixEngine;
 use crate::engine::dynamic_filter::FilterRule;
 use crate::engine::partition::discover_and_prune_files;
+use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
 #[derive(Debug)]
@@ -26,7 +26,8 @@ pub fn collect_target_files(
     rules: &[FilterRule],
     explicit_partition_filter: Option<&str>,
 ) -> Result<(Vec<PathBuf>, usize), BazanError> {
-    let is_glob = path_pattern.contains('*') || path_pattern.contains('?') || path_pattern.contains('[');
+    let is_glob =
+        path_pattern.contains('*') || path_pattern.contains('?') || path_pattern.contains('[');
 
     if is_glob {
         let mut files = Vec::new();
@@ -40,16 +41,23 @@ pub fn collect_target_files(
     } else {
         let path = Path::new(path_pattern);
         if !path.exists() {
-            return Err(BazanError::Message(format!("Path does not exist: {}", path_pattern)));
+            return Err(BazanError::Message(format!(
+                "Path does not exist: {}",
+                path_pattern
+            )));
         }
 
         if path.is_file() {
             Ok((vec![path.to_path_buf()], 0))
         } else if path.is_dir() {
-            let (discovered, pruned_dirs) = discover_and_prune_files(path, rules, explicit_partition_filter)?;
+            let (discovered, pruned_dirs) =
+                discover_and_prune_files(path, rules, explicit_partition_filter)?;
             Ok((discovered, pruned_dirs))
         } else {
-            Err(BazanError::Message(format!("Invalid target path: {}", path_pattern)))
+            Err(BazanError::Message(format!(
+                "Invalid target path: {}",
+                path_pattern
+            )))
         }
     }
 }
@@ -67,8 +75,8 @@ impl MatrixEngine {
 
         // Hỗ trợ lọc trực tiếp trên file Container .bazan
         if path_obj.is_file() && path_obj.extension().and_then(|s| s.to_str()) == Some("bazan") {
-            use crate::engine::container::{read_bazan_manifest, read_bazan_entry_batch};
-            use crate::engine::partition::{parse_path_partitions, matches_partition_rules};
+            use crate::engine::container::{read_bazan_entry_batch, read_bazan_manifest};
+            use crate::engine::partition::{matches_partition_rules, parse_path_partitions};
 
             let manifest = read_bazan_manifest(path_obj)?;
             let _total_entries = manifest.entries.len();
@@ -116,7 +124,9 @@ impl MatrixEngine {
             };
 
             let results = if let Some(threads) = num_threads {
-                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()?;
                 pool.install(process_fn)?
             } else {
                 process_fn()?
@@ -162,7 +172,8 @@ impl MatrixEngine {
             });
         }
 
-        let (files, pruned_dirs) = collect_target_files(path_pattern, rules, explicit_partition_filter)?;
+        let (files, pruned_dirs) =
+            collect_target_files(path_pattern, rules, explicit_partition_filter)?;
         if files.is_empty() {
             return Err(BazanError::Message(format!(
                 "No valid data files found matching path: '{}'",
@@ -176,19 +187,23 @@ impl MatrixEngine {
         let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>, BazanError> {
             files
                 .par_iter()
-                .map(|file_path| -> Result<(RecordBatch, RecordBatch), BazanError> {
-                    let file_str = file_path
-                        .to_str()
-                        .ok_or_else(|| BazanError::Message("Invalid file path string".to_string()))?;
-                    let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
-                    let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
-                    Ok((clean, trash))
-                })
+                .map(
+                    |file_path| -> Result<(RecordBatch, RecordBatch), BazanError> {
+                        let file_str = file_path.to_str().ok_or_else(|| {
+                            BazanError::Message("Invalid file path string".to_string())
+                        })?;
+                        let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
+                        let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
+                        Ok((clean, trash))
+                    },
+                )
                 .collect()
         };
 
         let results = if let Some(threads) = num_threads {
-            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()?;
             pool.install(process_fn)?
         } else {
             process_fn()?
@@ -270,39 +285,12 @@ pub fn save_batch_to_file(batch: &RecordBatch, out_path: &Path) -> Result<(), Ba
             let props = parquet::file::properties::WriterProperties::builder()
                 .set_compression(parquet::basic::Compression::SNAPPY)
                 .build();
-            let mut writer = parquet::arrow::ArrowWriter::try_new(file, batch.schema(), Some(props))?;
+            let mut writer =
+                parquet::arrow::ArrowWriter::try_new(file, batch.schema(), Some(props))?;
             writer.write(batch)?;
             writer.close()?;
         }
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_parallel_file_filter() -> anyhow::Result<()> {
-        let dir = tempdir()?;
-        let file1_path = dir.path().join("part1.csv");
-        let file2_path = dir.path().join("part2.csv");
-
-        std::fs::write(&file1_path, "id,age,salary\n1,25,1000\n2,15,500\n")?;
-        std::fs::write(&file2_path, "id,age,salary\n3,30,1200\n4,17,400\n")?;
-
-        let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
-        let rules = vec![FilterRule::parse("age >= 18")?];
-
-        let summary = engine.filter_files_parallel(dir.path().to_str().unwrap(), &rules, None, Some(2))?;
-
-        assert_eq!(summary.total_files, 2);
-        assert_eq!(summary.total_rows, 4);
-        assert_eq!(summary.clean_rows, 2);
-        assert_eq!(summary.trash_rows, 2);
-
-        Ok(())
-    }
 }

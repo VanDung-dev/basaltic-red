@@ -1,13 +1,16 @@
-use std::fs::File;
-use std::sync::Arc;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use super::FormatHandler;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use super::FormatHandler;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use std::fs::File;
+use std::sync::Arc;
 
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
-    pub(crate) fn process_reader<I, E>(&self, reader: I) -> Result<(usize, usize, usize), BazanError>
+    pub(crate) fn process_reader<I, E>(
+        &self,
+        reader: I,
+    ) -> Result<(usize, usize, usize), BazanError>
     where
         I: IntoIterator<Item = Result<arrow::array::RecordBatch, E>>,
         BazanError: From<E>,

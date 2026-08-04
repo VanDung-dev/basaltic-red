@@ -1,11 +1,11 @@
+use super::FormatHandler;
+use crate::engine::MatrixEngine;
+use crate::error::BazanError;
+use arrow_schema::{DataType, Field, Schema};
+use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
-use regex::Regex;
-use arrow_schema::{DataType, Field, Schema};
-use crate::engine::MatrixEngine;
-use crate::error::BazanError;
-use super::FormatHandler;
 
 /// TSV Streaming In-Memory Reader (Tab-Separated Values)
 pub struct TsvHandler;
