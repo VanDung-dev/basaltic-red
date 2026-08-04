@@ -16,7 +16,7 @@ fn test_parallel_file_filter() -> anyhow::Result<()> {
     let rules = vec![FilterRule::parse("age >= 18")?];
 
     let summary =
-        engine.filter_files_parallel(dir.path().to_str().unwrap(), &rules, None, Some(2))?;
+        engine.filter_files_parallel_native(dir.path().to_str().unwrap(), &rules, None, Some(2))?;
 
     assert_eq!(summary.total_files, 2);
     assert_eq!(summary.total_rows, 4);
