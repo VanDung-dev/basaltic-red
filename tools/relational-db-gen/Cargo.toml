@@ -4,12 +4,18 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Arrow: "csv" + "ipc" features to write tables as CSV and Feather
 arrow = { version = "59.1.0", features = ["csv", "ipc"] }
-arrow-array = "59.1.0"
-arrow-schema = "59.1.0"
-arrow-csv = "59.1.0"
-arrow-ipc = "59.1.0"
+arrow-array = "59.1.0"    # Array types (Int64Array, StringArray, Float64Array)
+arrow-schema = "59.1.0"   # Schema definitions for relational tables
+arrow-csv = "59.1.0"      # Write tables to CSV files
+arrow-ipc = "59.1.0"      # Arrow IPC protocol (Feather format)
+
+# Write tables to Parquet files
 parquet = { version = "59.1.0", features = ["arrow"] }
+
+# CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
-anyhow = "1.0.82"
-serde_json = "1.0"
+
+anyhow = "1.0.82"        # Simple error handling
+serde_json = "1.0"       # JSON handling (metadata export)

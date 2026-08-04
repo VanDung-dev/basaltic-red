@@ -4,17 +4,27 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Core Arrow; "ipc" feature enables Feather output
 arrow = { version = "59.1.0", features = ["ipc"] }
-arrow-csv = "59.1.0"
-arrow-json = "59.1.0"
+arrow-csv = "59.1.0"                    # CSV/TSV/PSV/TXT (delimited formats) output
+arrow-json = "59.1.0"                   # JSON/JSONL/NDJSON output
+
+# Parquet with zstd compression + Arrow conversion
 parquet = { version = "59.1.0", features = ["arrow", "zstd"] }
+
+# CLI argument parsing
 clap = { version = "4.6.4", features = ["derive"] }
-rand = "0.8.7"
-rand_chacha = "0.3.1"
-anyhow = "1.0"
-apache-avro = "0.21.0"
-rust_xlsxwriter = "0.97.0"
+
+rand = "0.8.7"                           # Random number generation for data
+rand_chacha = "0.3.1"                    # ChaCha PRNG (deterministic, seedable)
+anyhow = "1.0"                         # Simple error handling
+apache-avro = "0.21.0"                  # Avro format output
+rust_xlsxwriter = "0.97.0"              # Excel .xlsx output
+
+# Serialization/deserialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rmp-serde = "1.3.0"
+serde_json = "1.0"                      # JSON data output
+
+# MessagePack value type (serde support)
 rmpv = { version = "1.3.1", features = ["with-serde"] }
+rmp-serde = "1.3.0"                       # MessagePack serialization via serde
