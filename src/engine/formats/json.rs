@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// Formatted Pretty Printed JSON Array Reader (Multi-line formatted JSON [ {\n  "id": 1 ... \n} ])
@@ -13,7 +14,7 @@ impl FormatHandler for JsonHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         // First attempt native Arrow JSON reader
         let file = File::open(file_path)?;
         let mut buf_reader = BufReader::new(file);

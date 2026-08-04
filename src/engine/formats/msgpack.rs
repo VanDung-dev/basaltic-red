@@ -6,6 +6,7 @@ use arrow_array::*;
 
 use arrow_schema::{DataType, Field, Schema};
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// MessagePack (.msgpack) Binary JSON Reader
@@ -17,7 +18,7 @@ impl FormatHandler for MsgpackHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = BufReader::new(File::open(file_path)?);
         let mut read = file;
 
@@ -76,7 +77,7 @@ impl FormatHandler for MsgpackHandler {
     }
 }
 
-fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) -> Result<RecordBatch, anyhow::Error> {
+fn msgpack_values_to_record_batch(values: &[rmpv::Value], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
     let n = values.len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 

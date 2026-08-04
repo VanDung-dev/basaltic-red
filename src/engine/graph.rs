@@ -3,13 +3,13 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::Result;
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 impl MatrixEngine {
     /// Auto-detect relationships & generate Mermaid ER Diagram
-    pub fn generate_er_graph(&self, path: &str, output_path: Option<&str>) -> Result<String> {
+    pub fn generate_er_graph(&self, path: &str, output_path: Option<&str>) -> Result<String, BazanError> {
         let input_path = Path::new(path);
         let mut schemas: Vec<(String, Arc<Schema>)> = Vec::new();
         let mut seen_tables: HashSet<String> = HashSet::new();

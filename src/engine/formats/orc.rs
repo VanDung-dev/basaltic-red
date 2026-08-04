@@ -1,4 +1,5 @@
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// Apache ORC Columnar Streaming Reader (using Parquet/Arrow Reader interface)
@@ -10,7 +11,7 @@ impl FormatHandler for OrcHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         engine.process_parquet_stream(file_path, batch_size)
     }
 }

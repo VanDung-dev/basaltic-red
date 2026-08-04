@@ -13,6 +13,7 @@ pub mod txt;
 pub mod xlsx;
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 /// Pure-Rust streaming reader + audit filter for one file format.
 ///
@@ -27,7 +28,7 @@ pub trait FormatHandler: Sync {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error>;
+    ) -> Result<(usize, usize, usize), BazanError>;
 }
 
 /// Registry: lowercase file extension -> format handler.

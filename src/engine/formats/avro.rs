@@ -8,6 +8,7 @@ use arrow_array::*;
 
 use arrow_schema::{DataType, Field, Schema};
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// Apache Avro Streaming Reader
@@ -19,7 +20,7 @@ impl FormatHandler for AvroHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = BufReader::new(File::open(file_path)?);
         let reader = AvroReader::new(file)?;
         let avro_schema = reader.writer_schema().clone();
@@ -74,7 +75,7 @@ impl FormatHandler for AvroHandler {
     }
 }
 
-fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result<RecordBatch, anyhow::Error> {
+fn avro_values_to_record_batch(values: &[Value], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
     let n = values.len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 

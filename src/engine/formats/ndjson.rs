@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// NDJSON Newline Delimited Stream Reader (1 complete JSON object per line, no outer array brackets)
@@ -13,7 +14,7 @@ impl FormatHandler for NdjsonHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let mut buf_reader = BufReader::new(file);
 

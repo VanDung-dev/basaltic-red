@@ -1,4 +1,5 @@
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// TXT Streaming In-Memory Reader (Semicolon-Separated Values)
@@ -10,7 +11,7 @@ impl FormatHandler for TxtHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         engine.process_delimited_csv(file_path, batch_size, b';')
     }
 }

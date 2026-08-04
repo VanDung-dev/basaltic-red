@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::{Py, types::PyAny};
 
+use crate::error::BazanError;
+
 pub mod container;
 pub mod dictionary;
 pub mod dynamic_filter;
@@ -125,7 +127,7 @@ impl MatrixEngine {
         let trash_dir = trash_output_dir.to_string();
         let filter_str = partition_filter.map(|s| s.to_string());
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize, usize), anyhow::Error> {
+        let stats = py.detach(|| -> Result<(usize, usize, usize, usize), BazanError> {
             self.process_and_write_lake_native(&in_dir, &clean_dir, &trash_dir, filter_str.as_deref(), batch_size)
         });
 
@@ -211,7 +213,7 @@ impl MatrixEngine {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        let (clean_b, trash_b) = py.detach(|| -> Result<_, anyhow::Error> {
+        let (clean_b, trash_b) = py.detach(|| -> Result<_, BazanError> {
             let batch = self.slice_rows_native(&path, 0, usize::MAX)?;
             let res = self.filter_batch_dynamic(&batch, &parsed_rules)?;
             Ok(res)
@@ -235,7 +237,7 @@ impl MatrixEngine {
         let ver_str = table_version.to_string();
         let filter_str = partition_filter.map(|s| s.to_string());
 
-        let res = py.detach(|| -> Result<(usize, usize, String), anyhow::Error> {
+        let res = py.detach(|| -> Result<(usize, usize, String), BazanError> {
             self.generate_gold_table_native(&in_dir, &gold_dir, &ver_str, filter_str.as_deref(), batch_size)
         });
 

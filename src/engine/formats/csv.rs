@@ -2,14 +2,15 @@ use std::fs::File;
 use std::sync::Arc;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
-    pub(crate) fn process_reader<I, E>(&self, reader: I) -> Result<(usize, usize, usize), anyhow::Error>
+    pub(crate) fn process_reader<I, E>(&self, reader: I) -> Result<(usize, usize, usize), BazanError>
     where
         I: IntoIterator<Item = Result<arrow::array::RecordBatch, E>>,
-        E: std::error::Error + Send + Sync + 'static,
+        BazanError: From<E>,
     {
         let mut total_rows = 0;
         let mut total_clean = 0;
@@ -34,7 +35,7 @@ impl MatrixEngine {
         file_path: &str,
         batch_size: usize,
         delimiter: u8,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let format = arrow_csv::reader::Format::default()
             .with_delimiter(delimiter)
@@ -57,7 +58,7 @@ impl MatrixEngine {
         &self,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
             .with_batch_size(batch_size)
@@ -75,7 +76,7 @@ impl FormatHandler for ParquetHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         engine.process_parquet_stream(file_path, batch_size)
     }
 }
@@ -89,7 +90,7 @@ impl FormatHandler for CsvHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         engine.process_delimited_csv(file_path, batch_size, b',')
     }
 }

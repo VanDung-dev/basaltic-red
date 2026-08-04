@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 
 pub mod cli;
 pub mod engine;
+pub mod error;
 pub mod filter;
 pub mod utils;
 

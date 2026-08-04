@@ -2,9 +2,9 @@ use arrow::array::{Array, BooleanArray, Float64Array, Int64Array, StringArray, U
 use arrow::compute::{filter_record_batch, not};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 #[derive(Debug, Clone)]
 pub enum Operator {
@@ -24,7 +24,7 @@ pub struct FilterRule {
 }
 
 impl FilterRule {
-    pub fn parse(expr: &str) -> Result<Self> {
+    pub fn parse(expr: &str) -> Result<Self, BazanError> {
         let expr = expr.trim();
         let ops = [(">=", Operator::Gte), ("<=", Operator::Lte), ("==", Operator::Eq), ("!=", Operator::Neq), (">", Operator::Gt), ("<", Operator::Lt)];
 
@@ -36,13 +36,16 @@ impl FilterRule {
             }
         }
 
-        Err(anyhow!("Invalid rule expression: '{}'. Format example: 'age >= 18'", expr))
+        Err(BazanError::Message(format!(
+            "Invalid rule expression: '{}'. Format example: 'age >= 18'",
+            expr
+        )))
     }
 }
 
 impl MatrixEngine {
     /// Evaluate dynamic rules on a RecordBatch and split into Clean and Trash RecordBatches
-    pub fn filter_batch_dynamic(&self, batch: &RecordBatch, rules: &[FilterRule]) -> Result<(RecordBatch, RecordBatch)> {
+    pub fn filter_batch_dynamic(&self, batch: &RecordBatch, rules: &[FilterRule]) -> Result<(RecordBatch, RecordBatch), BazanError> {
         let total_rows = batch.num_rows();
         let mut clean_mask_builder = vec![true; total_rows];
         let mut error_code_builder = vec![0u64; total_rows];

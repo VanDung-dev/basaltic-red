@@ -1,16 +1,16 @@
 use arrow::array::RecordBatch;
 use std::fs::File;
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 /// Unified 2 GB RAM Budget Max Batch Size: 2^20 = 1,048,576 rows per batch (~500MB-1.5GB RAM)
 pub const DEFAULT_MAX_BATCH_SIZE: usize = 1 << 20;
 
 impl MatrixEngine {
     /// Read a specific row range (offset..offset+limit) zero-copy from any supported format
-    pub fn slice_rows_native(&self, file_path: &str, offset: usize, limit: usize) -> Result<RecordBatch> {
+    pub fn slice_rows_native(&self, file_path: &str, offset: usize, limit: usize) -> Result<RecordBatch, BazanError> {
         let path = std::path::Path::new(file_path);
         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
         let target_batch_size = offset.saturating_add(limit).min(DEFAULT_MAX_BATCH_SIZE);
@@ -49,7 +49,7 @@ impl MatrixEngine {
                 return Ok(RecordBatch::new_empty(schema));
             }
 
-            arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches).map_err(|e| anyhow!(e))
+            Ok(arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)?)
         } else if ext == "csv" || ext == "tsv" || ext == "psv" || ext == "txt" {
             let delimiter = match ext.as_str() {
                 "tsv" => b'\t',
@@ -97,9 +97,12 @@ impl MatrixEngine {
                 return Ok(RecordBatch::new_empty(Arc::new(schema)));
             }
 
-            arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches).map_err(|e| anyhow!(e))
+            Ok(arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)?)
         } else {
-            Err(anyhow!("Format '.{}' slicing not supported yet", ext))
+            Err(BazanError::Message(format!(
+                "Format '.{}' slicing not supported yet",
+                ext
+            )))
         }
     }
 
@@ -110,7 +113,7 @@ impl MatrixEngine {
         selected_cols: &[String],
         offset: usize,
         limit: usize,
-    ) -> Result<RecordBatch> {
+    ) -> Result<RecordBatch, BazanError> {
         let full_batch = self.slice_rows_native(file_path, offset, limit)?;
         if selected_cols.is_empty() {
             return Ok(full_batch);
@@ -123,10 +126,13 @@ impl MatrixEngine {
             if let Ok(idx) = schema.index_of(col_name) {
                 indices.push(idx);
             } else {
-                return Err(anyhow!("Column '{}' not found in schema", col_name));
+                return Err(BazanError::Message(format!(
+                    "Column '{}' not found in schema",
+                    col_name
+                )));
             }
         }
 
-        full_batch.project(&indices).map_err(|e| anyhow!(e))
+        Ok(full_batch.project(&indices)?)
     }
 }

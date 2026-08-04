@@ -2,11 +2,11 @@ use std::fs::File;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::path::Path;
 use serde::{Serialize, Deserialize};
-use anyhow::{anyhow, Result};
 use arrow::array::RecordBatch;
 use bytes::Bytes;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use crate::utils::discover_data_files;
 
 pub const HEADER_MAGIC: &[u8] = b"BAZAN01";
@@ -29,14 +29,20 @@ pub struct BazanManifest {
 
 impl MatrixEngine {
     /// Đóng gói toàn bộ cây thư mục CSDL/Lakehouse vào 1 file container duy nhất (.bazan)
-    pub fn pack_directory_to_bazan(&self, input_dir: &Path, output_file: &Path) -> Result<(usize, u64)> {
+    pub fn pack_directory_to_bazan(&self, input_dir: &Path, output_file: &Path) -> Result<(usize, u64), BazanError> {
         if !input_dir.exists() || !input_dir.is_dir() {
-            return Err(anyhow!("Input directory does not exist or is not a directory: {:?}", input_dir));
+            return Err(BazanError::Message(format!(
+                "Input directory does not exist or is not a directory: {:?}",
+                input_dir
+            )));
         }
 
         let files = discover_data_files(input_dir, None)?;
         if files.is_empty() {
-            return Err(anyhow!("No valid data files found in directory: {:?}", input_dir));
+            return Err(BazanError::Message(format!(
+                "No valid data files found in directory: {:?}",
+                input_dir
+            )));
         }
 
         if let Some(parent) = output_file.parent() {
@@ -56,7 +62,7 @@ impl MatrixEngine {
                 .strip_prefix(input_dir)
                 .unwrap_or(file_path)
                 .to_str()
-                .ok_or_else(|| anyhow!("Invalid path string"))?
+                .ok_or_else(|| BazanError::Message("Invalid path string".to_string()))?
                 .replace('\\', "/");
 
             let file_str = file_path.to_str().unwrap();
@@ -117,13 +123,15 @@ impl MatrixEngine {
 }
 
 /// Đọc Catalog Manifest từ Footer Index của file container .bazan (Tốc độ micro-giây)
-pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest> {
+pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanError> {
     let mut file = File::open(bazan_path)?;
     let file_size = file.metadata()?.len();
 
     // Footer structure: 8 bytes (manifest_offset) + 8 bytes (manifest_length) + 8 bytes (FOOTER_MAGIC) = 24 bytes
     if file_size < (HEADER_MAGIC.len() + 24) as u64 {
-        return Err(anyhow!("File size too small to be a valid .bazan container"));
+        return Err(BazanError::Message(
+            "File size too small to be a valid .bazan container".to_string(),
+        ));
     }
 
     // Đọc 24 bytes cuối cùng
@@ -140,7 +148,9 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest> {
     magic_bytes.copy_from_slice(&footer_buf[16..24]);
 
     if &magic_bytes != FOOTER_MAGIC {
-        return Err(anyhow!("Invalid .bazan file format: Footer magic mismatch"));
+        return Err(BazanError::Message(
+            "Invalid .bazan file format: Footer magic mismatch".to_string(),
+        ));
     }
 
     let manifest_offset = u64::from_le_bytes(offset_bytes);
@@ -156,7 +166,7 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest> {
 }
 
 /// Đọc trực tiếp byte stream của 1 bảng trong container .bazan và nạp vào Arrow RecordBatch (Zero-Copy Disk Extraction)
-pub fn read_bazan_entry_batch(bazan_path: &Path, entry: &BazanEntry) -> Result<RecordBatch> {
+pub fn read_bazan_entry_batch(bazan_path: &Path, entry: &BazanEntry) -> Result<RecordBatch, BazanError> {
     let mut file = File::open(bazan_path)?;
     file.seek(SeekFrom::Start(entry.offset))?;
 
@@ -170,7 +180,10 @@ pub fn read_bazan_entry_batch(bazan_path: &Path, entry: &BazanEntry) -> Result<R
     if let Some(batch_res) = reader.next() {
         Ok(batch_res?)
     } else {
-        Err(anyhow!("Empty Parquet batch inside .bazan container for entry: {}", entry.path))
+        Err(BazanError::Message(format!(
+            "Empty Parquet batch inside .bazan container for entry: {}",
+            entry.path
+        )))
     }
 }
 
@@ -180,7 +193,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_bazan_container_pack_inspect_and_read() -> Result<()> {
+    fn test_bazan_container_pack_inspect_and_read() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let input_dir = dir.path().join("input_db");
         let output_bazan = dir.path().join("test_db.bazan");

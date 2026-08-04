@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// JSONL Single-Line Compact JSON Array Reader ([{"id":1,...},{"id":2,...}])
@@ -13,7 +14,7 @@ impl FormatHandler for JsonlHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         let json_val: serde_json::Value = serde_json::from_reader(reader)?;

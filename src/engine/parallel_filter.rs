@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 use arrow::array::RecordBatch;
 use arrow::compute::concat_batches;
 use rayon::prelude::*;
-use anyhow::{anyhow, Result};
 use glob::glob;
 
 use crate::engine::MatrixEngine;
 use crate::engine::dynamic_filter::FilterRule;
 use crate::engine::partition::discover_and_prune_files;
+use crate::error::BazanError;
 
 #[derive(Debug)]
 pub struct ParallelFilterSummary {
@@ -25,7 +25,7 @@ pub fn collect_target_files(
     path_pattern: &str,
     rules: &[FilterRule],
     explicit_partition_filter: Option<&str>,
-) -> Result<(Vec<PathBuf>, usize)> {
+) -> Result<(Vec<PathBuf>, usize), BazanError> {
     let is_glob = path_pattern.contains('*') || path_pattern.contains('?') || path_pattern.contains('[');
 
     if is_glob {
@@ -40,7 +40,7 @@ pub fn collect_target_files(
     } else {
         let path = Path::new(path_pattern);
         if !path.exists() {
-            return Err(anyhow!("Path does not exist: {}", path_pattern));
+            return Err(BazanError::Message(format!("Path does not exist: {}", path_pattern)));
         }
 
         if path.is_file() {
@@ -49,7 +49,7 @@ pub fn collect_target_files(
             let (discovered, pruned_dirs) = discover_and_prune_files(path, rules, explicit_partition_filter)?;
             Ok((discovered, pruned_dirs))
         } else {
-            Err(anyhow!("Invalid target path: {}", path_pattern))
+            Err(BazanError::Message(format!("Invalid target path: {}", path_pattern)))
         }
     }
 }
@@ -62,7 +62,7 @@ impl MatrixEngine {
         rules: &[FilterRule],
         explicit_partition_filter: Option<&str>,
         num_threads: Option<usize>,
-    ) -> Result<ParallelFilterSummary> {
+    ) -> Result<ParallelFilterSummary, BazanError> {
         let path_obj = Path::new(path_pattern);
 
         // Hỗ trợ lọc trực tiếp trên file Container .bazan
@@ -96,15 +96,18 @@ impl MatrixEngine {
             }
 
             if target_entries.is_empty() {
-                return Err(anyhow!("No matching table entries found inside .bazan container: '{}'", path_pattern));
+                return Err(BazanError::Message(format!(
+                    "No matching table entries found inside .bazan container: '{}'",
+                    path_pattern
+                )));
             }
 
             let total_files = target_entries.len();
 
-            let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>> {
+            let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>, BazanError> {
                 target_entries
                     .par_iter()
-                    .map(|entry| -> Result<(RecordBatch, RecordBatch)> {
+                    .map(|entry| -> Result<(RecordBatch, RecordBatch), BazanError> {
                         let batch = read_bazan_entry_batch(path_obj, entry)?;
                         let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
                         Ok((clean, trash))
@@ -161,17 +164,22 @@ impl MatrixEngine {
 
         let (files, pruned_dirs) = collect_target_files(path_pattern, rules, explicit_partition_filter)?;
         if files.is_empty() {
-            return Err(anyhow!("No valid data files found matching path: '{}'", path_pattern));
+            return Err(BazanError::Message(format!(
+                "No valid data files found matching path: '{}'",
+                path_pattern
+            )));
         }
 
         let total_files = files.len();
 
         // Optional thread pool configuration
-        let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>> {
+        let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>, BazanError> {
             files
                 .par_iter()
-                .map(|file_path| -> Result<(RecordBatch, RecordBatch)> {
-                    let file_str = file_path.to_str().ok_or_else(|| anyhow!("Invalid file path string"))?;
+                .map(|file_path| -> Result<(RecordBatch, RecordBatch), BazanError> {
+                    let file_str = file_path
+                        .to_str()
+                        .ok_or_else(|| BazanError::Message("Invalid file path string".to_string()))?;
                     let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
                     let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
                     Ok((clean, trash))
@@ -234,7 +242,7 @@ impl MatrixEngine {
 }
 
 /// Helper function to persist output RecordBatch to specified destination file path
-pub fn save_batch_to_file(batch: &RecordBatch, out_path: &Path) -> Result<()> {
+pub fn save_batch_to_file(batch: &RecordBatch, out_path: &Path) -> Result<(), BazanError> {
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -277,7 +285,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_parallel_file_filter() -> Result<()> {
+    fn test_parallel_file_filter() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let file1_path = dir.path().join("part1.csv");
         let file2_path = dir.path().join("part2.csv");

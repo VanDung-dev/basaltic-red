@@ -49,7 +49,8 @@ tokio = { version = "1.37.0", features = ["full"] }
 clap = { version = "4.6.4", features = ["derive"] }
 
 rayon = "1.10.0"                    # Parallel data loops (multithreading)
-anyhow = "1.0.82"                  # Simple error handling
+anyhow = "1.0.82"                   # CLI-level error handling
+thiserror = "2.0.9"                 # Engine error taxonomy
 regex = "1.10.0"                    # Regular expressions (e.g. filter rule parsing)
 glob = "0.3.1"                      # File path pattern matching
 walkdir = "2.5.0"                   # Recursive directory traversal

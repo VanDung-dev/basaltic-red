@@ -5,6 +5,7 @@ use arrow_array::*;
 
 use arrow_schema::{DataType, Field, Schema};
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// Excel (.xlsx) Streaming Reader via Calamine
@@ -16,12 +17,15 @@ impl FormatHandler for XlsxHandler {
         engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let mut workbook: Xlsx<_> = open_workbook(file_path)?;
 
         let range = match workbook.worksheet_range_at(0) {
             Some(Ok(r)) => r,
-            _ => anyhow::bail!("No sheet found in Excel workbook: {}", file_path),
+            _ => return Err(BazanError::Message(format!(
+                "No sheet found in Excel workbook: {}",
+                file_path
+            ))),
         };
 
         let mut rows_iter = range.rows();
@@ -92,7 +96,7 @@ impl FormatHandler for XlsxHandler {
     }
 }
 
-fn string_rows_to_record_batch(rows: &[Vec<String>], schema: &Arc<Schema>) -> Result<RecordBatch, anyhow::Error> {
+fn string_rows_to_record_batch(rows: &[Vec<String>], schema: &Arc<Schema>) -> Result<RecordBatch, BazanError> {
     let n = rows.len();
     let num_cols = schema.fields().len();
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);

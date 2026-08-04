@@ -1,6 +1,7 @@
 use std::fs::File;
 use arrow_ipc::reader::FileReader as ArrowFileReader;
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use super::FormatHandler;
 
 /// Arrow IPC / Feather Streaming Reader
@@ -12,7 +13,7 @@ impl FormatHandler for FeatherHandler {
         engine: &MatrixEngine,
         file_path: &str,
         _batch_size: usize,
-    ) -> Result<(usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let reader = ArrowFileReader::try_new(file, None)?;
 

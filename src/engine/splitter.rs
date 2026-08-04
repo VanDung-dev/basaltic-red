@@ -4,9 +4,9 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use std::fs::File;
 use std::path::Path;
-use anyhow::{anyhow, Result};
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 impl MatrixEngine {
     /// Split a large matrix file into smaller part files (part-001, part-002, ...)
@@ -16,7 +16,7 @@ impl MatrixEngine {
         max_rows_per_file: usize,
         output_dir: &str,
         format: &str,
-    ) -> Result<usize> {
+    ) -> Result<usize, BazanError> {
         std::fs::create_dir_all(output_dir)?;
         let path = Path::new(file_path);
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("part");
@@ -50,7 +50,7 @@ impl MatrixEngine {
     }
 
     /// Helper to write a RecordBatch to specified format file
-    fn write_batch_to_file(&self, batch: &RecordBatch, output_path: &str, format: &str) -> Result<()> {
+    fn write_batch_to_file(&self, batch: &RecordBatch, output_path: &str, format: &str) -> Result<(), BazanError> {
         let file = File::create(output_path)?;
         match format.to_lowercase().as_str() {
             "parquet" | "pq" => {
@@ -66,7 +66,7 @@ impl MatrixEngine {
                 writer.write(batch)?;
             }
 
-            _ => return Err(anyhow!("Unsupported output format: {}", format)),
+            _ => return Err(BazanError::Message(format!("Unsupported output format: {}", format))),
         }
         Ok(())
     }

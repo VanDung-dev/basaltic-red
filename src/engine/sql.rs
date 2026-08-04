@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
 use arrow::array::RecordBatch;
 use arrow::compute::concat_batches;
 
@@ -9,10 +8,11 @@ use datafusion::datasource::MemTable;
 
 use crate::engine::MatrixEngine;
 use crate::engine::container::{read_bazan_manifest, read_bazan_entry_batch};
+use crate::error::BazanError;
 
 impl MatrixEngine {
     /// Execute SQL query directly on .bazan container files, Parquet/CSV files, or directory trees
-    pub async fn execute_sql(&self, query_str: &str) -> Result<RecordBatch> {
+    pub async fn execute_sql(&self, query_str: &str) -> Result<RecordBatch, BazanError> {
         let ctx = SessionContext::new();
         let mut modified_query = query_str.to_string();
 
@@ -36,7 +36,9 @@ impl MatrixEngine {
                         }
 
                         if df_batches.is_empty() {
-                            return Err(anyhow!("No valid batches found inside .bazan container"));
+                            return Err(BazanError::Message(
+                                "No valid batches found inside .bazan container".to_string(),
+                            ));
                         }
 
                         let schema = df_batches[0].schema();
@@ -62,7 +64,9 @@ impl MatrixEngine {
         let df_batches = df.collect().await?;
 
         if df_batches.is_empty() {
-            return Err(anyhow!("SQL query executed successfully but returned 0 rows"));
+            return Err(BazanError::Message(
+                "SQL query executed successfully but returned 0 rows".to_string(),
+            ));
         }
 
         let schema = df_batches[0].schema();
@@ -74,6 +78,7 @@ impl MatrixEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use tempfile::tempdir;
 
     #[tokio::test]

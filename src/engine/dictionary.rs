@@ -11,6 +11,7 @@ use std::sync::Arc;
 use regex::Regex;
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 
 impl MatrixEngine {
     /// Fast Sample Preview Extraction for DuckDB 1.4.5 In-Memory Interactive Preview
@@ -24,7 +25,7 @@ impl MatrixEngine {
         let path_obj = std::path::Path::new(&path);
         let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
 
-        let (clean_b, trash_b) = py.detach(|| -> Result<(RecordBatch, RecordBatch), anyhow::Error> {
+        let (clean_b, trash_b) = py.detach(|| -> Result<(RecordBatch, RecordBatch), BazanError> {
             if ext == "csv" {
                 let file = File::open(&path)?;
                 let (schema, _) = arrow_csv::reader::Format::default()
@@ -42,7 +43,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("CSV file is empty"))
+                    Err(BazanError::Message("CSV file is empty".to_string()))
                 }
             } else if ext == "tsv" {
                 // Read header to extract col names, force all columns as Utf8
@@ -61,7 +62,7 @@ impl MatrixEngine {
                     .collect();
                 let schema = Arc::new(Schema::new(fields));
 
-                let null_regex = Regex::new(r"^\\N$").map_err(|e| anyhow::anyhow!(e))?;
+                let null_regex = Regex::new(r"^\\N$")?;
                 let file_for_reader = File::open(&path)?;
                 let mut reader = arrow_csv::ReaderBuilder::new(schema)
                     .with_header(true)
@@ -76,7 +77,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("TSV file is empty"))
+                    Err(BazanError::Message("TSV file is empty".to_string()))
                 }
             } else if ext == "ndjson" {
                 let file = File::open(&path)?;
@@ -96,7 +97,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("NDJSON file is empty"))
+                    Err(BazanError::Message("NDJSON file is empty".to_string()))
                 }
             } else if ext == "json" || ext == "jsonl" {
                 let file = File::open(&path)?;
@@ -114,7 +115,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("JSON file is empty"))
+                    Err(BazanError::Message("JSON file is empty".to_string()))
                 }
 
             } else if ext == "psv" {
@@ -134,7 +135,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("PSV file is empty"))
+                    Err(BazanError::Message("PSV file is empty".to_string()))
                 }
             } else if ext == "txt" {
                 let file = File::open(&path)?;
@@ -153,7 +154,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("TXT file is empty"))
+                    Err(BazanError::Message("TXT file is empty".to_string()))
                 }
             } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
                 let file = File::open(&path)?;
@@ -163,7 +164,7 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("Feather file is empty"))
+                    Err(BazanError::Message("Feather file is empty".to_string()))
                 }
             } else if ext == "parquet" || ext == "pq" {
                 let file = File::open(&path)?;
@@ -176,13 +177,10 @@ impl MatrixEngine {
                     let rows = batch.num_rows();
                     Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(anyhow::anyhow!("Parquet file is empty"))
+                    Err(BazanError::Message("Parquet file is empty".to_string()))
                 }
             } else {
-                Err(anyhow::anyhow!(
-                    "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, ndjson, jsonl, parquet, pq, feather, arrow, ipc, avro, xlsx, orc, msgpack",
-                    ext
-                ))
+                Err(BazanError::UnsupportedFormat(ext))
             }
         }).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
@@ -199,18 +197,24 @@ impl MatrixEngine {
         let t_path = target_path.to_string();
         let out_md = output_md_path.to_string();
 
-        let res = py.detach(|| -> Result<String, anyhow::Error> {
+        let res = py.detach(|| -> Result<String, BazanError> {
             let path_obj = std::path::Path::new(&t_path);
             let sample_file_path = if path_obj.is_dir() {
                 let discovered = crate::utils::discover_data_files(path_obj, None)?;
                 if discovered.is_empty() {
-                    return Err(anyhow::anyhow!("No supported data files found in directory: {}", t_path));
+                    return Err(BazanError::Message(format!(
+                        "No supported data files found in directory: {}",
+                        t_path
+                    )));
                 }
                 discovered[0].clone()
             } else if path_obj.exists() {
                 path_obj.to_path_buf()
             } else {
-                return Err(anyhow::anyhow!("Target path does not exist: {}", t_path));
+                return Err(BazanError::Message(format!(
+                    "Target path does not exist: {}",
+                    t_path
+                )));
             };
 
             let ext = sample_file_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();

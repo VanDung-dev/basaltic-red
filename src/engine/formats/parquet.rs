@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rayon::prelude::*;
 
 use crate::engine::MatrixEngine;
+use crate::error::BazanError;
 use crate::utils::discover_parquet_files;
 
 fn write_batch_to_file(
@@ -42,7 +43,7 @@ impl MatrixEngine {
         trash_output_dir: &str,
         partition_filter: Option<&str>,
         batch_size: usize,
-    ) -> Result<(usize, usize, usize, usize), anyhow::Error> {
+    ) -> Result<(usize, usize, usize, usize), BazanError> {
         let base_input_path = Path::new(input_dir);
         let files = discover_parquet_files(base_input_path, partition_filter)?;
         let total_files = files.len();
@@ -112,7 +113,7 @@ impl MatrixEngine {
         table_version: &str,
         partition_filter: Option<&str>,
         batch_size: usize,
-    ) -> Result<(usize, usize, String), anyhow::Error> {
+    ) -> Result<(usize, usize, String), BazanError> {
         let base_input_path = Path::new(input_dir);
         let files = discover_parquet_files(base_input_path, partition_filter)?;
         let total_files = files.len();

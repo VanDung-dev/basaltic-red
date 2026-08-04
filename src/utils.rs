@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-pub fn discover_data_files(dir: &Path, filter_subfolder: Option<&str>) -> Result<Vec<PathBuf>, anyhow::Error> {
+use crate::error::BazanError;
+
+pub fn discover_data_files(dir: &Path, filter_subfolder: Option<&str>) -> Result<Vec<PathBuf>, BazanError> {
     let mut files = Vec::new();
     if !dir.exists() || !dir.is_dir() {
         return Ok(files);
@@ -39,7 +41,7 @@ pub fn discover_data_files(dir: &Path, filter_subfolder: Option<&str>) -> Result
     Ok(files)
 }
 
-pub fn discover_parquet_files(dir: &Path, filter_subfolder: Option<&str>) -> Result<Vec<PathBuf>, anyhow::Error> {
+pub fn discover_parquet_files(dir: &Path, filter_subfolder: Option<&str>) -> Result<Vec<PathBuf>, BazanError> {
     discover_data_files(dir, filter_subfolder)
 }
 

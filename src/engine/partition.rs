@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use anyhow::Result;
 
 use crate::engine::dynamic_filter::{FilterRule, Operator};
+use crate::error::BazanError;
 
 /// Trích xuất các cặp partition key-value dạng Hive từ đường dẫn tập tin hoặc thư mục
 /// Ví dụ: "data/year=2026/month=08/day=04/file.parquet"
@@ -75,7 +75,7 @@ pub fn discover_and_prune_files(
     dir: &Path,
     rules: &[FilterRule],
     explicit_partition_filter: Option<&str>,
-) -> Result<(Vec<PathBuf>, usize)> {
+) -> Result<(Vec<PathBuf>, usize), BazanError> {
     let mut files = Vec::new();
     let mut pruned_dirs_count = 0;
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_partition_rule_pruning() -> Result<()> {
+    fn test_partition_rule_pruning() -> anyhow::Result<()> {
         let path_match = Path::new("data/year=2026/month=08/data.parquet");
         let path_fail = Path::new("data/year=2025/month=08/data.parquet");
 
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_and_prune_directory_tree() -> Result<()> {
+    fn test_discover_and_prune_directory_tree() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let dir_2025 = dir.path().join("year=2025").join("month=08");
         let dir_2026 = dir.path().join("year=2026").join("month=08");

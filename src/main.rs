@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
 
             let parsed_rules: Vec<FilterRule> = rule.iter()
                 .map(|r| FilterRule::parse(r))
-                .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<Result<Vec<_>, basaltic_red::error::BazanError>>()?;
 
             let start = Instant::now();
             let summary = engine.filter_files_parallel(&file, &parsed_rules, partition_filter.as_deref(), threads)?;
