@@ -85,38 +85,19 @@ impl MatrixEngine {
     ) -> PyResult<(usize, usize, usize)> {
         let path_obj = std::path::Path::new(file_path);
         let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
-        
-        if ext == "csv" {
-            self.process_csv_file(py, file_path, batch_size)
-        } else if ext == "tsv" {
-            self.process_tsv_file(py, file_path, batch_size)
-        } else if ext == "psv" {
-            self.process_psv_file(py, file_path, batch_size)
-        } else if ext == "txt" {
-            self.process_txt_file(py, file_path, batch_size)
-        } else if ext == "json" {
-            self.process_json_file(py, file_path, batch_size)
-        } else if ext == "jsonl" {
-            self.process_jsonl_file(py, file_path, batch_size)
-        } else if ext == "ndjson" {
-            self.process_ndjson_file(py, file_path, batch_size)
-        } else if ext == "parquet" || ext == "pq" {
-            self.process_parquet_file(py, file_path, batch_size)
-        } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
-            self.process_feather_file(py, file_path, batch_size)
-        } else if ext == "avro" {
-            self.process_avro_file(py, file_path, batch_size)
-        } else if ext == "xlsx" {
-            self.process_xlsx_file(py, file_path, batch_size)
-        } else if ext == "orc" {
-            self.process_orc_file(py, file_path, batch_size)
-        } else if ext == "msgpack" {
-            self.process_msgpack_file(py, file_path, batch_size)
-        } else {
-            Err(pyo3::exceptions::PyValueError::new_err(format!(
+
+        let handler = formats::handler_for(&ext).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
                 "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, jsonl, ndjson, parquet, pq, feather, arrow, ipc, avro, xlsx, orc, msgpack",
                 ext
-            )))
+            ))
+        })?;
+
+        let stats = py.detach(|| handler.process_file(self, file_path, batch_size));
+
+        match stats {
+            Ok(res) => Ok(res),
+            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
         }
     }
 

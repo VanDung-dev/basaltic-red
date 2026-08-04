@@ -1,4 +1,3 @@
-use pyo3::prelude::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -7,79 +6,73 @@ use arrow_array::*;
 
 use arrow_schema::{DataType, Field, Schema};
 use crate::engine::MatrixEngine;
+use super::FormatHandler;
 
-impl MatrixEngine {
-    /// MessagePack (.msgpack) Binary JSON Reader
-    pub fn process_msgpack_file(
+/// MessagePack (.msgpack) Binary JSON Reader
+pub struct MsgpackHandler;
+
+impl FormatHandler for MsgpackHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = BufReader::new(File::open(file_path)?);
+        let mut read = file;
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            let file = BufReader::new(File::open(&path)?);
-            let mut read = file;
+        let mut total_rows = 0;
+        let mut total_clean = 0;
+        let mut total_trash = 0;
 
-            let mut total_rows = 0;
-            let mut total_clean = 0;
-            let mut total_trash = 0;
+        let mut value_batch: Vec<rmpv::Value> = Vec::with_capacity(batch_size);
+        let mut cached_schema: Option<Arc<Schema>> = None;
 
-            let mut value_batch: Vec<rmpv::Value> = Vec::with_capacity(batch_size);
-            let mut cached_schema: Option<Arc<Schema>> = None;
-
-            while let Ok(val) = rmpv::decode::read_value(&mut read) {
-                if cached_schema.is_none() {
-                    if let rmpv::Value::Map(ref entries) = val {
-                        let mut fields = Vec::new();
-                        for (k, v) in entries {
-                            let key_str = k.as_str().unwrap_or("col").to_string();
-                            let dt = match v {
-                                rmpv::Value::Integer(_) => DataType::Int64,
-                                rmpv::Value::F32(_) | rmpv::Value::F64(_) => DataType::Float64,
-                                rmpv::Value::Boolean(_) => DataType::Boolean,
-                                _ => DataType::Utf8,
-                            };
-                            fields.push(Field::new(key_str, dt, true));
-                        }
-                        cached_schema = Some(Arc::new(Schema::new(fields)));
+        while let Ok(val) = rmpv::decode::read_value(&mut read) {
+            if cached_schema.is_none() {
+                if let rmpv::Value::Map(ref entries) = val {
+                    let mut fields = Vec::new();
+                    for (k, v) in entries {
+                        let key_str = k.as_str().unwrap_or("col").to_string();
+                        let dt = match v {
+                            rmpv::Value::Integer(_) => DataType::Int64,
+                            rmpv::Value::F32(_) | rmpv::Value::F64(_) => DataType::Float64,
+                            rmpv::Value::Boolean(_) => DataType::Boolean,
+                            _ => DataType::Utf8,
+                        };
+                        fields.push(Field::new(key_str, dt, true));
                     }
-                }
-
-                value_batch.push(val);
-
-                if value_batch.len() >= batch_size {
-                    if let Some(ref schema) = cached_schema {
-                        let batch = msgpack_values_to_record_batch(&value_batch, schema)?;
-                        let n = batch.num_rows();
-                        total_rows += n;
-                        let (c_b, t_b) = self.filter_batch_native(&batch, n);
-                        total_clean += c_b.num_rows();
-                        total_trash += t_b.num_rows();
-                    }
-                    value_batch.clear();
+                    cached_schema = Some(Arc::new(Schema::new(fields)));
                 }
             }
 
-            if !value_batch.is_empty() {
+            value_batch.push(val);
+
+            if value_batch.len() >= batch_size {
                 if let Some(ref schema) = cached_schema {
                     let batch = msgpack_values_to_record_batch(&value_batch, schema)?;
                     let n = batch.num_rows();
                     total_rows += n;
-                    let (c_b, t_b) = self.filter_batch_native(&batch, n);
+                    let (c_b, t_b) = engine.filter_batch_native(&batch, n);
                     total_clean += c_b.num_rows();
                     total_trash += t_b.num_rows();
                 }
+                value_batch.clear();
             }
-
-            Ok((total_rows, total_clean, total_trash))
-        });
-
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
         }
+
+        if !value_batch.is_empty() {
+            if let Some(ref schema) = cached_schema {
+                let batch = msgpack_values_to_record_batch(&value_batch, schema)?;
+                let n = batch.num_rows();
+                total_rows += n;
+                let (c_b, t_b) = engine.filter_batch_native(&batch, n);
+                total_clean += c_b.num_rows();
+                total_trash += t_b.num_rows();
+            }
+        }
+
+        Ok((total_rows, total_clean, total_trash))
     }
 }
 

@@ -1,8 +1,8 @@
-use pyo3::prelude::*;
 use std::fs::File;
 use std::sync::Arc;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
+use super::FormatHandler;
 
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
@@ -27,57 +27,47 @@ impl MatrixEngine {
 
         Ok((total_rows, total_clean, total_trash))
     }
+}
 
-    /// Parquet Streaming In-Memory Reader
-    pub fn process_parquet_file(
+/// Parquet Streaming In-Memory Reader
+pub struct ParquetHandler;
+
+impl FormatHandler for ParquetHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
-
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            let file = File::open(&path)?;
-            let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-                .with_batch_size(batch_size)
-                .build()?;
-            self.process_reader(reader)
-        });
-
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
-        }
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = File::open(file_path)?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
+            .with_batch_size(batch_size)
+            .build()?;
+        engine.process_reader(reader)
     }
+}
 
-    /// CSV Streaming In-Memory Reader with Schema Inference
-    pub fn process_csv_file(
+/// CSV Streaming In-Memory Reader with Schema Inference
+pub struct CsvHandler;
+
+impl FormatHandler for CsvHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = File::open(file_path)?;
+        let (schema, _) = arrow_csv::reader::Format::default()
+            .with_header(true)
+            .infer_schema(file, Some(100))?;
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            let file = File::open(&path)?;
-            let (schema, _) = arrow_csv::reader::Format::default()
-                .with_header(true)
-                .infer_schema(file, Some(100))?;
+        let file_for_reader = File::open(file_path)?;
+        let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+            .with_header(true)
+            .with_batch_size(batch_size)
+            .build(file_for_reader)?;
 
-            let file_for_reader = File::open(&path)?;
-            let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-                .with_header(true)
-                .with_batch_size(batch_size)
-                .build(file_for_reader)?;
-
-            self.process_reader(reader)
-        });
-
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
-        }
+        engine.process_reader(reader)
     }
 }

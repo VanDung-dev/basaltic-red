@@ -1,73 +1,66 @@
-use pyo3::prelude::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
+use super::FormatHandler;
 
-impl MatrixEngine {
-    /// Formatted Pretty Printed JSON Array Reader (Multi-line formatted JSON [ {\n  "id": 1 ... \n} ])
-    pub fn process_json_file(
+/// Formatted Pretty Printed JSON Array Reader (Multi-line formatted JSON [ {\n  "id": 1 ... \n} ])
+pub struct JsonHandler;
+
+impl FormatHandler for JsonHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        // First attempt native Arrow JSON reader
+        let file = File::open(file_path)?;
+        let mut buf_reader = BufReader::new(file);
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            // First attempt native Arrow JSON reader
-            let file = File::open(&path)?;
-            let mut buf_reader = BufReader::new(file);
+        if let Ok((schema, _)) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100)) {
+            let file_for_reader = File::open(file_path)?;
+            let buf_reader_2 = BufReader::new(file_for_reader);
 
-            if let Ok((schema, _)) = arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100)) {
-                let file_for_reader = File::open(&path)?;
-                let buf_reader_2 = BufReader::new(file_for_reader);
+            if let Ok(reader) = arrow_json::ReaderBuilder::new(Arc::new(schema))
+                .with_batch_size(batch_size)
+                .build(buf_reader_2)
+            {
+                return engine.process_reader(reader);
+            }
+        }
 
-                if let Ok(reader) = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                    .with_batch_size(batch_size)
-                    .build(buf_reader_2)
-                {
-                    return self.process_reader(reader);
-                }
+        // Fallback: Read JSON array using serde_json Value stream for multi-line formatted JSON
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+        let json_val: serde_json::Value = serde_json::from_reader(reader)?;
+
+        if let serde_json::Value::Array(arr) = json_val {
+            let total_rows = arr.len();
+            if total_rows == 0 {
+                return Ok((0, 0, 0));
             }
 
-            // Fallback: Read JSON array using serde_json Value stream for multi-line formatted JSON
-            let file = File::open(&path)?;
-            let reader = BufReader::new(file);
-            let json_val: serde_json::Value = serde_json::from_reader(reader)?;
-
-            if let serde_json::Value::Array(arr) = json_val {
-                let total_rows = arr.len();
-                if total_rows == 0 {
-                    return Ok((0, 0, 0));
-                }
-
-                // Convert JSON array into newline-delimited stream cursor
-                let mut ndjson_buf = String::with_capacity(total_rows * 250);
-                for item in &arr {
-                    ndjson_buf.push_str(&item.to_string());
-                    ndjson_buf.push('\n');
-                }
-
-                let mut cursor = std::io::Cursor::new(ndjson_buf.as_bytes());
-                let schema = arrow_json::reader::infer_json_schema_from_iterator(
-                    arrow_json::reader::ValueIter::new(&mut cursor, Some(100))
-                )?;
-
-                let cursor_reader = std::io::Cursor::new(ndjson_buf.as_bytes());
-                let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                    .with_batch_size(batch_size)
-                    .build(cursor_reader)?;
-
-                self.process_reader(reader)
-            } else {
-                Ok((0, 0, 0))
+            // Convert JSON array into newline-delimited stream cursor
+            let mut ndjson_buf = String::with_capacity(total_rows * 250);
+            for item in &arr {
+                ndjson_buf.push_str(&item.to_string());
+                ndjson_buf.push('\n');
             }
-        });
 
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
+            let mut cursor = std::io::Cursor::new(ndjson_buf.as_bytes());
+            let schema = arrow_json::reader::infer_json_schema_from_iterator(
+                arrow_json::reader::ValueIter::new(&mut cursor, Some(100))
+            )?;
+
+            let cursor_reader = std::io::Cursor::new(ndjson_buf.as_bytes());
+            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+                .with_batch_size(batch_size)
+                .build(cursor_reader)?;
+
+            engine.process_reader(reader)
+        } else {
+            Ok((0, 0, 0))
         }
     }
 }

@@ -1,40 +1,33 @@
-use pyo3::prelude::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use crate::engine::MatrixEngine;
+use super::FormatHandler;
 
-impl MatrixEngine {
-    /// NDJSON Newline Delimited Stream Reader (1 complete JSON object per line, no outer array brackets)
-    pub fn process_ndjson_file(
+/// NDJSON Newline Delimited Stream Reader (1 complete JSON object per line, no outer array brackets)
+pub struct NdjsonHandler;
+
+impl FormatHandler for NdjsonHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = File::open(file_path)?;
+        let mut buf_reader = BufReader::new(file);
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            let file = File::open(&path)?;
-            let mut buf_reader = BufReader::new(file);
+        let schema = arrow_json::reader::infer_json_schema_from_iterator(
+            arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100))
+        )?;
 
-            let schema = arrow_json::reader::infer_json_schema_from_iterator(
-                arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100))
-            )?;
+        let file_for_reader = File::open(file_path)?;
+        let buf_reader_2 = BufReader::new(file_for_reader);
 
-            let file_for_reader = File::open(&path)?;
-            let buf_reader_2 = BufReader::new(file_for_reader);
+        let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+            .with_batch_size(batch_size)
+            .build(buf_reader_2)?;
 
-            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                .with_batch_size(batch_size)
-                .build(buf_reader_2)?;
-
-            self.process_reader(reader)
-        });
-
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
-        }
+        engine.process_reader(reader)
     }
 }

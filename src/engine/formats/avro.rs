@@ -1,4 +1,3 @@
-use pyo3::prelude::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -9,75 +8,69 @@ use arrow_array::*;
 
 use arrow_schema::{DataType, Field, Schema};
 use crate::engine::MatrixEngine;
+use super::FormatHandler;
 
-impl MatrixEngine {
-    /// Apache Avro Streaming Reader
-    pub fn process_avro_file(
+/// Apache Avro Streaming Reader
+pub struct AvroHandler;
+
+impl FormatHandler for AvroHandler {
+    fn process_file(
         &self,
-        py: Python<'_>,
+        engine: &MatrixEngine,
         file_path: &str,
         batch_size: usize,
-    ) -> PyResult<(usize, usize, usize)> {
-        let path = file_path.to_string();
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = BufReader::new(File::open(file_path)?);
+        let reader = AvroReader::new(file)?;
+        let avro_schema = reader.writer_schema().clone();
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize), anyhow::Error> {
-            let file = BufReader::new(File::open(&path)?);
-            let reader = AvroReader::new(file)?;
-            let avro_schema = reader.writer_schema().clone();
-
-            // Extract fields from Avro Schema
-            let mut fields = Vec::new();
-            if let apache_avro::Schema::Record(ref record) = avro_schema {
-                for f in &record.fields {
-                    let dt = match &f.schema {
-                        apache_avro::Schema::Long => DataType::Int64,
-                        apache_avro::Schema::Int => DataType::Int32,
-                        apache_avro::Schema::Double => DataType::Float64,
-                        apache_avro::Schema::Boolean => DataType::Boolean,
-                        _ => DataType::Utf8,
-                    };
-                    fields.push(Field::new(&f.name, dt, true));
-                }
+        // Extract fields from Avro Schema
+        let mut fields = Vec::new();
+        if let apache_avro::Schema::Record(ref record) = avro_schema {
+            for f in &record.fields {
+                let dt = match &f.schema {
+                    apache_avro::Schema::Long => DataType::Int64,
+                    apache_avro::Schema::Int => DataType::Int32,
+                    apache_avro::Schema::Double => DataType::Float64,
+                    apache_avro::Schema::Boolean => DataType::Boolean,
+                    _ => DataType::Utf8,
+                };
+                fields.push(Field::new(&f.name, dt, true));
             }
-            let arrow_schema = Arc::new(Schema::new(fields));
+        }
+        let arrow_schema = Arc::new(Schema::new(fields));
 
-            let mut total_rows = 0;
-            let mut total_clean = 0;
-            let mut total_trash = 0;
+        let mut total_rows = 0;
+        let mut total_clean = 0;
+        let mut total_trash = 0;
 
-            let mut value_batch: Vec<Value> = Vec::with_capacity(batch_size);
+        let mut value_batch: Vec<Value> = Vec::with_capacity(batch_size);
 
-            for value_res in reader {
-                let value = value_res?;
-                value_batch.push(value);
+        for value_res in reader {
+            let value = value_res?;
+            value_batch.push(value);
 
-                if value_batch.len() >= batch_size {
-                    let batch = avro_values_to_record_batch(&value_batch, &arrow_schema)?;
-                    let n = batch.num_rows();
-                    total_rows += n;
-                    let (c_b, t_b) = self.filter_batch_native(&batch, n);
-                    total_clean += c_b.num_rows();
-                    total_trash += t_b.num_rows();
-                    value_batch.clear();
-                }
-            }
-
-            if !value_batch.is_empty() {
+            if value_batch.len() >= batch_size {
                 let batch = avro_values_to_record_batch(&value_batch, &arrow_schema)?;
                 let n = batch.num_rows();
                 total_rows += n;
-                let (c_b, t_b) = self.filter_batch_native(&batch, n);
+                let (c_b, t_b) = engine.filter_batch_native(&batch, n);
                 total_clean += c_b.num_rows();
                 total_trash += t_b.num_rows();
+                value_batch.clear();
             }
-
-            Ok((total_rows, total_clean, total_trash))
-        });
-
-        match stats {
-            Ok(res) => Ok(res),
-            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
         }
+
+        if !value_batch.is_empty() {
+            let batch = avro_values_to_record_batch(&value_batch, &arrow_schema)?;
+            let n = batch.num_rows();
+            total_rows += n;
+            let (c_b, t_b) = engine.filter_batch_native(&batch, n);
+            total_clean += c_b.num_rows();
+            total_trash += t_b.num_rows();
+        }
+
+        Ok((total_rows, total_clean, total_trash))
     }
 }
 
