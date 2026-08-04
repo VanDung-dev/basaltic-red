@@ -90,4 +90,31 @@ mod tests {
         assert_eq!(trash, 4);
         assert!(handler_for("nope").is_none());
     }
+
+    #[test]
+    fn test_delimited_helper_via_txt_handler() {
+        let dir = tempdir().unwrap();
+        let txt_path = dir.path().join("data.txt");
+        fs::write(
+            &txt_path,
+            "passenger_count;fare_amount;trip_distance\n\
+             1;15.5;2.5\n\
+             2;-5.0;0.0\n\
+             0;20.0;3.1\n\
+             5;100.0;10.0\n\
+             12;50.0;1.2\n\
+             1;0.0;5.0\n",
+        )
+        .unwrap();
+
+        let handler = handler_for("txt").unwrap();
+        let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+        let (total, clean, trash) = handler
+            .process_file(&engine, txt_path.to_str().unwrap(), 1024)
+            .unwrap();
+
+        assert_eq!(total, 6);
+        assert_eq!(clean, 2);
+        assert_eq!(trash, 4);
+    }
 }

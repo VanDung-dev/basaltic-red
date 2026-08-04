@@ -26,10 +26,8 @@ pub struct MatrixEngine {
     pub max_speed_mph: f64,
 }
 
-#[pymethods]
 impl MatrixEngine {
-    #[new]
-    #[pyo3(signature = (min_passenger=1, max_passenger=9, min_fare=0.01, max_speed_mph=100.0))]
+    /// Pure-Rust constructor (Python `MatrixEngine(...)` delegates here via `#[new]`).
     pub fn new(min_passenger: i64, max_passenger: i64, min_fare: f64, max_speed_mph: f64) -> Self {
         Self {
             min_passenger,
@@ -37,6 +35,15 @@ impl MatrixEngine {
             min_fare,
             max_speed_mph,
         }
+    }
+}
+
+#[pymethods]
+impl MatrixEngine {
+    #[new]
+    #[pyo3(signature = (min_passenger=1, max_passenger=9, min_fare=0.01, max_speed_mph=100.0))]
+    pub fn py_new(min_passenger: i64, max_passenger: i64, min_fare: f64, max_speed_mph: f64) -> Self {
+        Self::new(min_passenger, max_passenger, min_fare, max_speed_mph)
     }
 
     /// Pack a directory into a .bazan container file

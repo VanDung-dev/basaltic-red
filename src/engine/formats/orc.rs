@@ -1,5 +1,3 @@
-use std::fs::File;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use crate::engine::MatrixEngine;
 use super::FormatHandler;
 
@@ -13,11 +11,6 @@ impl FormatHandler for OrcHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), anyhow::Error> {
-        let file = File::open(file_path)?;
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-            .with_batch_size(batch_size)
-            .build()?;
-
-        engine.process_reader(reader)
+        engine.process_parquet_stream(file_path, batch_size)
     }
 }

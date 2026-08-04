@@ -27,6 +27,43 @@ impl MatrixEngine {
 
         Ok((total_rows, total_clean, total_trash))
     }
+
+    /// Shared streaming reader for delimiter-separated text files (csv `,`, psv `|`, txt `;`).
+    pub(crate) fn process_delimited_csv(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        delimiter: u8,
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = File::open(file_path)?;
+        let format = arrow_csv::reader::Format::default()
+            .with_delimiter(delimiter)
+            .with_header(true);
+
+        let (schema, _) = format.infer_schema(file, Some(100))?;
+
+        let file_for_reader = File::open(file_path)?;
+        let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+            .with_delimiter(delimiter)
+            .with_header(true)
+            .with_batch_size(batch_size)
+            .build(file_for_reader)?;
+
+        self.process_reader(reader)
+    }
+
+    /// Shared streaming reader for Parquet and ORC columnar files.
+    pub(crate) fn process_parquet_stream(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+    ) -> Result<(usize, usize, usize), anyhow::Error> {
+        let file = File::open(file_path)?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
+            .with_batch_size(batch_size)
+            .build()?;
+        self.process_reader(reader)
+    }
 }
 
 /// Parquet Streaming In-Memory Reader
@@ -39,11 +76,7 @@ impl FormatHandler for ParquetHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), anyhow::Error> {
-        let file = File::open(file_path)?;
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-            .with_batch_size(batch_size)
-            .build()?;
-        engine.process_reader(reader)
+        engine.process_parquet_stream(file_path, batch_size)
     }
 }
 
@@ -57,17 +90,6 @@ impl FormatHandler for CsvHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), anyhow::Error> {
-        let file = File::open(file_path)?;
-        let (schema, _) = arrow_csv::reader::Format::default()
-            .with_header(true)
-            .infer_schema(file, Some(100))?;
-
-        let file_for_reader = File::open(file_path)?;
-        let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-            .with_header(true)
-            .with_batch_size(batch_size)
-            .build(file_for_reader)?;
-
-        engine.process_reader(reader)
+        engine.process_delimited_csv(file_path, batch_size, b',')
     }
 }
