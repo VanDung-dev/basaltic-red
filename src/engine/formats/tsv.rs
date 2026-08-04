@@ -1,4 +1,4 @@
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
@@ -17,6 +17,7 @@ impl FormatHandler for TsvHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
         let header_file = File::open(file_path)?;
         let mut header_reader = BufReader::new(header_file);
         let mut header_line = String::new();

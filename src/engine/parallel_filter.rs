@@ -64,7 +64,7 @@ pub fn collect_target_files(
 
 impl MatrixEngine {
     /// Multi-threaded parallel file filtering engine powered by Rayon, Stream Partition Pruning & .bazan Container
-    pub fn filter_files_parallel(
+    pub fn filter_files_parallel_native(
         &self,
         path_pattern: &str,
         rules: &[FilterRule],

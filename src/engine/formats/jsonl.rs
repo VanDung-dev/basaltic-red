@@ -1,4 +1,4 @@
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use std::fs::File;
@@ -15,6 +15,7 @@ impl FormatHandler for JsonlHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         let json_val: serde_json::Value = serde_json::from_reader(reader)?;

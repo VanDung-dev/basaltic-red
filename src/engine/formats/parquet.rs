@@ -44,6 +44,7 @@ impl MatrixEngine {
         partition_filter: Option<&str>,
         batch_size: usize,
     ) -> Result<(usize, usize, usize, usize), BazanError> {
+        let batch_size = super::clamp_batch_size(batch_size);
         let base_input_path = Path::new(input_dir);
         let files = discover_parquet_files(base_input_path, partition_filter)?;
         let total_files = files.len();
@@ -125,6 +126,7 @@ impl MatrixEngine {
         partition_filter: Option<&str>,
         batch_size: usize,
     ) -> Result<(usize, usize, String), BazanError> {
+        let batch_size = super::clamp_batch_size(batch_size);
         let base_input_path = Path::new(input_dir);
         let files = discover_parquet_files(base_input_path, partition_filter)?;
         let total_files = files.len();
@@ -184,7 +186,7 @@ impl MatrixEngine {
   "created_at_epoch": {},
   "total_files": {},
   "total_gold_rows": {},
-  "engine": "Basaltic-Red 59.1.0 (Rust SIMD)"
+  "engine": "Basaltic-Red 0.1.0 (Rust SIMD)"
 }}"#,
             table_version, timestamp, total_files, total_gold_rows
         );

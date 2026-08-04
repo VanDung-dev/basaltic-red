@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
-use pyo3::{types::PyAny, Py};
+use pyo3::types::{PyAny, PyDict};
+use pyo3::Py;
 
 use crate::error::BazanError;
 
@@ -60,6 +61,7 @@ impl MatrixEngine {
     }
 
     /// Execute SQL query directly and return PyArrow Table
+    #[pyo3(name = "execute_sql")]
     pub fn execute_sql_py<'py>(&self, py: Python<'py>, query: &str) -> PyResult<Bound<'py, PyAny>> {
         use arrow::pyarrow::ToPyArrow;
         let rt = tokio::runtime::Runtime::new()
@@ -197,6 +199,48 @@ impl MatrixEngine {
         let fmt = format.to_string();
         py.detach(|| self.split_file_native(&path, max_rows_per_file, &out_dir, &fmt))
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    }
+
+    /// Multi-threaded parallel filter over a directory / glob / .bazan container.
+    /// Returns a dict: {total_files, pruned_dirs, total_rows, clean_rows, trash_rows}.
+    #[pyo3(signature = (path_pattern, rules, partition_filter=None, num_threads=None))]
+    pub fn filter_files_parallel<'py>(
+        &self,
+        py: Python<'py>,
+        path_pattern: &str,
+        rules: Vec<String>,
+        partition_filter: Option<&str>,
+        num_threads: Option<usize>,
+    ) -> PyResult<Py<PyDict>> {
+        use crate::engine::dynamic_filter::FilterRule;
+        use crate::engine::parallel_filter::ParallelFilterSummary;
+
+        let path = path_pattern.to_string();
+        let filter_str = partition_filter.map(|s| s.to_string());
+        let parsed_rules: Vec<FilterRule> = rules
+            .iter()
+            .map(|r| FilterRule::parse(r))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let summary: ParallelFilterSummary = py
+            .detach(|| -> Result<ParallelFilterSummary, BazanError> {
+                self.filter_files_parallel_native(
+                    &path,
+                    &parsed_rules,
+                    filter_str.as_deref(),
+                    num_threads,
+                )
+            })
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+
+        let dict = PyDict::new(py);
+        dict.set_item("total_files", summary.total_files)?;
+        dict.set_item("pruned_dirs", summary.pruned_dirs)?;
+        dict.set_item("total_rows", summary.total_rows)?;
+        dict.set_item("clean_rows", summary.clean_rows)?;
+        dict.set_item("trash_rows", summary.trash_rows)?;
+        Ok(dict.unbind())
     }
 
     /// Generate Mermaid ER Diagram from matrix schemas

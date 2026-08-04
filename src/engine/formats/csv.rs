@@ -1,4 +1,4 @@
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -46,6 +46,7 @@ impl MatrixEngine {
 
         let (schema, _) = format.infer_schema(file, Some(100))?;
 
+        let batch_size = clamp_batch_size(batch_size);
         let file_for_reader = File::open(file_path)?;
         let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
             .with_delimiter(delimiter)
@@ -64,7 +65,7 @@ impl MatrixEngine {
     ) -> Result<(usize, usize, usize), BazanError> {
         let file = File::open(file_path)?;
         let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-            .with_batch_size(batch_size)
+            .with_batch_size(clamp_batch_size(batch_size))
             .build()?;
         self.process_reader(reader)
     }

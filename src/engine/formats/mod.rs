@@ -12,8 +12,16 @@ pub mod tsv;
 pub mod txt;
 pub mod xlsx;
 
+use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
+
+/// Cap a user-supplied batch_size before it reaches arrow readers or
+/// `Vec::with_capacity`, which size allocations off it (batch_size = 10^12
+/// previously forced a ~24GB allocation). See slice.rs for the same pattern.
+pub(crate) fn clamp_batch_size(batch_size: usize) -> usize {
+    batch_size.min(DEFAULT_MAX_BATCH_SIZE)
+}
 
 /// Pure-Rust streaming reader + audit filter for one file format.
 ///

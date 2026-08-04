@@ -21,6 +21,7 @@ impl MatrixEngine {
         file_path: &str,
         limit_rows: usize,
     ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
+        let limit_rows = crate::engine::formats::clamp_batch_size(limit_rows);
         let path = file_path.to_string();
         let path_obj = std::path::Path::new(&path);
         let ext = path_obj

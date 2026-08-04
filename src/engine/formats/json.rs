@@ -1,4 +1,4 @@
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use std::fs::File;
@@ -15,6 +15,7 @@ impl FormatHandler for JsonHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
         // First attempt native Arrow JSON reader
         let file = File::open(file_path)?;
         let mut buf_reader = BufReader::new(file);

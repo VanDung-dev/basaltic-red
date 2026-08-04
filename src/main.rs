@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
                 .collect::<Result<Vec<_>, basaltic_red::error::BazanError>>()?;
 
             let start = Instant::now();
-            let summary = engine.filter_files_parallel(
+            let summary = engine.filter_files_parallel_native(
                 &file,
                 &parsed_rules,
                 partition_filter.as_deref(),

@@ -3,7 +3,7 @@ use arrow_array::*;
 use calamine::{open_workbook, Data, Reader, Xlsx};
 use std::sync::Arc;
 
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
@@ -18,6 +18,7 @@ impl FormatHandler for XlsxHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
         let mut workbook: Xlsx<_> = open_workbook(file_path)?;
 
         let range = match workbook.worksheet_range_at(0) {

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use super::FormatHandler;
+use super::{clamp_batch_size, FormatHandler};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
@@ -21,6 +21,7 @@ impl FormatHandler for AvroHandler {
         file_path: &str,
         batch_size: usize,
     ) -> Result<(usize, usize, usize), BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
         let file = BufReader::new(File::open(file_path)?);
         let reader = AvroReader::new(file)?;
         let avro_schema = reader.writer_schema().clone();
