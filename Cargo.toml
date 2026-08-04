@@ -14,6 +14,12 @@ edition = "2021"
 name = "bazan"
 path = "src/main.rs"
 
+[lib]
+# cdylib = Python extension module (.so), rlib = for bazan bin / tests.
+# Name matches the #[pymodule] fn in src/lib.rs.
+name = "basaltic_red"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 # Apache Arrow: in-memory columnar format for large data processing
 arrow = { version = "58.3.0", features = ["ffi", "pyarrow", "csv", "json", "ipc"] }
