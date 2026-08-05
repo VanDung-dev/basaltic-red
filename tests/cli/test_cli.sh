@@ -188,6 +188,29 @@ assert_no_marker "pack malicious" -- "$BAZAN_BIN" pack db2 --output lake2.bazan
 assert_no_marker "inspect malicious" -- "$BAZAN_BIN" inspect lake2.bazan
 assert_no_marker "sql malicious" -- "$BAZAN_BIN" sql "SELECT payload FROM 'lake2.bazan' WHERE id = 0"
 
+# --- 14. CSV injection hardening: dangerous cells get a ' prefix on write -----
+# Spreadsheet formulas (= + @ and non-numeric -) must be neutralized in CSV output.
+printf 'id,payload\n0,=1+1\n1,+2+2\n2,@SUM(A1)\n3,-1+1\n4,-5.0\n5,plain\n' > inj.csv
+assert_cmd "split inj" "Split matrix into 3 part files" -- "$BAZAN_BIN" split inj.csv --max-rows 2 --output-dir injparts --format csv
+if grep -q "'=1+1" injparts/inj_part_001.csv && grep -q "'+2+2" injparts/inj_part_001.csv \
+   && grep -q "'@SUM(A1)" injparts/inj_part_002.csv && grep -q "'-1+1" injparts/inj_part_002.csv \
+   && grep -q -- ",-5.0" injparts/inj_part_003.csv && ! grep -q -- "'-5.0" injparts/inj_part_003.csv \
+   && grep -q -- ",plain" injparts/inj_part_003.csv; then
+    echo "✓ csv injection escaped in split output"
+    PASS=$((PASS + 1))
+else
+    echo "✗ csv injection: dangerous cells not escaped in split output"
+    FAIL=$((FAIL + 1))
+fi
+assert_cmd "sql to csv" "Saved SQL Query Results" -- "$BAZAN_BIN" sql "SELECT payload FROM 'lake2.bazan' WHERE id = 3" --output inj_out.csv
+if grep -q "'=cmd|" inj_out.csv; then
+    echo "✓ csv injection escaped in sql output"
+    PASS=$((PASS + 1))
+else
+    echo "✗ csv injection: formula not escaped in sql output"
+    FAIL=$((FAIL + 1))
+fi
+
 echo
 echo "=== bazan CLI: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 ))
