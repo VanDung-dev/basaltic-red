@@ -1,13 +1,19 @@
-use std::fs::File;
 use anyhow::Result;
 use parquet::arrow::ArrowWriter;
-use parquet::file::properties::WriterProperties;
 use parquet::basic::{Compression, ZstdLevel};
+use parquet::file::properties::WriterProperties;
+use std::fs::File;
 
 use crate::gen::{chunk_iter, schema};
 use crate::progress::ProgressItem;
 
-pub fn write_orc(path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn write_orc(
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     // Note: ORC uses columnar storage similar to Parquet with ZSTD compression
     let file = File::create(path)?;
     let sch = schema(cols);

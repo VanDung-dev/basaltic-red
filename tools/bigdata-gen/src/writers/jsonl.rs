@@ -3,22 +3,27 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use arrow::array::Array;
-use arrow::record_batch::RecordBatch;
 use arrow::datatypes::SchemaRef;
+use arrow::record_batch::RecordBatch;
 use arrow_json::WriterBuilder as JsonWriterBuilder;
 
 use crate::gen::{chunk_iter, schema};
 use crate::progress::ProgressItem;
 
 /// Single-line compact JSON Array format
-pub fn write_jsonl_single_line(path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn write_jsonl_single_line(
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     let file = File::create(path)?;
     let sch = schema(cols);
     let mut writer: arrow_json::Writer<_, arrow_json::writer::JsonArray> =
         JsonWriterBuilder::new().build(file);
 
     for batch in chunk_iter(seed, total, cols) {
-
         let n = batch.num_rows();
         let batch = cast_for_json(&batch, &sch);
         writer.write(&batch)?;

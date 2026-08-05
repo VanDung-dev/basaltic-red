@@ -1,4 +1,5 @@
-use arrow::array::{Int64Array, StringArray, Float64Array};
+use anyhow::Result;
+use arrow::array::{Float64Array, Int64Array, StringArray};
 use arrow::record_batch::RecordBatch;
 use arrow_csv::WriterBuilder;
 use arrow_schema::{DataType, Field, Schema};
@@ -7,8 +8,6 @@ use parquet::arrow::ArrowWriter;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use anyhow::Result;
-
 
 #[derive(Parser, Debug)]
 #[command(name = "relational-db-gen")]
@@ -34,7 +33,11 @@ fn main() -> Result<()> {
     let num_tables = args.tables.clamp(5, 100);
     fs::create_dir_all(&args.output_dir)?;
 
-    println!("🚀 Generating Relational Test Database with {} linked tables into '{}'...", num_tables, args.output_dir.display());
+    println!(
+        "🚀 Generating Relational Test Database with {} linked tables into '{}'...",
+        num_tables,
+        args.output_dir.display()
+    );
 
     // 1. Users Table (Core Entity)
     generate_users_table(&args.output_dir, args.rows)?;
@@ -63,7 +66,10 @@ fn main() -> Result<()> {
     }
 
     println!("\n✅ Relational Database generation completed successfully!");
-    println!("💡 Run 'bazan graph {} --output er_graph.md' to visualize the ER diagram!", args.output_dir.display());
+    println!(
+        "💡 Run 'bazan graph {} --output er_graph.md' to visualize the ER diagram!",
+        args.output_dir.display()
+    );
 
     Ok(())
 }
@@ -77,14 +83,21 @@ fn generate_users_table(dir: &Path, rows: usize) -> Result<()> {
 
     let ids: Vec<i64> = (1..=rows as i64).collect();
     let names: Vec<String> = ids.iter().map(|i| format!("user_{}", i)).collect();
-    let emails: Vec<String> = ids.iter().map(|i| format!("user_{}@example.com", i)).collect();
+    let emails: Vec<String> = ids
+        .iter()
+        .map(|i| format!("user_{}@example.com", i))
+        .collect();
 
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
             Arc::new(Int64Array::from(ids)),
-            Arc::new(StringArray::from(names.iter().map(|s| s.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(emails.iter().map(|s| s.as_str()).collect::<Vec<_>>())),
+            Arc::new(StringArray::from(
+                names.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                emails.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            )),
         ],
     )?;
 
@@ -111,7 +124,9 @@ fn generate_products_table(dir: &Path, rows: usize) -> Result<()> {
         schema.clone(),
         vec![
             Arc::new(Int64Array::from(ids)),
-            Arc::new(StringArray::from(names.iter().map(|s| s.as_str()).collect::<Vec<_>>())),
+            Arc::new(StringArray::from(
+                names.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            )),
             Arc::new(Float64Array::from(prices)),
         ],
     )?;
@@ -211,7 +226,11 @@ fn generate_payments_table(dir: &Path, rows: usize) -> Result<()> {
 
 fn generate_extra_relational_table(dir: &Path, table_num: usize, rows: usize) -> Result<()> {
     let table_name = format!("table_{:03}", table_num);
-    let parent_fk = if table_num % 2 == 0 { "users_id" } else { "orders_id" };
+    let parent_fk = if table_num % 2 == 0 {
+        "users_id"
+    } else {
+        "orders_id"
+    };
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),

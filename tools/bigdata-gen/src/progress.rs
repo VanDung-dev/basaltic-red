@@ -54,7 +54,8 @@ impl ProgressItem {
 
     pub fn mark_finished(&self) {
         let elapsed = self.started.lock().unwrap().elapsed();
-        self.elapsed_us.store(elapsed.as_micros() as u64, Ordering::Relaxed);
+        self.elapsed_us
+            .store(elapsed.as_micros() as u64, Ordering::Relaxed);
         self.running.store(false, Ordering::Relaxed);
     }
 
@@ -65,11 +66,7 @@ impl ProgressItem {
     fn bar(&self, pct: f64) -> String {
         let filled = (pct * BAR_WIDTH as f64).round() as usize;
         let empty = BAR_WIDTH.saturating_sub(filled);
-        format!(
-            "{}{}",
-            "█".repeat(filled),
-            "░".repeat(empty)
-        )
+        format!("{}{}", "█".repeat(filled), "░".repeat(empty))
     }
 }
 
@@ -84,12 +81,20 @@ pub struct Dashboard {
 impl Dashboard {
     pub fn new(items: Vec<Arc<ProgressItem>>, cols: usize) -> Self {
         let lines = 5 + items.len();
-        Self { items, cols, started: Instant::now(), lines }
+        Self {
+            items,
+            cols,
+            started: Instant::now(),
+            lines,
+        }
     }
 
-
     pub fn render(&self) {
-        let total_rows: u64 = self.items.iter().map(|p| p.rows.load(Ordering::Relaxed)).sum();
+        let total_rows: u64 = self
+            .items
+            .iter()
+            .map(|p| p.rows.load(Ordering::Relaxed))
+            .sum();
 
         let mut out = String::new();
         out.push_str(&format!(
@@ -125,7 +130,11 @@ impl Dashboard {
                 0
             };
             let status = if item.finished.load(Ordering::Relaxed) {
-                if item.error.load(Ordering::Relaxed) { "✗" } else { "✓" }
+                if item.error.load(Ordering::Relaxed) {
+                    "✗"
+                } else {
+                    "✓"
+                }
             } else if item.running.load(Ordering::Relaxed) {
                 "⏳"
             } else {
@@ -150,13 +159,15 @@ impl Dashboard {
 
         out.push_str(&"─".repeat(68));
         out.push('\n');
-        out.push_str(&format!(" Total: {} rows generated", format_num(total_rows)));
+        out.push_str(&format!(
+            " Total: {} rows generated",
+            format_num(total_rows)
+        ));
 
         print!("\r\x1b[{}A\x1b[J{}", self.lines, out);
-        use std::io::{Write, stdout};
+        use std::io::{stdout, Write};
         stdout().flush().ok();
     }
-
 
     pub fn initial_render(&self) {
         for _ in 0..self.lines {
@@ -194,5 +205,3 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{}B", bytes)
     }
 }
-
-

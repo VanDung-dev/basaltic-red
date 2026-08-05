@@ -12,12 +12,19 @@ pub mod tsv;
 pub mod txt;
 pub mod xlsx;
 
-use std::sync::atomic::Ordering;
 use anyhow::Result;
+use std::sync::atomic::Ordering;
 
 use crate::progress::ProgressItem;
 
-pub fn run_format(fmt: &str, path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn run_format(
+    fmt: &str,
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     progress.reset_started();
     match fmt {
         "csv" => csv::write_csv(path, seed, total, cols, progress)?,
@@ -39,8 +46,3 @@ pub fn run_format(fmt: &str, path: &str, seed: u64, total: u64, cols: usize, pro
     progress.finished.store(true, Ordering::Relaxed);
     Ok(())
 }
-
-
-
-
-

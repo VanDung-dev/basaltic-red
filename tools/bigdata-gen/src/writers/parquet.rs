@@ -1,13 +1,19 @@
-use std::fs::File;
 use anyhow::Result;
 use parquet::arrow::ArrowWriter;
+use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
-use parquet::basic::{Compression};
+use std::fs::File;
 
 use crate::gen::{chunk_iter, schema};
 use crate::progress::ProgressItem;
 
-pub fn write_parquet(path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn write_parquet(
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     let file = File::create(path)?;
     let props = WriterProperties::builder()
         .set_compression(Compression::ZSTD(Default::default()))

@@ -1,11 +1,17 @@
-use std::fs::File;
 use anyhow::Result;
 use arrow::ipc::writer::FileWriter as ArrowFileWriter;
+use std::fs::File;
 
 use crate::gen::{chunk_iter, schema};
 use crate::progress::ProgressItem;
 
-pub fn write_feather(path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn write_feather(
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     let file = File::create(path)?;
     let sch = schema(cols);
     let mut writer = ArrowFileWriter::try_new(file, &sch)?;

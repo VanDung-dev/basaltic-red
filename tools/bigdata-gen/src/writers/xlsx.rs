@@ -5,7 +5,13 @@ use rust_xlsxwriter::*;
 use crate::gen::{self, chunk_iter};
 use crate::progress::ProgressItem;
 
-pub fn write_xlsx(path: &str, seed: u64, total: u64, cols: usize, progress: &ProgressItem) -> Result<()> {
+pub fn write_xlsx(
+    path: &str,
+    seed: u64,
+    total: u64,
+    cols: usize,
+    progress: &ProgressItem,
+) -> Result<()> {
     const MAX_XLSX_ROWS: u32 = 1_048_576;
     let bold = Format::new().set_bold();
 
@@ -22,39 +28,158 @@ pub fn write_xlsx(path: &str, seed: u64, total: u64, cols: usize, progress: &Pro
 
     let mut accum_rows: u64 = 0;
     for batch in chunk_iter(seed, total, cols) {
-
         let n = batch.num_rows();
 
-        let col_id = batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
-        let col_uuid = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_first_name = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_last_name = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_email = batch.column(4).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_age = batch.column(5).as_any().downcast_ref::<Int32Array>().unwrap();
-        let col_gender = batch.column(6).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_occupation = batch.column(7).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_company = batch.column(8).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_country = batch.column(9).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_city = batch.column(10).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_street = batch.column(11).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_phone = batch.column(12).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_salary = batch.column(13).as_any().downcast_ref::<Float64Array>().unwrap();
-        let col_bonus = batch.column(14).as_any().downcast_ref::<Float64Array>().unwrap();
-        let col_currency = batch.column(15).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_department = batch.column(16).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_join_date = batch.column(17).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_is_active = batch.column(18).as_any().downcast_ref::<BooleanArray>().unwrap();
-        let col_score = batch.column(19).as_any().downcast_ref::<Float64Array>().unwrap();
-        let col_rating = batch.column(20).as_any().downcast_ref::<Int32Array>().unwrap();
-        let col_category = batch.column(21).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_status = batch.column(22).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_priority = batch.column(23).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_description = batch.column(24).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_notes = batch.column(25).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_created_at = batch.column(26).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_updated_at = batch.column(27).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_ip_address = batch.column(28).as_any().downcast_ref::<StringArray>().unwrap();
-        let col_user_agent = batch.column(29).as_any().downcast_ref::<StringArray>().unwrap();
+        let col_id = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let col_uuid = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_first_name = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_last_name = batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_email = batch
+            .column(4)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_age = batch
+            .column(5)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        let col_gender = batch
+            .column(6)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_occupation = batch
+            .column(7)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_company = batch
+            .column(8)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_country = batch
+            .column(9)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_city = batch
+            .column(10)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_street = batch
+            .column(11)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_phone = batch
+            .column(12)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_salary = batch
+            .column(13)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let col_bonus = batch
+            .column(14)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let col_currency = batch
+            .column(15)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_department = batch
+            .column(16)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_join_date = batch
+            .column(17)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_is_active = batch
+            .column(18)
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        let col_score = batch
+            .column(19)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let col_rating = batch
+            .column(20)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        let col_category = batch
+            .column(21)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_status = batch
+            .column(22)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_priority = batch
+            .column(23)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_description = batch
+            .column(24)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_notes = batch
+            .column(25)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_created_at = batch
+            .column(26)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_updated_at = batch
+            .column(27)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_ip_address = batch
+            .column(28)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let col_user_agent = batch
+            .column(29)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
 
         for i in 0..n {
             if row >= MAX_XLSX_ROWS {

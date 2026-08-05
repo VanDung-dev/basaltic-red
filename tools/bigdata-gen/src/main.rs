@@ -10,41 +10,70 @@ use clap::Parser;
 use progress::{Dashboard, ProgressItem};
 
 const ALL_FORMATS: &[&str] = &[
-    "csv", "tsv", "psv", "txt", "json", "jsonl", "ndjson", "parquet", "feather", "avro", "xlsx", "orc", "msgpack",
+    "csv", "tsv", "psv", "txt", "json", "jsonl", "ndjson", "parquet", "feather", "avro", "xlsx",
+    "orc", "msgpack",
 ];
 
 #[derive(Parser)]
-#[command(name = "bigdata-gen", about = "Generate big datasets in multiple formats", disable_help_flag = true)]
+#[command(
+    name = "bigdata-gen",
+    about = "Generate big datasets in multiple formats",
+    disable_help_flag = true
+)]
 struct Cli {
-    #[arg(default_value = "all", help = "Format(s): csv,tsv,psv,txt,json,jsonl,ndjson,parquet,feather,avro,xlsx,orc,msgpack or all")]
+    #[arg(
+        default_value = "all",
+        help = "Format(s): csv,tsv,psv,txt,json,jsonl,ndjson,parquet,feather,avro,xlsx,orc,msgpack or all"
+    )]
     format: Vec<String>,
 
-    #[arg(long = "rows", default_value = "100000", help = "Number of rows per format")]
+    #[arg(
+        long = "rows",
+        default_value = "100000",
+        help = "Number of rows per format"
+    )]
     rows: u64,
 
-    #[arg(long = "cols", default_value = "30", help = "Number of columns (default 30, max 100")]
+    #[arg(
+        long = "cols",
+        default_value = "30",
+        help = "Number of columns (default 30, max 100"
+    )]
     cols: usize,
 
     #[arg(long = "output", help = "Output file path (single format only)")]
     output: Option<String>,
 
-    #[arg(long = "output-dir", default_value = "bigdata_output", help = "Output directory for multiple formats")]
+    #[arg(
+        long = "output-dir",
+        default_value = "bigdata_output",
+        help = "Output directory for multiple formats"
+    )]
     output_dir: String,
 
     #[arg(long = "seed", default_value = "42", help = "Random seed")]
     seed: u64,
 
-    #[arg(short = 'j', long = "jobs", default_value = "4", help = "Max concurrent format generators")]
+    #[arg(
+        short = 'j',
+        long = "jobs",
+        default_value = "4",
+        help = "Max concurrent format generators"
+    )]
     jobs: usize,
 
     #[arg(long = "help", help = "Print help information")]
     help: bool,
 }
 
-
 fn resolve_formats(input: &[String]) -> Vec<String> {
-    let expanded: Vec<String> = input.iter()
-        .flat_map(|s| s.split(',').map(|p| p.trim().to_string()).collect::<Vec<_>>())
+    let expanded: Vec<String> = input
+        .iter()
+        .flat_map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .collect::<Vec<_>>()
+        })
         .collect();
     let mut out: Vec<String> = Vec::new();
     for f in &expanded {
@@ -71,9 +100,9 @@ fn resolve_formats(input: &[String]) -> Vec<String> {
     out
 }
 
-
 fn print_help() {
-    println!(r#"
+    println!(
+        r#"
 BigData Generator - High-performance synthetic dataset generator
 
 USAGE:
@@ -100,7 +129,8 @@ OPTIONS:
 EXAMPLES:
     bigdata-gen all --rows 10000000 --cols 60 --output-dir ./data
     bigdata-gen csv --rows 1000000 --cols 30 --output data.csv
-"#);
+"#
+    );
 }
 
 fn main() -> anyhow::Result<()> {
@@ -115,7 +145,11 @@ fn main() -> anyhow::Result<()> {
 
     let fmts = resolve_formats(&args.format);
 
-    let seeds: Vec<u64> = fmts.iter().enumerate().map(|(i, _)| args.seed.wrapping_add(i as u64 * 7919)).collect();
+    let seeds: Vec<u64> = fmts
+        .iter()
+        .enumerate()
+        .map(|(i, _)| args.seed.wrapping_add(i as u64 * 7919))
+        .collect();
 
     // ponytail: cap xlsx to max 1M rows (Excel single-sheet limit)
     let get_rows_for_fmt = |fmt: &str| -> u64 {
@@ -137,16 +171,14 @@ fn main() -> anyhow::Result<()> {
         dashboard.initial_render();
 
         let display_item = item.clone();
-        let display_handle = std::thread::spawn(move || {
-            loop {
-                let finished = display_item.finished.load(Ordering::Relaxed);
-                let db = Dashboard::new(vec![display_item.clone()], cols);
-                db.render();
-                if finished {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
+        let display_handle = std::thread::spawn(move || loop {
+            let finished = display_item.finished.load(Ordering::Relaxed);
+            let db = Dashboard::new(vec![display_item.clone()], cols);
+            db.render();
+            if finished {
+                break;
             }
+            std::thread::sleep(Duration::from_millis(100));
         });
 
         if let Err(e) = writers::run_format(fmt, &path, seeds[0], fmt_rows, cols, &item) {
@@ -171,28 +203,36 @@ fn main() -> anyhow::Result<()> {
     dashboard.initial_render();
 
     let display_items = items.clone();
-    let display_handle = std::thread::spawn(move || {
-        loop {
-            let all_finished = display_items.iter().all(|p| p.finished.load(Ordering::Relaxed));
-            let db = Dashboard::new(display_items.clone(), cols);
-            db.render();
-            if all_finished {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(200));
+    let display_handle = std::thread::spawn(move || loop {
+        let all_finished = display_items
+            .iter()
+            .all(|p| p.finished.load(Ordering::Relaxed));
+        let db = Dashboard::new(display_items.clone(), cols);
+        db.render();
+        if all_finished {
+            break;
         }
+        std::thread::sleep(Duration::from_millis(200));
     });
-
 
     // ponytail: simple bounded worker queue using std mpsc (max concurrency = args.jobs)
     let concurrency = args.jobs.max(1);
-    let (tx, rx) = std::sync::mpsc::channel::<(String, String, u64, u64, usize, Arc<ProgressItem>)>();
+    let (tx, rx) =
+        std::sync::mpsc::channel::<(String, String, u64, u64, usize, Arc<ProgressItem>)>();
     let rx = Arc::new(std::sync::Mutex::new(rx));
 
     for (i, fmt) in fmts.iter().enumerate() {
         let path = format!("{}/bigdata.{}", args.output_dir, fmt);
         let fmt_rows = get_rows_for_fmt(fmt);
-        tx.send((fmt.clone(), path, seeds[i], fmt_rows, cols, items[i].clone())).unwrap();
+        tx.send((
+            fmt.clone(),
+            path,
+            seeds[i],
+            fmt_rows,
+            cols,
+            items[i].clone(),
+        ))
+        .unwrap();
     }
 
     drop(tx);
@@ -222,5 +262,3 @@ fn main() -> anyhow::Result<()> {
     print!("\n");
     Ok(())
 }
-
-

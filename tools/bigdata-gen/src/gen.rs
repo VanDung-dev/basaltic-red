@@ -8,18 +8,136 @@ use std::sync::Arc;
 
 const CHUNK_SIZE: usize = 100_000;
 
-const FIRST: &[&str] = &["James","Mary","John","Patricia","Robert","Jennifer","Michael","Linda","David","Elizabeth","William","Barbara","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Christopher","Karen"];
-const LAST: &[&str] = &["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Hernandez","Lopez","Gonzalez","Wilson","Anderson","Thomas","Taylor","Moore","Jackson","Martin"];
-const OCC: &[&str] = &["Engineer","Teacher","Doctor","Nurse","Manager","Analyst","Developer","Designer","Accountant","Consultant","Architect","Scientist","Writer","Artist","Technician","Supervisor","Coordinator","Director"];
-const COMP: &[&str] = &["Acme Corp","Globex","Initech","Umbrella","Cyberdyne","Wonka Industries","Stark Industries","Wayne Enterprises","Oscorp","Massive Dynamic","Hooli","Dunder Mifflin","Sterling Cooper"];
-const CURR: &[&str] = &["USD","EUR","GBP","JPY","CNY","AUD","CAD","CHF","HKD","SGD"];
-const DEPT: &[&str] = &["Engineering","Sales","Marketing","HR","Finance","Legal","Operations","R&D","Support","Admin"];
-const CAT: &[&str] = &["A","B","C","D","E"];
-const STAT: &[&str] = &["active","inactive","pending","suspended","archived"];
-const PRIO: &[&str] = &["low","medium","high","critical"];
-const CITY: &[&str] = &["New York","Los Angeles","Chicago","Houston","Phoenix","Philadelphia","San Antonio","San Diego","Dallas","San Jose","Austin","Jacksonville","Fort Worth","Columbus","Charlotte"];
-const CTRY: &[&str] = &["USA","Canada","UK","Germany","France","Australia","Japan","Brazil","India","Mexico"];
-const ST: &[&str] = &["Main St","Oak Ave","Elm St","Park Rd","Broadway","Lake Dr","Hill St","Cedar Ln","Pine Ave","Maple Dr"];
+const FIRST: &[&str] = &[
+    "James",
+    "Mary",
+    "John",
+    "Patricia",
+    "Robert",
+    "Jennifer",
+    "Michael",
+    "Linda",
+    "David",
+    "Elizabeth",
+    "William",
+    "Barbara",
+    "Richard",
+    "Susan",
+    "Joseph",
+    "Jessica",
+    "Thomas",
+    "Sarah",
+    "Christopher",
+    "Karen",
+];
+const LAST: &[&str] = &[
+    "Smith",
+    "Johnson",
+    "Williams",
+    "Brown",
+    "Jones",
+    "Garcia",
+    "Miller",
+    "Davis",
+    "Rodriguez",
+    "Martinez",
+    "Hernandez",
+    "Lopez",
+    "Gonzalez",
+    "Wilson",
+    "Anderson",
+    "Thomas",
+    "Taylor",
+    "Moore",
+    "Jackson",
+    "Martin",
+];
+const OCC: &[&str] = &[
+    "Engineer",
+    "Teacher",
+    "Doctor",
+    "Nurse",
+    "Manager",
+    "Analyst",
+    "Developer",
+    "Designer",
+    "Accountant",
+    "Consultant",
+    "Architect",
+    "Scientist",
+    "Writer",
+    "Artist",
+    "Technician",
+    "Supervisor",
+    "Coordinator",
+    "Director",
+];
+const COMP: &[&str] = &[
+    "Acme Corp",
+    "Globex",
+    "Initech",
+    "Umbrella",
+    "Cyberdyne",
+    "Wonka Industries",
+    "Stark Industries",
+    "Wayne Enterprises",
+    "Oscorp",
+    "Massive Dynamic",
+    "Hooli",
+    "Dunder Mifflin",
+    "Sterling Cooper",
+];
+const CURR: &[&str] = &[
+    "USD", "EUR", "GBP", "JPY", "CNY", "AUD", "CAD", "CHF", "HKD", "SGD",
+];
+const DEPT: &[&str] = &[
+    "Engineering",
+    "Sales",
+    "Marketing",
+    "HR",
+    "Finance",
+    "Legal",
+    "Operations",
+    "R&D",
+    "Support",
+    "Admin",
+];
+const CAT: &[&str] = &["A", "B", "C", "D", "E"];
+const STAT: &[&str] = &["active", "inactive", "pending", "suspended", "archived"];
+const PRIO: &[&str] = &["low", "medium", "high", "critical"];
+const CITY: &[&str] = &[
+    "New York",
+    "Los Angeles",
+    "Chicago",
+    "Houston",
+    "Phoenix",
+    "Philadelphia",
+    "San Antonio",
+    "San Diego",
+    "Dallas",
+    "San Jose",
+    "Austin",
+    "Jacksonville",
+    "Fort Worth",
+    "Columbus",
+    "Charlotte",
+];
+const CTRY: &[&str] = &[
+    "USA",
+    "Canada",
+    "UK",
+    "Germany",
+    "France",
+    "Australia",
+    "Japan",
+    "Brazil",
+    "India",
+    "Mexico",
+];
+const ST: &[&str] = &[
+    "Main St", "Oak Ave", "Elm St", "Park Rd", "Broadway", "Lake Dr", "Hill St", "Cedar Ln",
+    "Pine Ave", "Maple Dr",
+];
 const UA: &[&str] = &[
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/17.2",
@@ -29,10 +147,36 @@ const UA: &[&str] = &[
 ];
 
 pub const COLUMN_NAMES: &[&str] = &[
-    "id", "uuid", "first_name", "last_name", "email", "age", "gender", "occupation",
-    "company", "country", "city", "street", "phone", "salary", "bonus", "currency",
-    "department", "join_date", "is_active", "score", "rating", "category", "status",
-    "priority", "description", "notes", "created_at", "updated_at", "ip_address", "user_agent",
+    "id",
+    "uuid",
+    "first_name",
+    "last_name",
+    "email",
+    "age",
+    "gender",
+    "occupation",
+    "company",
+    "country",
+    "city",
+    "street",
+    "phone",
+    "salary",
+    "bonus",
+    "currency",
+    "department",
+    "join_date",
+    "is_active",
+    "score",
+    "rating",
+    "category",
+    "status",
+    "priority",
+    "description",
+    "notes",
+    "created_at",
+    "updated_at",
+    "ip_address",
+    "user_agent",
 ];
 
 pub fn schema(target_cols: usize) -> SchemaRef {
@@ -77,7 +221,11 @@ pub fn schema(target_cols: usize) -> SchemaRef {
         } else {
             format!("{}_{}", base_f.name(), (i / base_fields.len()) + 1)
         };
-        fields.push(Field::new(name, base_f.data_type().clone(), base_f.is_nullable()));
+        fields.push(Field::new(
+            name,
+            base_f.data_type().clone(),
+            base_f.is_nullable(),
+        ));
     }
     Arc::new(Schema::new(fields))
 }
@@ -109,7 +257,12 @@ fn rand_date(rng: &mut ChaCha8Rng, start_epoch_days: i64, end_epoch_days: i64) -
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-pub fn generate_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize, target_cols: usize) -> RecordBatch {
+pub fn generate_chunk(
+    rng: &mut ChaCha8Rng,
+    offset: i64,
+    n: usize,
+    target_cols: usize,
+) -> RecordBatch {
     let full_batch_30 = generate_base_30_chunk(rng, offset, n);
     let num_base_cols = 30;
 
@@ -130,7 +283,6 @@ pub fn generate_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize, target_cols: 
 const NUM_BASE_COLS: usize = 30;
 
 fn generate_base_30_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize) -> RecordBatch {
-
     let mut id_b = Int64Builder::with_capacity(n);
     let mut uuid_b = StringBuilder::with_capacity(n, n * 37);
     let mut first_b = StringBuilder::with_capacity(n, n * 10);
@@ -171,8 +323,12 @@ fn generate_base_30_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize) -> Record
         uuid_b.append_value(&uuid_str(rng));
         first_b.append_value(first);
         last_b.append_value(last);
-        email_b.append_value(&format!("{}.{}{}@example.com",
-            first.to_lowercase(), last.to_lowercase(), rng.gen_range(1..999)));
+        email_b.append_value(&format!(
+            "{}.{}{}@example.com",
+            first.to_lowercase(),
+            last.to_lowercase(),
+            rng.gen_range(1..999)
+        ));
 
         age_b.append_value(rng.gen_range(18..75));
         gender_b.append_value(pick(&["Male", "Female", "Other"], rng));
@@ -181,8 +337,12 @@ fn generate_base_30_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize) -> Record
         ctry_b.append_value(pick(CTRY, rng));
         city_b.append_value(pick(CITY, rng));
         street_b.append_value(&format!("{} {}", rng.gen_range(1..9999), pick(ST, rng)));
-        phone_b.append_value(&format!("+1-{:03}-{:03}-{:04}",
-            rng.gen_range(200..999), rng.gen_range(100..999), rng.gen_range(1000..9999)));
+        phone_b.append_value(&format!(
+            "+1-{:03}-{:03}-{:04}",
+            rng.gen_range(200..999),
+            rng.gen_range(100..999),
+            rng.gen_range(1000..9999)
+        ));
 
         let salary: f64 = rng.gen_range(30_000.0..200_000.0);
         salary_b.append_value((salary * 100.0).round() / 100.0);
@@ -205,16 +365,19 @@ fn generate_base_30_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize) -> Record
         notes_b.append_value(&format!("Note {}", rng.gen_range(1000..9999)));
         cdate_b.append_value(&rand_date(rng, 19358, 19903));
         udate_b.append_value(&rand_date(rng, 19723, 20087));
-        ip_b.append_value(&format!("{}.{}.{}.{}",
-            rng.gen_range(10..223), rng.gen_range(0..255),
-            rng.gen_range(0..255), rng.gen_range(1..254)));
+        ip_b.append_value(&format!(
+            "{}.{}.{}.{}",
+            rng.gen_range(10..223),
+            rng.gen_range(0..255),
+            rng.gen_range(0..255),
+            rng.gen_range(1..254)
+        ));
         ua_b.append_value(pick(UA, rng));
     }
 
     RecordBatch::try_new(
         schema(NUM_BASE_COLS),
         vec![
-
             Arc::new(id_b.finish()),
             Arc::new(uuid_b.finish()),
             Arc::new(first_b.finish()),
@@ -250,11 +413,7 @@ fn generate_base_30_chunk(rng: &mut ChaCha8Rng, offset: i64, n: usize) -> Record
     .expect("generate_chunk: RecordBatch creation failed")
 }
 
-pub fn chunk_iter(
-    seed: u64,
-    total: u64,
-    target_cols: usize,
-) -> impl Iterator<Item = RecordBatch> {
+pub fn chunk_iter(seed: u64, total: u64, target_cols: usize) -> impl Iterator<Item = RecordBatch> {
     let chunk = CHUNK_SIZE;
     let mut offset: i64 = 0;
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -268,4 +427,3 @@ pub fn chunk_iter(
         Some(batch)
     })
 }
-
