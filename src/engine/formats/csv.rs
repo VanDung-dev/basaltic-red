@@ -34,7 +34,7 @@ impl MatrixEngine {
     }
 }
 
-/// Shared streaming opener for Parquet (and ORC, routed through the Parquet reader).
+/// Shared streaming opener for Parquet.
 pub(crate) fn open_parquet(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
     let file = File::open(file_path)?;
     let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
