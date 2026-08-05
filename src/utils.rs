@@ -64,6 +64,7 @@ pub fn discover_data_files(
         }
     }
 
+    files.sort();
     Ok(files)
 }
 
