@@ -58,7 +58,7 @@ pub fn extract_table_name(entry_path: &str) -> String {
 
 impl MatrixEngine {
     /// Execute SQL query directly on any supported file, .bazan container, or directory tree
-    pub async fn execute_sql(&self, query_str: &str) -> Result<RecordBatch, BazanError> {
+    pub async fn execute_sql_batches_inner(&self, query_str: &str) -> Result<Vec<RecordBatch>, BazanError> {
         let ctx = SessionContext::new();
         let mut modified_query = query_str.to_string();
 
@@ -206,8 +206,19 @@ impl MatrixEngine {
             ));
         }
 
-        let schema = result_batches[0].schema();
-        let concatenated = concat_batches(&schema, &result_batches)?;
+        Ok(result_batches)
+    }
+
+    /// Execute SQL query directly and return raw list of RecordBatch streams
+    pub async fn execute_sql_batches(&self, query_str: &str) -> Result<Vec<RecordBatch>, BazanError> {
+        self.execute_sql_batches_inner(query_str).await
+    }
+
+    /// Execute SQL query directly and return concatenated RecordBatch
+    pub async fn execute_sql(&self, query_str: &str) -> Result<RecordBatch, BazanError> {
+        let batches = self.execute_sql_batches_inner(query_str).await?;
+        let schema = batches[0].schema();
+        let concatenated = concat_batches(&schema, &batches)?;
         Ok(concatenated)
     }
 }

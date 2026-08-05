@@ -19,6 +19,29 @@ pub mod sql;
 
 pub use formats::*;
 
+/// Synchronous Python iterator yielding RecordBatch streams from DataFusion SQL execution
+#[pyclass]
+pub struct PyBatchIterator {
+    pub batches: std::vec::IntoIter<arrow::array::RecordBatch>,
+}
+
+#[pymethods]
+impl PyBatchIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        use arrow::pyarrow::ToPyArrow;
+        if let Some(batch) = self.batches.next() {
+            let py_batch = batch.to_pyarrow(py)?;
+            Ok(Some(py_batch))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 /// Core SIMD Matrix Engine supporting Audit Error Bitmasking for Matrix Trash & Parquet Streaming
 #[pyclass]
 pub struct MatrixEngine {
@@ -71,6 +94,19 @@ impl MatrixEngine {
             .block_on(self.execute_sql(query))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         batch.to_pyarrow(py)
+    }
+
+    /// Execute SQL query directly and return a Python iterator yielding PyArrow RecordBatches
+    #[pyo3(name = "execute_sql_stream")]
+    pub fn execute_sql_stream_py<'py>(&self, _py: Python<'py>, query: &str) -> PyResult<PyBatchIterator> {
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let batches = rt
+            .block_on(self.execute_sql_batches(query))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(PyBatchIterator {
+            batches: batches.into_iter(),
+        })
     }
 
     /// Filters a PyArrow RecordBatch into Clean RecordBatch and Trash RecordBatch (with Audit Error Bitmask)

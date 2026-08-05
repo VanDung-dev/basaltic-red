@@ -38,6 +38,7 @@ fn read_bazan_manifest(py: Python, bazan_path: &str) -> PyResult<Py<PyDict>> {
 #[pymodule]
 fn basaltic_red(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MatrixEngine>()?;
+    m.add_class::<engine::PyBatchIterator>()?;
     m.add_function(wrap_pyfunction!(read_bazan_manifest, m)?)?;
     Ok(())
 }
