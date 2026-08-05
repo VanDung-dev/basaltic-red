@@ -2,6 +2,14 @@ use anyhow::Result;
 use basaltic_red::cli::{Cli, Commands};
 use basaltic_red::engine::MatrixEngine;
 use clap::Parser;
+use std::path::Path;
+
+/// Convert a user-supplied path to a UTF-8 string, failing with a clean error
+/// instead of panicking on non-UTF8 filenames (possible on Unix).
+fn path_str<'a>(p: &'a Path, what: &str) -> anyhow::Result<&'a str> {
+    p.to_str()
+        .ok_or_else(|| anyhow::anyhow!("{} path is not valid UTF-8: {:?}", what, p))
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,7 +23,7 @@ async fn main() -> Result<()> {
             limit,
             output,
         } => {
-            let file_str = file.to_str().unwrap();
+            let file_str = path_str(&file, "input")?;
             let batch = engine.slice_rows_native(file_str, offset, limit)?;
             println!(
                 "✅ Sliced {} rows from offset {} (Total columns: {})",
@@ -25,7 +33,7 @@ async fn main() -> Result<()> {
             );
 
             if let Some(out_path) = output {
-                let out_str = out_path.to_str().unwrap();
+                let out_str = path_str(&out_path, "output")?;
                 println!("💾 Saving output to {}...", out_str);
             }
         }
@@ -36,7 +44,7 @@ async fn main() -> Result<()> {
             limit,
             output,
         } => {
-            let file_str = file.to_str().unwrap();
+            let file_str = path_str(&file, "input")?;
             let batch = engine.slice_cols_native(file_str, &cols, offset, limit)?;
             println!(
                 "✅ Sliced {} rows and {} columns: {:?}",
@@ -46,7 +54,7 @@ async fn main() -> Result<()> {
             );
 
             if let Some(out_path) = output {
-                let out_str = out_path.to_str().unwrap();
+                let out_str = path_str(&out_path, "output")?;
                 println!("💾 Saving output to {}...", out_str);
             }
         }
@@ -56,8 +64,8 @@ async fn main() -> Result<()> {
             output_dir,
             format,
         } => {
-            let file_str = file.to_str().unwrap();
-            let out_dir_str = output_dir.to_str().unwrap();
+            let file_str = path_str(&file, "input")?;
+            let out_dir_str = path_str(&output_dir, "output directory")?;
             let parts = engine.split_file_native(file_str, max_rows, out_dir_str, &format)?;
             println!(
                 "✅ Split matrix into {} part files in directory '{}'",
@@ -65,13 +73,13 @@ async fn main() -> Result<()> {
             );
         }
         Commands::Preview { file, limit } => {
-            let file_str = file.to_str().unwrap();
+            let file_str = path_str(&file, "input")?;
             let batch = engine.slice_rows_native(file_str, 0, limit)?;
             println!("🔍 Matrix Preview (First {} rows):\n", limit);
             println!("{:#?}", batch);
         }
         Commands::Dict { file, output } => {
-            let file_str = file.to_str().unwrap();
+            let file_str = path_str(&file, "input")?;
             let batch = engine.slice_rows_native(file_str, 0, 1)?;
             let schema = batch.schema();
 
@@ -93,9 +101,9 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Graph { path, output } => {
-            let path_str = path.to_str().unwrap();
-            let out_str = output.as_ref().map(|p| p.to_str().unwrap());
-            let mermaid = engine.generate_er_graph(path_str, out_str)?;
+            let input_str = path_str(&path, "input")?;
+            let out_str = output.as_ref().map(|p| path_str(p, "output")).transpose()?;
+            let mermaid = engine.generate_er_graph(input_str, out_str)?;
             match output {
                 None => println!("{}", mermaid),
                 Some(p) => println!("📊 Mermaid ER Diagram saved to {}", p.display()),

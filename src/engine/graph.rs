@@ -22,14 +22,15 @@ impl MatrixEngine {
             for entry in fs::read_dir(input_path)? {
                 let entry = entry?;
                 let p = entry.path();
-                if p.is_file() {
+                // entry.file_type() does not follow symlinks, so symlinks are skipped
+                if entry.file_type().is_ok_and(|ft| ft.is_file()) {
                     let name = p
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("Table")
                         .to_string();
                     if !seen_tables.contains(&name) {
-                        if let Ok(batch) = self.slice_rows_native(p.to_str().unwrap(), 0, 1) {
+                        if let Ok(batch) = self.slice_rows_native(&p.to_string_lossy(), 0, 1) {
                             seen_tables.insert(name.clone());
                             schemas.push((name, batch.schema()));
                         }

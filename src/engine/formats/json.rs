@@ -43,8 +43,10 @@ impl FormatHandler for JsonHandler {
                 return Ok((0, 0, 0));
             }
 
-            // Convert JSON array into newline-delimited stream cursor
-            let mut ndjson_buf = String::with_capacity(total_rows * 250);
+            // Convert JSON array into newline-delimited stream cursor.
+            // No with_capacity pre-allocation: sizing off total_rows (~250x) let a
+            // crafted array force a huge allocation. String grows naturally.
+            let mut ndjson_buf = String::new();
             for item in &arr {
                 ndjson_buf.push_str(&item.to_string());
                 ndjson_buf.push('\n');

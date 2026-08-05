@@ -35,7 +35,7 @@ impl MatrixEngine {
             let part_filename = format!("{}_part_{:03}.{}", stem, part_index, format);
             let part_path = Path::new(output_dir).join(part_filename);
 
-            self.write_batch_to_file(&batch, part_path.to_str().unwrap(), format)?;
+            self.write_batch_to_file(&batch, &part_path.to_string_lossy(), format)?;
 
             part_index += 1;
             current_offset += rows_read;

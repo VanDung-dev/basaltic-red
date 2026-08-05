@@ -69,7 +69,9 @@ impl MatrixEngine {
                 .ok_or_else(|| BazanError::Message("Invalid path string".to_string()))?
                 .replace('\\', "/");
 
-            let file_str = file_path.to_str().unwrap();
+            let file_str = file_path.to_str().ok_or_else(|| {
+                BazanError::Message(format!("Invalid non-UTF8 path: {:?}", file_path))
+            })?;
 
             // Đọc file thành RecordBatch chuẩn
             let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
@@ -164,6 +166,27 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanErro
     let manifest_offset = u64::from_le_bytes(offset_bytes);
     let manifest_length = u64::from_le_bytes(len_bytes);
 
+    // Header magic must match a real container
+    file.seek(SeekFrom::Start(0))?;
+    let mut header_buf = [0u8; HEADER_MAGIC.len()];
+    file.read_exact(&mut header_buf)?;
+    if header_buf != HEADER_MAGIC {
+        return Err(BazanError::Message(
+            "Invalid .bazan file format: Header magic mismatch".to_string(),
+        ));
+    }
+
+    // Bounds-check before allocating: a crafted length must not OOM the process
+    if manifest_offset
+        .checked_add(manifest_length)
+        .is_none_or(|end| end > file_size)
+    {
+        return Err(BazanError::Message(format!(
+            "Corrupt .bazan container: manifest offset {} + length {} exceeds file size {}",
+            manifest_offset, manifest_length, file_size
+        )));
+    }
+
     // Read Manifest JSON
     file.seek(SeekFrom::Start(manifest_offset))?;
     let mut manifest_buf = vec![0u8; manifest_length as usize];
@@ -179,6 +202,20 @@ pub fn read_bazan_entry_batch(
     entry: &BazanEntry,
 ) -> Result<RecordBatch, BazanError> {
     let mut file = File::open(bazan_path)?;
+    let file_size = file.metadata()?.len();
+
+    // Bounds-check before allocating: a crafted entry must not OOM the process
+    if entry
+        .offset
+        .checked_add(entry.length)
+        .is_none_or(|end| end > file_size)
+    {
+        return Err(BazanError::Message(format!(
+            "Corrupt .bazan container: entry '{}' offset {} + length {} exceeds file size {}",
+            entry.path, entry.offset, entry.length, file_size
+        )));
+    }
+
     file.seek(SeekFrom::Start(entry.offset))?;
 
     let mut buffer = vec![0u8; entry.length as usize];
