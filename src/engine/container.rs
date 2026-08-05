@@ -28,7 +28,7 @@ pub struct BazanManifest {
 }
 
 impl MatrixEngine {
-    /// Đóng gói toàn bộ cây thư mục CSDL/Lakehouse vào 1 file container duy nhất (.bazan)
+    /// Pack an entire DB/Lakehouse directory tree into a single container file (.bazan)
     pub fn pack_directory_to_bazan(
         &self,
         input_dir: &Path,
@@ -55,7 +55,7 @@ impl MatrixEngine {
 
         let mut out = File::create(output_file)?;
 
-        // 1. Ghi Header Magic "BAZAN01" (7 bytes)
+        // 1. Write Header Magic "BAZAN01" (7 bytes)
         out.write_all(HEADER_MAGIC)?;
         let mut current_offset = HEADER_MAGIC.len() as u64;
 
@@ -73,11 +73,11 @@ impl MatrixEngine {
                 BazanError::Message(format!("Invalid non-UTF8 path: {:?}", file_path))
             })?;
 
-            // Đọc file thành RecordBatch chuẩn
+            // Read file into standard RecordBatch
             let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
             let num_rows = batch.num_rows();
 
-            // Chuyển RecordBatch thành Parquet Bytes nén cao
+            // Convert RecordBatch to high-compression Parquet Bytes
             let mut parquet_buf = Vec::new();
             let props = parquet::file::properties::WriterProperties::builder()
                 .set_compression(parquet::basic::Compression::SNAPPY)
@@ -92,7 +92,7 @@ impl MatrixEngine {
 
             let length = parquet_buf.len() as u64;
 
-            // Ghi Stream Payload vào container
+            // Write Stream Payload to container
             out.write_all(&parquet_buf)?;
 
             entries.push(BazanEntry {
@@ -116,14 +116,14 @@ impl MatrixEngine {
         let manifest_offset = current_offset;
         let manifest_length = manifest_bytes.len() as u64;
 
-        // 3. Ghi Manifest JSON
+        // 3. Write Manifest JSON
         out.write_all(manifest_bytes)?;
 
-        // 4. Ghi Manifest Offset (8 bytes u64 LE) + Manifest Length (8 bytes u64 LE)
+        // 4. Write Manifest Offset (8 bytes u64 LE) + Manifest Length (8 bytes u64 LE)
         out.write_all(&manifest_offset.to_le_bytes())?;
         out.write_all(&manifest_length.to_le_bytes())?;
 
-        // 5. Ghi Footer Magic "BAZANEND" (8 bytes)
+        // 5. Write Footer Magic "BAZANEND" (8 bytes)
         out.write_all(FOOTER_MAGIC)?;
 
         let total_file_size = out.metadata()?.len();
@@ -132,7 +132,7 @@ impl MatrixEngine {
     }
 }
 
-/// Đọc Catalog Manifest từ Footer Index của file container .bazan (Tốc độ micro-giây)
+/// Read Catalog Manifest from Footer Index of .bazan container file (microsecond speed)
 pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanError> {
     let mut file = File::open(bazan_path)?;
     let file_size = file.metadata()?.len();
@@ -144,7 +144,7 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanErro
         ));
     }
 
-    // Đọc 24 bytes cuối cùng
+    // Read last 24 bytes
     file.seek(SeekFrom::End(-24))?;
     let mut footer_buf = [0u8; 24];
     file.read_exact(&mut footer_buf)?;
@@ -196,10 +196,11 @@ pub fn read_bazan_manifest(bazan_path: &Path) -> Result<BazanManifest, BazanErro
     Ok(manifest)
 }
 
-/// Đọc trực tiếp byte stream của 1 bảng trong container .bazan và nạp vào Arrow RecordBatch (Zero-Copy Disk Extraction)
-pub fn read_bazan_entry_batch(
+/// Read byte stream directly from an entry in .bazan container into Arrow RecordBatch (supports Projection Pushdown)
+pub fn read_bazan_entry_batch_projected(
     bazan_path: &Path,
     entry: &BazanEntry,
+    projection: Option<&[usize]>,
 ) -> Result<RecordBatch, BazanError> {
     let mut file = File::open(bazan_path)?;
     let file_size = file.metadata()?.len();
@@ -222,7 +223,14 @@ pub fn read_bazan_entry_batch(
     file.read_exact(&mut buffer)?;
 
     let bytes = Bytes::from(buffer);
-    let builder = ParquetRecordBatchReaderBuilder::try_new(bytes)?;
+    let mut builder = ParquetRecordBatchReaderBuilder::try_new(bytes)?;
+    if let Some(proj) = projection {
+        let mask = parquet::arrow::ProjectionMask::roots(
+            builder.parquet_schema(),
+            proj.iter().copied(),
+        );
+        builder = builder.with_projection(mask);
+    }
     let mut reader = builder.build()?;
 
     if let Some(batch_res) = reader.next() {
@@ -232,5 +240,85 @@ pub fn read_bazan_entry_batch(
             "Empty Parquet batch inside .bazan container for entry: {}",
             entry.path
         )))
+    }
+}
+
+pub fn read_bazan_entry_batch(
+    bazan_path: &Path,
+    entry: &BazanEntry,
+) -> Result<RecordBatch, BazanError> {
+    read_bazan_entry_batch_projected(bazan_path, entry, None)
+}
+
+use async_trait::async_trait;
+use datafusion::catalog::Session;
+use datafusion::datasource::MemTable;
+use datafusion::datasource::{TableProvider, TableType};
+use datafusion::error::DataFusionError;
+use datafusion::logical_expr::Expr;
+use datafusion::physical_plan::ExecutionPlan;
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct BazanTableProvider {
+    bazan_path: std::path::PathBuf,
+    manifest: BazanManifest,
+    schema: arrow::datatypes::SchemaRef,
+}
+
+impl BazanTableProvider {
+    pub fn try_new(bazan_path: &Path) -> Result<Self, BazanError> {
+        let manifest = read_bazan_manifest(bazan_path)?;
+        if manifest.entries.is_empty() {
+            return Err(BazanError::Message(
+                "No entries in .bazan container".to_string(),
+            ));
+        }
+
+        let sample_batch = read_bazan_entry_batch_projected(bazan_path, &manifest.entries[0], None)?;
+        let schema = sample_batch.schema();
+
+        Ok(Self {
+            bazan_path: bazan_path.to_path_buf(),
+            manifest,
+            schema,
+        })
+    }
+
+    pub fn manifest(&self) -> &BazanManifest {
+        &self.manifest
+    }
+}
+
+#[async_trait]
+impl TableProvider for BazanTableProvider {
+    fn schema(&self) -> arrow::datatypes::SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+        let mut batches = Vec::with_capacity(self.manifest.entries.len());
+        for entry in &self.manifest.entries {
+            let batch = read_bazan_entry_batch_projected(
+                &self.bazan_path,
+                entry,
+                projection.map(|v| v.as_slice()),
+            )
+            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            batches.push(batch);
+        }
+
+        let mem_table = MemTable::try_new(self.schema.clone(), vec![batches])?;
+        mem_table.scan(state, projection, filters, limit).await
     }
 }

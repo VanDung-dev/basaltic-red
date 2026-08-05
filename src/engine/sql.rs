@@ -74,10 +74,15 @@ impl MatrixEngine {
                             .and_then(|s| s.to_str())
                             .unwrap_or("")
                             .to_lowercase();
-                        let handler = handler_for(&ext).ok_or_else(|| {
-                            BazanError::Message(format!("Unsupported format: .{}", ext))
-                        })?;
-                        register_source(handler, path_str)?;
+                        if ext == "bazan" {
+                            let provider = crate::engine::container::BazanTableProvider::try_new(path_obj)?;
+                            ctx.register_table(table_name, Arc::new(provider))?;
+                        } else {
+                            let handler = handler_for(&ext).ok_or_else(|| {
+                                BazanError::Message(format!("Unsupported format: .{}", ext))
+                            })?;
+                            register_source(handler, path_str)?;
+                        }
                     } else if path_obj.is_dir() {
                         let files = discover_data_files(path_obj, None)?;
                         for file in files {
@@ -96,20 +101,22 @@ impl MatrixEngine {
                         }
                     }
 
-                    if df_batches.is_empty() {
+                    if !ctx.table_exist(table_name)? && df_batches.is_empty() {
                         return Err(BazanError::Message(
                             "No valid batches found for target path".to_string(),
                         ));
                     }
 
-                    // arrow_json sorts fields alphabetically while csv keeps
-                    // header order, so align every batch to a canonical schema
-                    // (first-seen field order) before handing them to MemTable.
-                    let df_batches = align_batches(df_batches)?;
+                    if !df_batches.is_empty() {
+                        // arrow_json sorts fields alphabetically while csv keeps
+                        // header order, so align every batch to a canonical schema
+                        // (first-seen field order) before handing them to MemTable.
+                        let df_batches = align_batches(df_batches)?;
 
-                    let schema = df_batches[0].schema();
-                    let mem_table = MemTable::try_new(schema, vec![df_batches])?;
-                    ctx.register_table(table_name, Arc::new(mem_table))?;
+                        let schema = df_batches[0].schema();
+                        let mem_table = MemTable::try_new(schema, vec![df_batches])?;
+                        ctx.register_table(table_name, Arc::new(mem_table))?;
+                    }
 
                     // Replace original `'path'` with registered virtual table name
                     let target_token = format!("'{}'", path_str);

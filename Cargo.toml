@@ -50,6 +50,7 @@ pyo3 = { version = "0.28.3", features = ["extension-module", "abi3-py38"] }
 
 # Async runtime
 tokio = { version = "1.37.0", features = ["full"] }
+async-trait = "0.1.91"
 
 # CLI argument parsing
 clap = { version = "4.6.4", features = ["derive"] }

@@ -462,6 +462,7 @@ dependencies = [
  "arrow-json",
  "arrow-schema",
  "arrow-select",
+ "async-trait",
  "bytes",
  "calamine",
  "clap",
