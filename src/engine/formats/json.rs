@@ -42,9 +42,17 @@ pub(crate) fn open_json_array(
     file_path: &str,
     batch_size: usize,
 ) -> Result<OpenedSource, BazanError> {
-    let file = File::open(file_path)?;
-    let reader = BufReader::new(file);
-    let json_val: serde_json::Value = serde_json::from_reader(reader)?;
+    let contents = std::fs::read_to_string(file_path)?;
+
+    // Empty/whitespace input -> 0 rows, consistent with csv/tsv/json/ndjson.
+    if contents.trim().is_empty() {
+        return Ok(OpenedSource {
+            schema: Arc::new(Schema::empty()),
+            batches: Box::new(std::iter::empty()),
+        });
+    }
+
+    let json_val: serde_json::Value = serde_json::from_str(&contents)?;
 
     let arr = match json_val {
         serde_json::Value::Array(arr) => arr,
