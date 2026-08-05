@@ -365,3 +365,17 @@ def test_preview_sample(tmp_path):
     clean, trash = basaltic_red.MatrixEngine().preview_sample(p, limit_rows=2)
     assert clean.num_rows == 1  # first 2 taxi rows: 1 clean, 1 trash
     assert trash.num_rows == 1
+
+
+def test_execute_sql_stream(tmp_path):
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
+    )
+    batches = list(stream)
+    assert len(batches) > 0
+    for batch in batches:
+        assert isinstance(batch, pa.RecordBatch)
+    table = pa.Table.from_batches(batches)
+    assert table.num_rows > 0
+    assert table.num_columns == 2
