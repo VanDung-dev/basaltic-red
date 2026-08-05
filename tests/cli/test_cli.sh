@@ -211,6 +211,71 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# --- 15. crafted .bazan bounds: huge lengths must error, not OOM --------------
+# assert_clean_error <name> <expected-substring> -- <cmd...> : rc!=0, clean error, no panic
+assert_clean_error() {
+    local name="$1" expected="$2"
+    shift 3
+    local out
+    out="$("$@" 2>&1)"
+    local rc=$?
+    if (( rc == 0 )); then
+        echo "✗ $name: expected failure but command succeeded"
+        FAIL=$((FAIL + 1))
+    elif [[ "$out" != *"$expected"* ]]; then
+        echo "✗ $name: missing '$expected' in error output"
+        echo "    got: $(printf '%s' "$out" | head -2)"
+        FAIL=$((FAIL + 1))
+    elif [[ "$out" == *"panicked"* ]]; then
+        echo "✗ $name: panicked instead of clean error"
+        FAIL=$((FAIL + 1))
+    else
+        echo "✓ $name"
+        PASS=$((PASS + 1))
+    fi
+}
+
+python3 - "$WORK" <<'PY'
+import struct, sys
+
+work = sys.argv[1]
+
+# attack 1: footer claims a gigantic manifest_length -> inspect must error fast
+with open(f"{work}/evil_len.bazan", "wb") as f:
+    f.write(b"BAZAN01")
+    f.write(b"\x00" * 8)
+    f.write(struct.pack("<Q", 0))
+    f.write(struct.pack("<Q", 0xFFFF_FFFF_FFFF_FFFF))
+    f.write(b"BAZANEND")
+
+# attack 2: valid manifest but an entry whose length overflows the file
+manifest = b'{"version":1,"entries":[{"path":"x.csv","offset":0,"length":18446744073709551615,"format":"parquet","num_rows":1}]}'
+with open(f"{work}/evil_entry.bazan", "wb") as f:
+    f.write(b"BAZAN01")
+    f.write(b"\x00" * 8)
+    f.write(manifest)
+    f.write(struct.pack("<Q", 15))
+    f.write(struct.pack("<Q", len(manifest)))
+    f.write(b"BAZANEND")
+PY
+
+assert_clean_error "bazan huge manifest length" "exceeds file size" -- "$BAZAN_BIN" inspect evil_len.bazan
+assert_clean_error "bazan huge entry length" "exceeds file size" -- "$BAZAN_BIN" sql "SELECT * FROM 'evil_entry.bazan'"
+
+# --- 16. symlinked dirs must not escape the input scope ----------------------
+mkdir -p outside
+printf 'id,x\n1,secret\n' > outside/secret.csv
+ln -s ../outside db/link
+assert_cmd "pack skips symlink" "Container Pack Completed" -- "$BAZAN_BIN" pack db --output symlink.bazan
+if "$BAZAN_BIN" inspect symlink.bazan 2>&1 | grep -q "secret.csv"; then
+    echo "✗ symlink: pack followed a link outside the input scope"
+    FAIL=$((FAIL + 1))
+else
+    echo "✓ symlink: outside files not packed"
+    PASS=$((PASS + 1))
+fi
+rm db/link
+
 echo
 echo "=== bazan CLI: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 ))
