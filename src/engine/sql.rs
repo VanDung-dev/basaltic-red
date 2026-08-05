@@ -41,6 +41,21 @@ fn align_batches(batches: Vec<RecordBatch>) -> Result<Vec<RecordBatch>, BazanErr
         .collect()
 }
 
+pub fn extract_table_name(entry_path: &str) -> String {
+    let path = Path::new(entry_path);
+    if let Some(parent) = path.parent() {
+        if let Some(parent_name) = parent.file_name().and_then(|s| s.to_str()) {
+            if !parent_name.is_empty() && parent_name != "." {
+                return parent_name.to_lowercase();
+            }
+        }
+    }
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        return stem.to_lowercase();
+    }
+    entry_path.to_lowercase()
+}
+
 impl MatrixEngine {
     /// Execute SQL query directly on any supported file, .bazan container, or directory tree
     pub async fn execute_sql(&self, query_str: &str) -> Result<RecordBatch, BazanError> {
@@ -56,6 +71,7 @@ impl MatrixEngine {
                 if path_obj.exists() {
                     let table_name = "bazan_target";
                     let mut df_batches: Vec<RecordBatch> = Vec::new();
+                    let mut primary_registered_name = table_name.to_string();
 
                     let mut register_source =
                         |handler: &'static dyn crate::engine::formats::FormatHandler,
@@ -75,8 +91,59 @@ impl MatrixEngine {
                             .unwrap_or("")
                             .to_lowercase();
                         if ext == "bazan" {
-                            let provider = crate::engine::container::BazanTableProvider::try_new(path_obj)?;
-                            ctx.register_table(table_name, Arc::new(provider))?;
+                            let manifest = crate::engine::container::read_bazan_manifest(path_obj)?;
+                            let mut grouped: std::collections::BTreeMap<String, Vec<crate::engine::container::BazanEntry>> =
+                                std::collections::BTreeMap::new();
+
+                            for entry in manifest.entries {
+                                let t_name = extract_table_name(&entry.path);
+                                grouped.entry(t_name).or_default().push(entry);
+                            }
+
+                            let mut first_name = None;
+                            for (t_name, t_entries) in &grouped {
+                                if first_name.is_none() {
+                                    first_name = Some(t_name.clone());
+                                }
+                                let provider = crate::engine::container::BazanTableProvider::try_new_table(path_obj, t_entries.clone())?;
+                                ctx.register_table(t_name, Arc::new(provider))?;
+                            }
+
+                            let query_after_path = query_str[start_idx + 1 + end_rel + 1..].trim_start();
+                            let words: Vec<&str> = query_after_path.split_whitespace().collect();
+                            let mut matched_name = None;
+
+                            if !words.is_empty() {
+                                let first_w = words[0].trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_lowercase();
+                                if first_w == "as" && words.len() > 1 {
+                                    let second_w = words[1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_lowercase();
+                                    if grouped.contains_key(&second_w) {
+                                        matched_name = Some(second_w);
+                                    }
+                                } else if grouped.contains_key(&first_w) {
+                                    matched_name = Some(first_w.clone());
+                                }
+                            }
+
+                            if matched_name.is_none() {
+                                let query_lower = query_str.to_lowercase();
+                                for t_name in grouped.keys() {
+                                    let field_prefix = format!("{}.", t_name);
+                                    let join_prefix = format!("join {}", t_name);
+                                    if query_lower.contains(&field_prefix) && !query_lower.contains(&join_prefix) {
+                                        matched_name = Some(t_name.clone());
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if let Some(ref name) = matched_name.or(first_name) {
+                                primary_registered_name = name.clone();
+                                if let Some(first_entries) = grouped.get(name) {
+                                    let primary_provider = crate::engine::container::BazanTableProvider::try_new_table(path_obj, first_entries.clone())?;
+                                    ctx.register_table(table_name, Arc::new(primary_provider))?;
+                                }
+                            }
                         } else {
                             let handler = handler_for(&ext).ok_or_else(|| {
                                 BazanError::Message(format!("Unsupported format: .{}", ext))
@@ -117,26 +184,30 @@ impl MatrixEngine {
                         let mem_table = MemTable::try_new(schema, vec![df_batches])?;
                         ctx.register_table(table_name, Arc::new(mem_table))?;
                     }
-
                     // Replace original `'path'` with registered virtual table name
-                    let target_token = format!("'{}'", path_str);
-                    modified_query = modified_query.replace(&target_token, table_name);
+                    let token_with_alias = format!("'{}' {}", path_str, primary_registered_name);
+                    if modified_query.contains(&token_with_alias) {
+                        modified_query = modified_query.replace(&token_with_alias, &primary_registered_name);
+                    } else {
+                        let target_token = format!("'{}'", path_str);
+                        modified_query = modified_query.replace(&target_token, &primary_registered_name);
+                    }
                 }
             }
         }
 
         // Execute query plan with DataFusion SQL Engine
         let df = ctx.sql(&modified_query).await?;
-        let df_batches = df.collect().await?;
+        let result_batches = df.collect().await?;
 
-        if df_batches.is_empty() {
+        if result_batches.is_empty() {
             return Err(BazanError::Message(
                 "SQL query executed successfully but returned 0 rows".to_string(),
             ));
         }
 
-        let schema = df_batches[0].schema();
-        let concatenated = concat_batches(&schema, &df_batches)?;
+        let schema = result_batches[0].schema();
+        let concatenated = concat_batches(&schema, &result_batches)?;
         Ok(concatenated)
     }
 }

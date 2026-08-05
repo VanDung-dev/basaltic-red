@@ -262,31 +262,35 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct BazanTableProvider {
     bazan_path: std::path::PathBuf,
-    manifest: BazanManifest,
+    entries: Vec<BazanEntry>,
     schema: arrow::datatypes::SchemaRef,
 }
 
 impl BazanTableProvider {
     pub fn try_new(bazan_path: &Path) -> Result<Self, BazanError> {
         let manifest = read_bazan_manifest(bazan_path)?;
-        if manifest.entries.is_empty() {
+        Self::try_new_table(bazan_path, manifest.entries)
+    }
+
+    pub fn try_new_table(bazan_path: &Path, entries: Vec<BazanEntry>) -> Result<Self, BazanError> {
+        if entries.is_empty() {
             return Err(BazanError::Message(
-                "No entries in .bazan container".to_string(),
+                "No entries provided for BazanTableProvider".to_string(),
             ));
         }
 
-        let sample_batch = read_bazan_entry_batch_projected(bazan_path, &manifest.entries[0], None)?;
+        let sample_batch = read_bazan_entry_batch_projected(bazan_path, &entries[0], None)?;
         let schema = sample_batch.schema();
 
         Ok(Self {
             bazan_path: bazan_path.to_path_buf(),
-            manifest,
+            entries,
             schema,
         })
     }
 
-    pub fn manifest(&self) -> &BazanManifest {
-        &self.manifest
+    pub fn entries(&self) -> &[BazanEntry] {
+        &self.entries
     }
 }
 
@@ -307,12 +311,12 @@ impl TableProvider for BazanTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let mut batches = Vec::with_capacity(self.manifest.entries.len());
-        for entry in &self.manifest.entries {
+        let mut batches = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
             let batch = read_bazan_entry_batch_projected(
                 &self.bazan_path,
                 entry,
-                projection.map(|v| v.as_slice()),
+                None,
             )
             .map_err(|e| DataFusionError::Execution(e.to_string()))?;
             batches.push(batch);
