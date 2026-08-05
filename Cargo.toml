@@ -63,6 +63,8 @@ walkdir = "2.5.0"                   # Recursive directory traversal
 bytes = "1.6.0"                     # Byte buffer utilities
 comfy-table = "7.1.1"               # Pretty CLI tables (preview/inspect)
 datafusion = "54.1.0"              # SQL query engine (bazan sql command)
+orc-rust = { version = "0.8.0", default-features = false }
 
 [dev-dependencies]
+rust_xlsxwriter = "0.97.1"
 tempfile = "3.10.1"                # Temporary files/directories in tests
