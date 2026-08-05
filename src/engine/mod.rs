@@ -5,6 +5,7 @@ use pyo3::Py;
 use crate::error::BazanError;
 
 pub mod container;
+pub mod csv_guard;
 pub mod dictionary;
 pub mod dynamic_filter;
 pub mod filter;

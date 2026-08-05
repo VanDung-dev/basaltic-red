@@ -70,7 +70,7 @@ impl MatrixEngine {
             }
             "csv" => {
                 let mut writer = WriterBuilder::new().with_header(true).build(file);
-                writer.write(batch)?;
+                writer.write(&crate::engine::csv_guard::sanitize_csv_batch(batch))?;
             }
 
             _ => {

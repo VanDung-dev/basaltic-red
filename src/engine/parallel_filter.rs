@@ -272,7 +272,7 @@ pub fn save_batch_to_file(batch: &RecordBatch, out_path: &Path) -> Result<(), Ba
         "csv" => {
             let file = std::fs::File::create(out_path)?;
             let mut writer = arrow::csv::Writer::new(file);
-            writer.write(batch)?;
+            writer.write(&crate::engine::csv_guard::sanitize_csv_batch(batch))?;
         }
         "json" | "jsonl" | "ndjson" => {
             let file = std::fs::File::create(out_path)?;
