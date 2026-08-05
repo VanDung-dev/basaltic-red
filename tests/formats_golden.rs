@@ -185,6 +185,41 @@ fn golden_avro() {
 }
 
 #[test]
+fn golden_orc() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("data.orc");
+    let f = File::create(&path).unwrap();
+    let mut writer = orc_rust::ArrowWriterBuilder::new(f, taxi_schema())
+        .try_build()
+        .unwrap();
+    writer.write(&taxi_batch()).unwrap();
+    writer.close().unwrap();
+    assert_taxi_stats("orc", path.to_str().unwrap(), (6, 2, 4));
+}
+
+#[test]
+fn golden_xlsx() {
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let sheet = workbook.add_worksheet();
+    sheet.write_string(0, 0, "passenger_count").unwrap();
+    sheet.write_string(0, 1, "fare_amount").unwrap();
+    sheet.write_string(0, 2, "trip_distance").unwrap();
+    for i in 0..PASSENGERS.len() {
+        sheet
+            .write_number(i as u32 + 1, 0, PASSENGERS[i] as f64)
+            .unwrap();
+        sheet.write_number(i as u32 + 1, 1, FARES[i]).unwrap();
+        sheet.write_number(i as u32 + 1, 2, DISTANCES[i]).unwrap();
+    }
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("data.xlsx");
+    workbook.save(&path).unwrap();
+    // XlsxHandler maps every cell to Utf8, so the typed filter sees no numeric
+    // columns and every row passes clean (same as TSV).
+    assert_taxi_stats("xlsx", path.to_str().unwrap(), (6, 6, 0));
+}
+
+#[test]
 fn golden_msgpack() {
     use rmpv::Value;
 

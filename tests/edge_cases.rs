@@ -10,6 +10,7 @@ use tempfile::tempdir;
 
 use arrow::array::Int64Array;
 use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 
 use basaltic_red::engine::dynamic_filter::FilterRule;
 use basaltic_red::engine::formats::handler_for;
@@ -221,6 +222,56 @@ fn empty_parquet_slices_to_empty() {
         .slice_rows_native(path.to_str().unwrap(), 0, 5)
         .unwrap();
     assert_eq!(batch.num_rows(), 0);
+}
+
+#[test]
+fn empty_orc_is_zero_rows() {
+    // A schema-only ORC file (no stripes) must read as zero rows, not error.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("empty.orc");
+    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+    let f = File::create(&path).unwrap();
+    let writer = orc_rust::ArrowWriterBuilder::new(f, schema)
+        .try_build()
+        .unwrap();
+    writer.close().unwrap();
+
+    let stats = handler_for("orc")
+        .unwrap()
+        .process_file(&engine(), path.to_str().unwrap(), 1024)
+        .unwrap();
+    assert_eq!(stats, (0, 0, 0));
+}
+
+#[test]
+fn read_range_orc_across_batches() {
+    // batch_size=10 over 25 rows forces the orc-rust reader to emit 3 batches;
+    // read_range must skip, slice and stop across batch boundaries.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("seq.orc");
+    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+    let ids: Int64Array = (0..25).collect();
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(ids)]).unwrap();
+    let f = File::create(&path).unwrap();
+    let mut writer = orc_rust::ArrowWriterBuilder::new(f, schema)
+        .try_build()
+        .unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let handler = handler_for("orc").unwrap();
+    let batch = handler
+        .read_range(path.to_str().unwrap(), 5, 12, 10)
+        .unwrap();
+    assert_eq!(batch.num_rows(), 12);
+    let ids = batch
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(ids.value(0), 5);
+    assert_eq!(ids.value(11), 16);
 }
 
 #[test]
