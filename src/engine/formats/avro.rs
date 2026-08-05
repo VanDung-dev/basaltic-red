@@ -6,8 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler};
-use crate::engine::MatrixEngine;
+use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
 
@@ -15,12 +14,7 @@ use arrow_schema::{DataType, Field, Schema};
 pub struct AvroHandler;
 
 impl FormatHandler for AvroHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let file = BufReader::new(File::open(file_path)?);
         let reader = AvroReader::new(file)?;
@@ -42,37 +36,18 @@ impl FormatHandler for AvroHandler {
         }
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        let mut total_rows = 0;
-        let mut total_clean = 0;
-        let mut total_trash = 0;
+        let rows = reader.map(|r| r.map_err(BazanError::from));
+        let chunker = RowChunker::new(
+            rows,
+            batch_size,
+            arrow_schema.clone(),
+            avro_values_to_record_batch,
+        );
 
-        let mut value_batch: Vec<Value> = Vec::with_capacity(batch_size);
-
-        for value_res in reader {
-            let value = value_res?;
-            value_batch.push(value);
-
-            if value_batch.len() >= batch_size {
-                let batch = avro_values_to_record_batch(&value_batch, &arrow_schema)?;
-                let n = batch.num_rows();
-                total_rows += n;
-                let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-                total_clean += c_b.num_rows();
-                total_trash += t_b.num_rows();
-                value_batch.clear();
-            }
-        }
-
-        if !value_batch.is_empty() {
-            let batch = avro_values_to_record_batch(&value_batch, &arrow_schema)?;
-            let n = batch.num_rows();
-            total_rows += n;
-            let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-            total_clean += c_b.num_rows();
-            total_trash += t_b.num_rows();
-        }
-
-        Ok((total_rows, total_clean, total_trash))
+        Ok(OpenedSource {
+            schema: arrow_schema,
+            batches: Box::new(chunker),
+        })
     }
 }
 

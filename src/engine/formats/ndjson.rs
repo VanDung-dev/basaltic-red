@@ -1,5 +1,4 @@
-use super::{clamp_batch_size, FormatHandler};
-use crate::engine::MatrixEngine;
+use super::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::error::BazanError;
 use std::fs::File;
 use std::io::BufReader;
@@ -9,12 +8,7 @@ use std::sync::Arc;
 pub struct NdjsonHandler;
 
 impl FormatHandler for NdjsonHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let file = File::open(file_path)?;
         let mut buf_reader = BufReader::new(file);
@@ -26,10 +20,13 @@ impl FormatHandler for NdjsonHandler {
         let file_for_reader = File::open(file_path)?;
         let buf_reader_2 = BufReader::new(file_for_reader);
 
-        let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+        let reader = arrow_json::ReaderBuilder::new(Arc::new(schema.clone()))
             .with_batch_size(batch_size)
             .build(buf_reader_2)?;
 
-        engine.process_reader(reader)
+        Ok(OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
     }
 }

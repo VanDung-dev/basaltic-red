@@ -1,5 +1,4 @@
-use super::{clamp_batch_size, FormatHandler};
-use crate::engine::MatrixEngine;
+use super::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
 use regex::Regex;
@@ -11,12 +10,7 @@ use std::sync::Arc;
 pub struct TsvHandler;
 
 impl FormatHandler for TsvHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let header_file = File::open(file_path)?;
         let mut header_reader = BufReader::new(header_file);
@@ -37,7 +31,7 @@ impl FormatHandler for TsvHandler {
 
         let null_regex = Regex::new(r"^\\N$")?;
         let file_for_reader = File::open(file_path)?;
-        let reader = arrow_csv::ReaderBuilder::new(schema)
+        let reader = arrow_csv::ReaderBuilder::new(schema.clone())
             .with_header(true)
             .with_delimiter(b'\t')
             .with_null_regex(null_regex)
@@ -45,6 +39,9 @@ impl FormatHandler for TsvHandler {
             .with_batch_size(batch_size)
             .build(file_for_reader)?;
 
-        engine.process_reader(reader)
+        Ok(OpenedSource {
+            schema,
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
     }
 }

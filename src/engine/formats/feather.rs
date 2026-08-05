@@ -1,5 +1,4 @@
-use super::FormatHandler;
-use crate::engine::MatrixEngine;
+use super::{FormatHandler, OpenedSource};
 use crate::error::BazanError;
 use arrow_ipc::reader::FileReader as ArrowFileReader;
 use std::fs::File;
@@ -8,15 +7,14 @@ use std::fs::File;
 pub struct FeatherHandler;
 
 impl FormatHandler for FeatherHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        _batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, _batch_size: usize) -> Result<OpenedSource, BazanError> {
         let file = File::open(file_path)?;
         let reader = ArrowFileReader::try_new(file, None)?;
+        let schema = reader.schema().clone();
 
-        engine.process_reader(reader)
+        Ok(OpenedSource {
+            schema,
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
     }
 }

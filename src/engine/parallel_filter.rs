@@ -5,7 +5,9 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 use crate::engine::dynamic_filter::FilterRule;
+use crate::engine::formats::handler_for;
 use crate::engine::partition::discover_and_prune_files;
+use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -19,6 +21,9 @@ pub struct ParallelFilterSummary {
     pub clean_batch: Option<RecordBatch>,
     pub trash_batch: Option<RecordBatch>,
 }
+
+/// (clean batches, trash batches) produced for one file.
+type FilteredFile = (Vec<RecordBatch>, Vec<RecordBatch>);
 
 /// Collect files to process based on single file path, directory path, or glob pattern, applying partition pruning
 pub fn collect_target_files(
@@ -184,19 +189,39 @@ impl MatrixEngine {
         let total_files = files.len();
 
         // Optional thread pool configuration
-        let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>, BazanError> {
+        let process_fn = || -> Result<Vec<FilteredFile>, BazanError> {
             files
                 .par_iter()
-                .map(
-                    |file_path| -> Result<(RecordBatch, RecordBatch), BazanError> {
-                        let file_str = file_path.to_str().ok_or_else(|| {
-                            BazanError::Message("Invalid file path string".to_string())
-                        })?;
-                        let batch = self.slice_rows_native(file_str, 0, usize::MAX)?;
+                .map(|file_path| -> Result<FilteredFile, BazanError> {
+                    let file_str = file_path.to_str().ok_or_else(|| {
+                        BazanError::Message("Invalid file path string".to_string())
+                    })?;
+                    let path = Path::new(file_str);
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let handler = handler_for(&ext).ok_or_else(|| {
+                        BazanError::Message(format!("Unsupported format: .{}", ext))
+                    })?;
+
+                    // Stream per-batch instead of loading the whole file into RAM
+                    let source = handler.open(file_str, DEFAULT_MAX_BATCH_SIZE)?;
+                    let mut clean_batches = Vec::new();
+                    let mut trash_batches = Vec::new();
+                    for batch_res in source.batches {
+                        let batch = batch_res?;
                         let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
-                        Ok((clean, trash))
-                    },
-                )
+                        if clean.num_rows() > 0 {
+                            clean_batches.push(clean);
+                        }
+                        if trash.num_rows() > 0 {
+                            trash_batches.push(trash);
+                        }
+                    }
+                    Ok((clean_batches, trash_batches))
+                })
                 .collect()
         };
 
@@ -212,18 +237,17 @@ impl MatrixEngine {
         let mut clean_rows = 0;
         let mut trash_rows = 0;
 
-        let mut clean_batches = Vec::with_capacity(results.len());
-        let mut trash_batches = Vec::with_capacity(results.len());
+        let mut clean_batches = Vec::new();
+        let mut trash_batches = Vec::new();
 
-        for (clean, trash) in results {
-            clean_rows += clean.num_rows();
-            trash_rows += trash.num_rows();
-
-            if clean.num_rows() > 0 {
-                clean_batches.push(clean);
+        for (file_clean, file_trash) in results {
+            for batch in file_clean {
+                clean_rows += batch.num_rows();
+                clean_batches.push(batch);
             }
-            if trash.num_rows() > 0 {
-                trash_batches.push(trash);
+            for batch in file_trash {
+                trash_rows += batch.num_rows();
+                trash_batches.push(batch);
             }
         }
         let total_rows = clean_rows + trash_rows;

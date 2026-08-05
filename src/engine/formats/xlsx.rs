@@ -3,8 +3,7 @@ use arrow_array::*;
 use calamine::{open_workbook, Data, Reader, Xlsx};
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler};
-use crate::engine::MatrixEngine;
+use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
 
@@ -12,12 +11,7 @@ use arrow_schema::{DataType, Field, Schema};
 pub struct XlsxHandler;
 
 impl FormatHandler for XlsxHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let mut workbook: Xlsx<_> = open_workbook(file_path)?;
 
@@ -36,7 +30,12 @@ impl FormatHandler for XlsxHandler {
         // First row as Header
         let header = match rows_iter.next() {
             Some(h) => h,
-            None => return Ok((0, 0, 0)),
+            None => {
+                return Ok(OpenedSource {
+                    schema: Arc::new(Schema::empty()),
+                    batches: Box::new(std::iter::empty()),
+                })
+            }
         };
 
         let col_names: Vec<String> = header
@@ -53,12 +52,9 @@ impl FormatHandler for XlsxHandler {
             .collect();
         let schema = Arc::new(Schema::new(fields));
 
-        let mut total_rows = 0;
-        let mut total_clean = 0;
-        let mut total_trash = 0;
-
-        let mut row_batch: Vec<Vec<String>> = Vec::with_capacity(batch_size);
-
+        // Calamine holds the whole sheet in memory anyway, so collect rows
+        // eagerly then chunk them into RecordBatches.
+        let mut all_rows: Vec<Vec<String>> = Vec::new();
         for row_cells in rows_iter {
             let string_row: Vec<String> = row_cells
                 .iter()
@@ -71,30 +67,20 @@ impl FormatHandler for XlsxHandler {
                     other => other.to_string(),
                 })
                 .collect();
-
-            row_batch.push(string_row);
-
-            if row_batch.len() >= batch_size {
-                let batch = string_rows_to_record_batch(&row_batch, &schema)?;
-                let n = batch.num_rows();
-                total_rows += n;
-                let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-                total_clean += c_b.num_rows();
-                total_trash += t_b.num_rows();
-                row_batch.clear();
-            }
+            all_rows.push(string_row);
         }
 
-        if !row_batch.is_empty() {
-            let batch = string_rows_to_record_batch(&row_batch, &schema)?;
-            let n = batch.num_rows();
-            total_rows += n;
-            let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-            total_clean += c_b.num_rows();
-            total_trash += t_b.num_rows();
-        }
+        let chunker = RowChunker::new(
+            all_rows.into_iter().map(Ok),
+            batch_size,
+            schema.clone(),
+            string_rows_to_record_batch,
+        );
 
-        Ok((total_rows, total_clean, total_trash))
+        Ok(OpenedSource {
+            schema,
+            batches: Box::new(chunker),
+        })
     }
 }
 

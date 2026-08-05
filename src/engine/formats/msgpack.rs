@@ -4,8 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler};
-use crate::engine::MatrixEngine;
+use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
 use crate::error::BazanError;
 use arrow_schema::{DataType, Field, Schema};
 
@@ -13,68 +12,49 @@ use arrow_schema::{DataType, Field, Schema};
 pub struct MsgpackHandler;
 
 impl FormatHandler for MsgpackHandler {
-    fn process_file(
-        &self,
-        engine: &MatrixEngine,
-        file_path: &str,
-        batch_size: usize,
-    ) -> Result<(usize, usize, usize), BazanError> {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let file = BufReader::new(File::open(file_path)?);
         let mut read = file;
 
-        let mut total_rows = 0;
-        let mut total_clean = 0;
-        let mut total_trash = 0;
+        let mut values = std::iter::from_fn(move || rmpv::decode::read_value(&mut read).ok());
 
-        let mut value_batch: Vec<rmpv::Value> = Vec::with_capacity(batch_size);
-        let mut cached_schema: Option<Arc<Schema>> = None;
-
-        while let Ok(val) = rmpv::decode::read_value(&mut read) {
-            if cached_schema.is_none() {
-                if let rmpv::Value::Map(ref entries) = val {
-                    let mut fields = Vec::new();
-                    for (k, v) in entries {
-                        let key_str = k.as_str().unwrap_or("col").to_string();
-                        let dt = match v {
-                            rmpv::Value::Integer(_) => DataType::Int64,
-                            rmpv::Value::F32(_) | rmpv::Value::F64(_) => DataType::Float64,
-                            rmpv::Value::Boolean(_) => DataType::Boolean,
-                            _ => DataType::Utf8,
-                        };
-                        fields.push(Field::new(key_str, dt, true));
-                    }
-                    cached_schema = Some(Arc::new(Schema::new(fields)));
+        // Schema is inferred from the first Map row; rows before it are dropped
+        // (matches the previous buffer-then-skip behaviour).
+        let mut schema: Option<Arc<Schema>> = None;
+        let mut first: Option<rmpv::Value> = None;
+        for val in values.by_ref() {
+            if let rmpv::Value::Map(ref entries) = val {
+                let mut fields = Vec::new();
+                for (k, v) in entries {
+                    let key_str = k.as_str().unwrap_or("col").to_string();
+                    let dt = match v {
+                        rmpv::Value::Integer(_) => DataType::Int64,
+                        rmpv::Value::F32(_) | rmpv::Value::F64(_) => DataType::Float64,
+                        rmpv::Value::Boolean(_) => DataType::Boolean,
+                        _ => DataType::Utf8,
+                    };
+                    fields.push(Field::new(key_str, dt, true));
                 }
-            }
-
-            value_batch.push(val);
-
-            if value_batch.len() >= batch_size {
-                if let Some(ref schema) = cached_schema {
-                    let batch = msgpack_values_to_record_batch(&value_batch, schema)?;
-                    let n = batch.num_rows();
-                    total_rows += n;
-                    let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-                    total_clean += c_b.num_rows();
-                    total_trash += t_b.num_rows();
-                }
-                value_batch.clear();
+                schema = Some(Arc::new(Schema::new(fields)));
+                first = Some(val);
+                break;
             }
         }
 
-        if !value_batch.is_empty() {
-            if let Some(ref schema) = cached_schema {
-                let batch = msgpack_values_to_record_batch(&value_batch, schema)?;
-                let n = batch.num_rows();
-                total_rows += n;
-                let (c_b, t_b) = engine.filter_batch_native(&batch, n);
-                total_clean += c_b.num_rows();
-                total_trash += t_b.num_rows();
-            }
-        }
+        let schema = schema.unwrap_or_else(|| Arc::new(Schema::empty()));
+        let rows = first.into_iter().chain(values).map(Ok);
+        let chunker = RowChunker::new(
+            rows,
+            batch_size,
+            schema.clone(),
+            msgpack_values_to_record_batch,
+        );
 
-        Ok((total_rows, total_clean, total_trash))
+        Ok(OpenedSource {
+            schema,
+            batches: Box::new(chunker),
+        })
     }
 }
 
