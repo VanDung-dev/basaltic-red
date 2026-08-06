@@ -22,23 +22,66 @@ pub use formats::*;
 /// Synchronous Python iterator yielding RecordBatch streams from DataFusion SQL execution
 #[pyclass]
 pub struct PyBatchIterator {
-    pub batches: std::vec::IntoIter<arrow::array::RecordBatch>,
+    pub batches: std::sync::Mutex<std::vec::IntoIter<arrow::array::RecordBatch>>,
+}
+
+impl PyBatchIterator {
+    pub fn new(batches: Vec<arrow::array::RecordBatch>) -> Self {
+        Self {
+            batches: std::sync::Mutex::new(batches.into_iter()),
+        }
+    }
 }
 
 #[pymethods]
 impl PyBatchIterator {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+    pub fn __next__<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         use arrow::pyarrow::ToPyArrow;
-        if let Some(batch) = self.batches.next() {
+        let mut guard = self
+            .batches
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        if let Some(batch) = guard.next() {
             let py_batch = batch.to_pyarrow(py)?;
             Ok(Some(py_batch))
         } else {
             Ok(None)
         }
+    }
+
+    /// Zero-Copy conversion of stream into PyArrow Table
+    pub fn to_pyarrow<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        use arrow::pyarrow::ToPyArrow;
+        let mut guard = self
+            .batches
+            .lock()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let pyarrow = py.import("pyarrow")?;
+        let mut py_batches = Vec::with_capacity(guard.len());
+        for batch in guard.by_ref() {
+            py_batches.push(batch.to_pyarrow(py)?);
+        }
+        let table = pyarrow.call_method1("Table", (pyarrow.call_method1("from_batches", (py_batches,))?,))?;
+        Ok(table)
+    }
+
+    /// Zero-Copy conversion of stream into Polars DataFrame
+    pub fn to_polars<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let table = self.to_pyarrow(py)?;
+        let polars = py.import("polars")?;
+        let df = polars.call_method1("from_arrow", (table,))?;
+        Ok(df)
+    }
+
+    /// Conversion of stream into Pandas DataFrame
+    pub fn to_pandas<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let table = self.to_pyarrow(py)?;
+        let df = table.call_method0("to_pandas")?;
+        Ok(df)
     }
 }
 
@@ -105,7 +148,7 @@ impl MatrixEngine {
             .block_on(self.execute_sql_batches(query))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyBatchIterator {
-            batches: batches.into_iter(),
+            batches: std::sync::Mutex::new(batches.into_iter()),
         })
     }
 
