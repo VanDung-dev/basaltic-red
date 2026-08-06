@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "basaltic-red"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    # Build & Testing Tools
+    "pytest>=9.1.0",
+    "maturin>=1.14.0",
+
+    # Core Arrow & Data Processing Ecosystem (Zero-Copy Interop)
+    "pyarrow>=25.0.0",
+    "polars>=1.43.0",
+    "duckdb>=1.5.0",
+    "pandas>=3.0.0",
+    "numpy>=2.5.0",
+
+    # Jupyter Notebook & JupyterLab Ecosystem
+    "jupyterlab>=4.6.0",
+    "notebook>=7.6.0",
+    "ipython>=9.16.0",
+    "ipywidgets>=8.1.0",
+    "tabulate>=0.10.0",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "basaltic_red.basaltic_red"
