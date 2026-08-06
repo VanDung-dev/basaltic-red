@@ -7,18 +7,12 @@ on:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/test.yml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'requirements.txt'
   pull_request:
     branches: [main, develop]
     paths:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/test.yml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'requirements.txt'
 
 jobs:
   rust-test:
