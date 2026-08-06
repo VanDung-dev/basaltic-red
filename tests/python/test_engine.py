@@ -379,3 +379,55 @@ def test_execute_sql_stream(tmp_path):
     table = pa.Table.from_batches(batches)
     assert table.num_rows > 0
     assert table.num_columns == 2
+
+
+def test_execute_sql_stream_to_pyarrow(tmp_path):
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
+    )
+    table = stream.to_pyarrow()
+    assert isinstance(table, pa.Table)
+    assert table.num_rows > 0
+    assert table.num_columns == 2
+
+
+def test_execute_sql_stream_to_polars(tmp_path):
+    import polars as pl
+
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
+    )
+    df = stream.to_polars()
+    assert isinstance(df, pl.DataFrame)
+    assert df.height > 0
+    assert df.width == 2
+
+
+def test_execute_sql_stream_to_pandas(tmp_path):
+    import pandas as pd
+
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
+    )
+    df = stream.to_pandas()
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) > 0
+    assert len(df.columns) == 2
+
+
+def test_execute_sql_stream_to_duckdb(tmp_path):
+    import duckdb
+
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
+    )
+    table = stream.to_pyarrow()
+    con = duckdb.connect()
+    con.register("tbl", table)
+    res_df = con.execute("SELECT passenger_count, fare_amount FROM tbl WHERE fare_amount > 50.0").df()
+    assert len(res_df) > 0
+
