@@ -1,7 +1,7 @@
 //! Edge-case / "weird input" coverage for the unified read pipeline: offsets
 //! and limits past EOF, multi-batch streaming, malformed or empty inputs,
-//! registry aliases, empty directories, and .bazan containers. These pin
-//! behaviours that a casual happy-path test would never touch.
+//! registry aliases, empty directories. These pin behaviours that a casual
+//! happy-path test would never touch.
 
 use std::fs::File;
 use std::sync::Arc;
@@ -278,38 +278,14 @@ fn read_range_orc_across_batches() {
 fn registry_aliases_resolve() {
     for ext in [
         "csv", "tsv", "psv", "txt", "json", "jsonl", "ndjson", "parquet", "pq", "feather", "arrow",
-        "ipc", "avro", "msgpack", "xlsx", "orc", "bazan",
+        "ipc", "avro", "msgpack", "xlsx", "orc",
     ] {
         assert!(handler_for(ext).is_some(), "handler_for({ext})");
     }
     assert!(handler_for("nope").is_none());
 }
 
-// --- directory / container error paths --------------------------------------
-
-#[test]
-fn pack_empty_dir_errors() {
-    let dir = tempdir().unwrap();
-    let in_dir = dir.path().join("empty");
-    std::fs::create_dir_all(&in_dir).unwrap();
-    let out = dir.path().join("e.bazan");
-
-    let err = engine()
-        .pack_directory_to_bazan(&in_dir, &out)
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("No valid data files"), "{err}");
-}
-
-#[test]
-fn pack_nonexistent_dir_errors() {
-    let dir = tempdir().unwrap();
-    let err = engine()
-        .pack_directory_to_bazan(&dir.path().join("missing"), &dir.path().join("o.bazan"))
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("does not exist"), "{err}");
-}
+// --- directory error paths ------------------------------------------------
 
 #[test]
 fn filter_nonexistent_path_errors() {
@@ -342,74 +318,6 @@ fn filter_glob_pattern() {
     assert_eq!(summary.total_files, 2);
     assert_eq!(summary.clean_rows, 2);
     assert_eq!(summary.trash_rows, 2);
-}
-
-// --- .bazan containers -------------------------------------------------------
-
-fn pack_two_entries(dir: &std::path::Path) -> std::path::PathBuf {
-    let input_dir = dir.join("db");
-    std::fs::create_dir_all(&input_dir).unwrap();
-    std::fs::write(input_dir.join("a.csv"), "id,val\n0,0\n1,1\n2,2\n").unwrap();
-    std::fs::write(input_dir.join("b.csv"), "id,val\n3,3\n4,4\n5,5\n").unwrap();
-
-    let bazan = dir.join("two.bazan");
-    engine()
-        .pack_directory_to_bazan(&input_dir, &bazan)
-        .unwrap();
-    bazan
-}
-
-#[test]
-fn slice_bazan_across_entry_boundary() {
-    // Two packed entries (a.csv then b.csv) concatenate into one table view;
-    // slicing across the boundary must concat cleanly (same schema).
-    let dir = tempdir().unwrap();
-    let bazan = pack_two_entries(dir.path());
-
-    let batch = engine()
-        .slice_rows_native(bazan.to_str().unwrap(), 2, 4)
-        .unwrap();
-    assert_eq!(batch.num_rows(), 4);
-    let ids = batch
-        .column_by_name("id")
-        .unwrap()
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .unwrap();
-    assert_eq!(ids.value(0), 2); // a.csv's last row
-    assert_eq!(ids.value(3), 5); // b.csv's last row
-}
-
-#[test]
-fn filter_bazan_container_prunes_partitions() {
-    let dir = tempdir().unwrap();
-    let input_dir = dir.path().join("lake");
-    std::fs::create_dir_all(input_dir.join("year=2026/month=08")).unwrap();
-    std::fs::create_dir_all(input_dir.join("year=2025/month=08")).unwrap();
-    std::fs::write(
-        input_dir.join("year=2026/month=08/new.csv"),
-        "id,val\n1,10\n",
-    )
-    .unwrap();
-    std::fs::write(
-        input_dir.join("year=2025/month=08/old.csv"),
-        "id,val\n2,20\n",
-    )
-    .unwrap();
-
-    let bazan = dir.path().join("lake.bazan");
-    engine()
-        .pack_directory_to_bazan(&input_dir, &bazan)
-        .unwrap();
-
-    let rules = vec![FilterRule::parse("year >= 2026").unwrap()];
-    let summary = engine()
-        .filter_files_parallel_native(bazan.to_str().unwrap(), &rules, None, Some(2))
-        .unwrap();
-
-    assert_eq!(summary.total_files, 1);
-    assert_eq!(summary.pruned_dirs, 1);
-    assert_eq!(summary.clean_rows, 1);
 }
 
 // --- SQL error paths ---------------------------------------------------------

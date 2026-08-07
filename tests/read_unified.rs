@@ -1,7 +1,7 @@
 //! Unified read pipeline tests: `slice_rows_native`, `slice_cols_native`,
-//! `filter_files_parallel_native`, `execute_sql` and `.bazan` packing must all
-//! work on every format through `FormatHandler::open`. Previously slice only
-//! handled parquet + delimiters and filter failed on json/feather.
+//! `filter_files_parallel_native` and `execute_sql` must all work on every
+//! format through `FormatHandler::open`. Previously slice only handled parquet
+//! + delimiters and filter failed on json/feather.
 use std::fs::File;
 use std::sync::Arc;
 
@@ -306,35 +306,6 @@ fn filter_orc_file() {
     assert_eq!(summary.trash_rows, 4);
 }
 
-/// Pack a directory mixing csv + json + parquet, then slice the container.
-#[test]
-fn pack_mixed_dir_then_slice_bazan() {
-    let dir = tempdir().unwrap();
-    let input_dir = dir.path().join("db");
-    std::fs::create_dir_all(&input_dir).unwrap();
-    write_csv(&input_dir.join("a.csv"));
-    write_json_array(&input_dir.join("b.json"));
-    write_parquet(&input_dir.join("c.parquet"));
-
-    let bazan = dir.path().join("mixed.bazan");
-    let (num_entries, _) = engine()
-        .pack_directory_to_bazan(&input_dir, &bazan)
-        .unwrap();
-    assert_eq!(num_entries, 3);
-
-    let batch = engine()
-        .slice_rows_native(bazan.to_str().unwrap(), 0, 6)
-        .unwrap();
-    assert_eq!(batch.num_rows(), 6);
-    let pc = batch
-        .column_by_name("passenger_count")
-        .unwrap()
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .unwrap();
-    assert_eq!(pc.value(0), 1);
-}
-
 #[tokio::test]
 async fn sql_on_json_file() {
     let dir = tempdir().unwrap();
@@ -403,60 +374,4 @@ async fn sql_on_xlsx_file() {
     );
     let result = engine().execute_sql(&sql).await.unwrap();
     assert_eq!(result.num_rows(), 1);
-}
-
-/// Pack a dir mixing csv (typed) + orc (typed) then slice the container.
-#[test]
-fn pack_orc_into_bazan() {
-    let dir = tempdir().unwrap();
-    let input_dir = dir.path().join("db");
-    std::fs::create_dir_all(&input_dir).unwrap();
-    write_csv(&input_dir.join("a.csv"));
-    write_orc(&input_dir.join("b.orc"));
-
-    let bazan = dir.path().join("orc.bazan");
-    let (num_entries, _) = engine()
-        .pack_directory_to_bazan(&input_dir, &bazan)
-        .unwrap();
-    assert_eq!(num_entries, 2);
-
-    let batch = engine()
-        .slice_rows_native(bazan.to_str().unwrap(), 0, 6)
-        .unwrap();
-    assert_eq!(batch.num_rows(), 6);
-    let pc = batch
-        .column_by_name("passenger_count")
-        .unwrap()
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .unwrap();
-    assert_eq!(pc.value(0), 1);
-}
-
-/// Pack a dir of xlsx files then slice the container (all-Utf8 columns).
-#[test]
-fn pack_xlsx_into_bazan() {
-    let dir = tempdir().unwrap();
-    let input_dir = dir.path().join("db");
-    std::fs::create_dir_all(&input_dir).unwrap();
-    write_xlsx(&input_dir.join("a.xlsx"));
-    write_xlsx(&input_dir.join("b.xlsx"));
-
-    let bazan = dir.path().join("xlsx.bazan");
-    let (num_entries, _) = engine()
-        .pack_directory_to_bazan(&input_dir, &bazan)
-        .unwrap();
-    assert_eq!(num_entries, 2);
-
-    let batch = engine()
-        .slice_rows_native(bazan.to_str().unwrap(), 1, 1)
-        .unwrap();
-    assert_eq!(batch.num_rows(), 1);
-    let pc = batch
-        .column_by_name("passenger_count")
-        .unwrap()
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .unwrap();
-    assert_eq!(pc.value(0), "2");
 }
