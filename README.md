@@ -10,7 +10,7 @@
 
 ## Engine Performance & Memory Budget
 
-**Basaltic-Red** & **`bazan` CLI** are engineered for enterprise Big Data processing at `500+ MB/s` with a balanced, comfortable memory budget:
+**Basaltic-Red** is engineered for enterprise Big Data processing at `500+ MB/s` with a balanced, comfortable memory budget:
 - **Default Bounded RAM**: `< 2048 MB` (2 GB) RAM - Ideal for high-throughput zero-copy SIMD streaming.
 
 ---
@@ -23,33 +23,27 @@ git clone https://github.com/vandungdev/basaltic-red.git
 cd basaltic-red
 
 # Setup Python environment and build Rust extension
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-maturin develop --release
-
-# Build standalone bazan CLI executable
-cargo build --release --bin bazan
+uv sync --extra dev --extra interop
+uv run maturin develop --release
 ```
 
 ---
 
-## `bazan` CLI & Python SDK Equivalents
+## Python SDK Overview
 
-**Basaltic-Red** provides dual interfaces: high-speed Terminal CLI (**`bazan`**) and Python SDK (**`import basaltic_red`**).
+**Basaltic-Red** is a Python SDK (**`import basaltic_red`**) powered by a high-speed Rust engine:
 
-| Action / Operation | Terminal CLI (`bazan`) | Python SDK Equivalent (`import basaltic_red`) |
-| :--- | :--- | :--- |
-| **Slice Row Range** | `bazan slice-rows data.parquet --offset 100 --limit 50` | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
-| **Slice Column Projection** | `bazan slice-cols data.csv --cols id,email --limit 50` | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
-| **Dynamic Column Filter** | `bazan filter data.csv --rule "price >= 50.0"` | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
-| **Multi-Threaded Parallel Filter** | `bazan filter "data/**/*.parquet" --rule "age >= 18" --threads 8` | `summary = engine.filter_files_parallel("data/", rules=["age >= 18"])` |
-| **Stream Partition Pruning** | `bazan filter test_lakehouse -p "year=2026/month=08" --rule "age >= 18"` | `summary = engine.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
-| **SQL Query Pushdown (DataFusion)** | `bazan sql "SELECT id, salary FROM 'data/analytics' WHERE age >= 18 ORDER BY salary DESC"` | `table = engine.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
-| **Split Matrix File** | `bazan split data.csv --max-rows 100000 --output-dir ./parts` | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
-| **Preview Top N Rows** | `bazan preview data.parquet --limit 20` | `engine.slice_rows("data.parquet", offset=0, limit=20)` |
-| **Export Data Dictionary** | `bazan dict data.parquet --output schema.md` | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
-| **Generate ER Diagram** | `bazan graph data/relational --output er.md` | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
+| Operation | Python SDK (`import basaltic_red`) |
+| :--- | :--- |
+| **Slice Row Range** | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
+| **Slice Column Projection** | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
+| **Dynamic Column Filter** | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
+| **Multi-Threaded Parallel Filter** | `summary = engine.filter_files_parallel("data/", rules=["age >= 18"])` |
+| **Stream Partition Pruning** | `summary = engine.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
+| **SQL Query Pushdown (DataFusion)** | `table = engine.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
+| **Split Matrix File** | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
+| **Export Data Dictionary** | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
+| **Generate ER Diagram** | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
 
 ---
 

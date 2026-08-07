@@ -10,7 +10,7 @@
 
 ## Hiệu Năng Engine & Giới Hạn Bộ Nhớ RAM
 
-**Basaltic-Red** & **`bazan` CLI** được tối ưu để xử lý Big Data doanh nghiệp với tốc độ `500+ MB/s` cùng hạn mức bộ nhớ RAM được cân bằng hợp lý:
+**Basaltic-Red** được tối ưu để xử lý Big Data doanh nghiệp với tốc độ `500+ MB/s` cùng hạn mức bộ nhớ RAM được cân bằng hợp lý:
 - **Hạn Mức Mặc Định (Bounded RAM)**: `< 2048 MB` (2 GB) RAM - Tối ưu cho xử lý stream SIMD zero-copy tốc độ cao.
 
 ---
@@ -23,33 +23,27 @@ git clone https://github.com/vandungdev/basaltic-red.git
 cd basaltic-red
 
 # Khởi tạo môi trường ảo Python và build thư viện Rust
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-maturin develop --release
-
-# Biên dịch công cụ dòng lệnh bazan CLI
-cargo build --release --bin bazan
+uv sync --extra dev --extra interop
+uv run maturin develop --release
 ```
 
 ---
 
-## Bảng Đối Chiếu Lệnh Terminal CLI `bazan` & Python SDK
+## Tổng Quan Python SDK
 
-**Basaltic-Red** hỗ trợ giao diện kép: Thao tác cực nhanh qua dòng lệnh Terminal (**`bazan`**) hoặc gọi trực tiếp trong code Python (**`import basaltic_red`**).
+**Basaltic-Red** là Python SDK (**`import basaltic_red`**) chạy trên Engine Rust tốc độ cao:
 
-| Thao Tác / Tính Năng | Lệnh Terminal CLI (`bazan`) | Cú Pháp Python Tương Ứng (`import basaltic_red`) |
-| :--- | :--- | :--- |
-| **Cắt Khoảng Dòng Zero-Copy** | `bazan slice-rows data.parquet --offset 100 --limit 50` | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
-| **Lọc Chọn Cột (Projection)** | `bazan slice-cols data.csv --cols id,email --limit 50` | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
-| **Lọc Quy Tắc Cột Động** | `bazan filter data.csv --rule "price >= 50.0"` | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
-| **Lọc Đa Luồng Song Song (Rayon)** | `bazan filter "data/**/*.parquet" --rule "age >= 18" --threads 8` | `summary = engine.filter_files_parallel("data/", rules=["age >= 18"])` |
-| **Cắt Tỉa Phân Vùng Stream (Hive)** | `bazan filter test_lakehouse -p "year=2026/month=08" --rule "age >= 18"` | `summary = engine.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
-| **Truy Vấn SQL (DataFusion)** | `bazan sql "SELECT id, salary FROM 'data/analytics' WHERE age >= 18 ORDER BY salary DESC"` | `table = engine.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
-| **Chia Tách File Ma Trận** | `bazan split data.csv --max-rows 100000 --output-dir ./parts` | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
-| **Xem Nhanh N Dòng Bảng** | `bazan preview data.parquet --limit 20` | `engine.slice_rows("data.parquet", offset=0, limit=20)` |
-| **Xuất Từ Điển Dữ Liệu** | `bazan dict data.parquet --output schema.md` | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
-| **Tạo Sơ Đồ Mermaid ER Graph** | `bazan graph data/relational --output er.md` | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
+| Thao Tác / Tính Năng | Cú Pháp Python (`import basaltic_red`) |
+| :--- | :--- |
+| **Cắt Khoảng Dòng Zero-Copy** | `engine.slice_rows("data.parquet", offset=100, limit=50)` |
+| **Lọc Chọn Cột (Projection)** | `engine.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
+| **Lọc Quy Tắc Cột Động** | `clean_b, trash_b = engine.filter_matrix("data.csv", rules=["price >= 50.0"])` |
+| **Lọc Đa Luồng Song Song (Rayon)** | `summary = engine.filter_files_parallel("data/", rules=["age >= 18"])` |
+| **Cắt Tỉa Phân Vùng Stream (Hive)** | `summary = engine.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
+| **Truy Vấn SQL (DataFusion)** | `table = engine.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
+| **Chia Tách File Ma Trận** | `engine.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
+| **Xuất Từ Điển Dữ Liệu** | `engine.export_data_dictionary_md("data.parquet", "schema.md")` |
+| **Tạo Sơ Đồ Mermaid ER Graph** | `engine.generate_er_graph_py("data/relational", output_path="er.md")` |
 
 ---
 
