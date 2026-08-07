@@ -15,10 +15,10 @@ dependencies = [
 # Install a group with:  uv sync --extra <group>   (--all-extras for everything)
 [project.optional-dependencies]
 interop = [
-    # Zero-copy interop targets for the SQL stream (PyBatchIterator)
-    "polars>=1.43.0",   # stream.to_polars()
-    "duckdb>=1.5.0",    # stream -> DuckDB
-    "pandas>=3.0.0",    # stream.to_pandas()
+    # Ecosystem tools consume the SDK's arrow bridge (stream.to_pyarrow()) directly
+    "polars>=1.43.0",   # pl.from_arrow(...)
+    "duckdb>=1.5.0",    # duckdb.from_arrow(...)
+    "pandas>=3.0.0",    # table.to_pandas()
     "numpy>=2.5.0",
 ]
 notebook = [
