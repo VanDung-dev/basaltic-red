@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::engine::dynamic_filter::{FilterRule, Operator};
 use crate::error::BazanError;
 
-/// Trích xuất các cặp partition key-value dạng Hive từ đường dẫn tập tin hoặc thư mục
-/// Ví dụ: "data/year=2026/month=08/day=04/file.parquet"
+/// Extract Hive-style partition key-value pairs from a file or directory path.
+/// Example: "data/year=2026/month=08/day=04/file.parquet"
 /// -> {"year": "2026", "month": "08", "day": "04"}
 pub fn parse_path_partitions(path: &Path) -> HashMap<String, String> {
     let mut partitions = HashMap::new();
@@ -25,37 +25,37 @@ pub fn parse_path_partitions(path: &Path) -> HashMap<String, String> {
     partitions
 }
 
-/// Đánh giá các quy tắc lọc (FilterRules) trên các biến phân vùng (Partition key-values)
-/// Trả về `true` nếu phân vùng THỎA MÃN (hoặc không chứa cột lọc đó).
-/// Trả về `false` nếu phân vùng VI PHẠM điều kiện -> CẦN CẮT TỈA (PRUNE).
+/// Evaluate filter rules (FilterRules) against partition variables (partition key-values).
+/// Returns `true` if the partition SATISFIES the rules (or has none of the filter columns).
+/// Returns `false` if the partition VIOLATES a condition -> needs PRUNING.
 pub fn matches_partition_rules(partitions: &HashMap<String, String>, rules: &[FilterRule]) -> bool {
     for rule in rules {
         let rule_col_lower = rule.col_name.to_lowercase();
 
         if let Some(part_val_str) = partitions.get(&rule_col_lower) {
-            // Thử so sánh dưới dạng số nguyên (Int64)
+            // Try comparing as an integer (Int64)
             if let (Ok(part_val_int), Ok(target_int)) =
                 (part_val_str.parse::<i64>(), rule.val_str.parse::<i64>())
             {
                 if !eval_cmp(part_val_int, target_int, &rule.op) {
-                    return false; // Vi phạm -> Prune
+                    return false; // Violation -> Prune
                 }
                 continue;
             }
 
-            // Thử so sánh dưới dạng số thực (Float64)
+            // Try comparing as a float (Float64)
             if let (Ok(part_val_float), Ok(target_float)) =
                 (part_val_str.parse::<f64>(), rule.val_str.parse::<f64>())
             {
                 if !eval_cmp(part_val_float, target_float, &rule.op) {
-                    return false; // Vi phạm -> Prune
+                    return false; // Violation -> Prune
                 }
                 continue;
             }
 
-            // So sánh dưới dạng Chuỗi (String)
+            // Compare as a string (String)
             if !eval_cmp(part_val_str.as_str(), rule.val_str.as_str(), &rule.op) {
-                return false; // Vi phạm -> Prune
+                return false; // Violation -> Prune
             }
         }
     }
@@ -74,11 +74,12 @@ fn eval_cmp<T: PartialOrd>(val: T, target: T, op: &Operator) -> bool {
     }
 }
 
-/// Duyệt cây thư mục đệ quy và cắt tỉa (prune) các nhánh thư mục vi phạm phân vùng.
+/// Recursively walk the directory tree and prune branches that violate partitions.
 ///
-/// Mỗi thư mục được duyệt đúng một lần (O(n)); một nhánh "chết" (không khớp filter
-/// và không có hậu duệ nào khớp) được đếm đúng một lần tại gốc nhánh — không phải
-/// re-scan toàn subtree ở từng cấp như `contains_subfolder_matching` cũ.
+/// Each directory is visited exactly once (O(n)); a "dead" branch (does not match
+/// the filter and has no matching descendant) is counted exactly once at the branch
+/// root — not by re-scanning the whole subtree at every level like the old
+/// `contains_subfolder_matching` did.
 pub fn discover_and_prune_files(
     dir: &Path,
     rules: &[FilterRule],
@@ -154,7 +155,7 @@ fn walk_and_prune(
             );
 
             if is_supported {
-                // Kiểm tra lại partition rules trên full path của file
+                // Re-check partition rules against the file's full path
                 let file_partitions = parse_path_partitions(&path);
                 if !matches_partition_rules(&file_partitions, rules) {
                     continue;
