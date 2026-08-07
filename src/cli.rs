@@ -134,27 +134,9 @@ pub enum Commands {
         partition_filter: Option<String>,
     },
 
-    /// Pack a directory hierarchy and Hive partitions into a single container file (.bazan)
-    Pack {
-        /// Path to input directory containing data files / Hive partitions
-        #[arg(value_name = "DIR")]
-        input_dir: PathBuf,
-
-        /// Output .bazan container file path
-        #[arg(short, long, default_value = "lakehouse.bazan")]
-        output: PathBuf,
-    },
-
-    /// Inspect tables, Hive partition entries, row counts & catalog manifest inside a .bazan container file
-    Inspect {
-        /// Path to .bazan container file
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
-    },
-
-    /// Execute SQL query directly on .bazan container files, Parquet/CSV files, or directory trees
+    /// Execute SQL query directly on files or directory trees
     Sql {
-        /// SQL query string (e.g. "SELECT id, salary FROM 'lakehouse.bazan' WHERE age >= 18")
+        /// SQL query string (e.g. "SELECT id, salary FROM 'data/analytics' WHERE age >= 18")
         #[arg(value_name = "QUERY")]
         query: String,
 
