@@ -7,6 +7,10 @@ data/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+python/basaltic_red/*.so
+
+# Build artifacts
+/dist
 
 # macOS
 .DS_Store
