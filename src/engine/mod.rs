@@ -4,7 +4,6 @@ use pyo3::Py;
 
 use crate::error::BazanError;
 
-pub mod container;
 pub mod csv_guard;
 pub mod dictionary;
 pub mod dynamic_filter;
@@ -65,7 +64,9 @@ impl PyBatchIterator {
         for batch in guard.by_ref() {
             py_batches.push(batch.to_pyarrow(py)?);
         }
-        let table = pyarrow.call_method1("Table", (pyarrow.call_method1("from_batches", (py_batches,))?,))?;
+        let table = pyarrow
+            .getattr("Table")?
+            .call_method1("from_batches", (py_batches,))?;
         Ok(table)
     }
 
@@ -117,14 +118,6 @@ impl MatrixEngine {
         max_speed_mph: f64,
     ) -> Self {
         Self::new(min_passenger, max_passenger, min_fare, max_speed_mph)
-    }
-
-    /// Pack a directory into a .bazan container file
-    pub fn pack_directory(&self, input_dir: &str, output_file: &str) -> PyResult<(usize, u64)> {
-        let input_path = std::path::Path::new(input_dir);
-        let output_path = std::path::Path::new(output_file);
-        self.pack_directory_to_bazan(input_path, output_path)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Execute SQL query directly and return PyArrow Table
@@ -281,7 +274,7 @@ impl MatrixEngine {
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
-    /// Multi-threaded parallel filter over a directory / glob / .bazan container.
+    /// Multi-threaded parallel filter over a directory / glob / file.
     /// Returns a dict: {total_files, pruned_dirs, total_rows, clean_rows, trash_rows}.
     #[pyo3(signature = (path_pattern, rules, partition_filter=None, num_threads=None))]
     pub fn filter_files_parallel<'py>(

@@ -106,9 +106,15 @@ pub fn discover_and_prune_files(
 
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
+        // entry.file_type() does not follow symlinks: a planted link must not
+        // pull files from outside the input scope.
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
 
-        if path.is_dir() {
+        if file_type.is_dir() {
             let (sub_files, sub_pruned) =
                 discover_and_prune_files(&path, rules, explicit_partition_filter)?;
             files.extend(sub_files);

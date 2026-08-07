@@ -68,7 +68,7 @@ pub fn collect_target_files(
 }
 
 impl MatrixEngine {
-    /// Multi-threaded parallel file filtering engine powered by Rayon, Stream Partition Pruning & .bazan Container
+    /// Multi-threaded parallel file filtering engine powered by Rayon & Stream Partition Pruning
     pub fn filter_files_parallel_native(
         &self,
         path_pattern: &str,
@@ -76,107 +76,6 @@ impl MatrixEngine {
         explicit_partition_filter: Option<&str>,
         num_threads: Option<usize>,
     ) -> Result<ParallelFilterSummary, BazanError> {
-        let path_obj = Path::new(path_pattern);
-
-        // Hỗ trợ lọc trực tiếp trên file Container .bazan
-        if path_obj.is_file() && path_obj.extension().and_then(|s| s.to_str()) == Some("bazan") {
-            use crate::engine::container::{read_bazan_entry_batch, read_bazan_manifest};
-            use crate::engine::partition::{matches_partition_rules, parse_path_partitions};
-
-            let manifest = read_bazan_manifest(path_obj)?;
-            let _total_entries = manifest.entries.len();
-
-            let mut target_entries = Vec::new();
-            let mut pruned_dirs = 0;
-
-            for entry in manifest.entries {
-                let entry_path = Path::new(&entry.path);
-                let entry_partitions = parse_path_partitions(entry_path);
-
-                if !matches_partition_rules(&entry_partitions, rules) {
-                    pruned_dirs += 1;
-                    continue;
-                }
-
-                if let Some(filter_str) = explicit_partition_filter {
-                    if !entry.path.contains(filter_str) {
-                        pruned_dirs += 1;
-                        continue;
-                    }
-                }
-
-                target_entries.push(entry);
-            }
-
-            if target_entries.is_empty() {
-                return Err(BazanError::Message(format!(
-                    "No matching table entries found inside .bazan container: '{}'",
-                    path_pattern
-                )));
-            }
-
-            let total_files = target_entries.len();
-
-            let process_fn = || -> Result<Vec<(RecordBatch, RecordBatch)>, BazanError> {
-                target_entries
-                    .par_iter()
-                    .map(|entry| -> Result<(RecordBatch, RecordBatch), BazanError> {
-                        let batch = read_bazan_entry_batch(path_obj, entry)?;
-                        let (clean, trash) = self.filter_batch_dynamic(&batch, rules)?;
-                        Ok((clean, trash))
-                    })
-                    .collect()
-            };
-
-            let results = if let Some(threads) = num_threads {
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(threads)
-                    .build()?;
-                pool.install(process_fn)?
-            } else {
-                process_fn()?
-            };
-
-            let mut clean_rows = 0;
-            let mut trash_rows = 0;
-            let mut clean_batches = Vec::with_capacity(results.len());
-            let mut trash_batches = Vec::with_capacity(results.len());
-
-            for (clean, trash) in results {
-                clean_rows += clean.num_rows();
-                trash_rows += trash.num_rows();
-
-                if clean.num_rows() > 0 {
-                    clean_batches.push(clean);
-                }
-                if trash.num_rows() > 0 {
-                    trash_batches.push(trash);
-                }
-            }
-
-            let total_rows = clean_rows + trash_rows;
-            let clean_batch = if !clean_batches.is_empty() {
-                Some(concat_batches(&clean_batches[0].schema(), &clean_batches)?)
-            } else {
-                None
-            };
-            let trash_batch = if !trash_batches.is_empty() {
-                Some(concat_batches(&trash_batches[0].schema(), &trash_batches)?)
-            } else {
-                None
-            };
-
-            return Ok(ParallelFilterSummary {
-                total_files,
-                pruned_dirs,
-                total_rows,
-                clean_rows,
-                trash_rows,
-                clean_batch,
-                trash_batch,
-            });
-        }
-
         let (files, pruned_dirs) =
             collect_target_files(path_pattern, rules, explicit_partition_filter)?;
         if files.is_empty() {
