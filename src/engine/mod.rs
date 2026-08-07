@@ -337,7 +337,13 @@ impl MatrixEngine {
         rules: Vec<String>,
     ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
         use crate::engine::dynamic_filter::FilterRule;
+        use crate::engine::formats::handler_for;
+        use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
+        use arrow::array::{ArrayRef, RecordBatch};
+        use arrow::compute::concat_batches;
+        use arrow::datatypes::{DataType, Field, Schema};
         use arrow::pyarrow::ToPyArrow;
+        use std::sync::Arc;
 
         let path = file_path.to_string();
         let parsed_rules: Vec<FilterRule> = rules
@@ -348,9 +354,53 @@ impl MatrixEngine {
 
         let (clean_b, trash_b) = py
             .detach(|| -> Result<_, BazanError> {
-                let batch = self.slice_rows_native(&path, 0, usize::MAX)?;
-                let res = self.filter_batch_dynamic(&batch, &parsed_rules)?;
-                Ok(res)
+                let path_obj = std::path::Path::new(&path);
+                let ext = path_obj
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let handler = handler_for(&ext).ok_or_else(|| {
+                    BazanError::Message(format!("Unsupported format: .{}", ext))
+                })?;
+
+                // Stream per-batch instead of loading the whole file as one batch.
+                let source = handler.open(&path, DEFAULT_MAX_BATCH_SIZE)?;
+                let source_schema = source.schema.clone();
+                let mut clean_batches = Vec::new();
+                let mut trash_batches = Vec::new();
+                for batch_res in source.batches {
+                    let batch = batch_res?;
+                    let (clean, trash) = self.filter_batch_dynamic(&batch, &parsed_rules)?;
+                    if clean.num_rows() > 0 {
+                        clean_batches.push(clean);
+                    }
+                    if trash.num_rows() > 0 {
+                        trash_batches.push(trash);
+                    }
+                }
+
+                let clean_b = if clean_batches.is_empty() {
+                    RecordBatch::new_empty(source_schema.clone())
+                } else {
+                    concat_batches(&clean_batches[0].schema(), &clean_batches)?
+                };
+
+                let trash_b = if trash_batches.is_empty() {
+                    let mut fields = source_schema.fields().to_vec();
+                    fields.push(Field::new("audit_error_code", DataType::UInt64, false).into());
+                    let schema = Arc::new(Schema::new(fields));
+                    let columns: Vec<ArrayRef> = schema
+                        .fields()
+                        .iter()
+                        .map(|f| arrow::array::new_null_array(f.data_type(), 0))
+                        .collect();
+                    RecordBatch::try_new(schema, columns)?
+                } else {
+                    concat_batches(&trash_batches[0].schema(), &trash_batches)?
+                };
+
+                Ok((clean_b, trash_b))
             })
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
