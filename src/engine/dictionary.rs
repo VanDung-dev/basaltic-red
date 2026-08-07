@@ -1,13 +1,11 @@
 use arrow::array::RecordBatch;
 use arrow::pyarrow::ToPyArrow;
-use arrow_schema::{DataType, Field, Schema};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 use pyo3::Py;
-use regex::Regex;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::sync::Arc;
 
 use crate::engine::MatrixEngine;
@@ -23,8 +21,7 @@ impl MatrixEngine {
     ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
         let limit_rows = crate::engine::formats::clamp_batch_size(limit_rows);
         let path = file_path.to_string();
-        let path_obj = std::path::Path::new(&path);
-        let ext = path_obj
+        let ext = std::path::Path::new(&path)
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("")
@@ -32,161 +29,15 @@ impl MatrixEngine {
 
         let (clean_b, trash_b) = py
             .detach(|| -> Result<(RecordBatch, RecordBatch), BazanError> {
-                if ext == "csv" {
-                    let file = File::open(&path)?;
-                    let (schema, _) = arrow_csv::reader::Format::default()
-                        .with_header(true)
-                        .infer_schema(file, Some(100))?;
-
-                    let file_for_reader = File::open(&path)?;
-                    let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-                        .with_header(true)
-                        .with_batch_size(limit_rows)
-                        .build(file_for_reader)?;
-
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("CSV file is empty".to_string()))
-                    }
-                } else if ext == "tsv" {
-                    // Read header to extract col names, force all columns as Utf8
-                    let hdr_file = File::open(&path)?;
-                    let mut hdr_buf = BufReader::new(hdr_file);
-                    let mut hdr_line = String::new();
-                    hdr_buf.read_line(&mut hdr_line)?;
-                    let col_names: Vec<String> = hdr_line
-                        .trim_end()
-                        .split('\t')
-                        .map(|s| s.to_string())
-                        .collect();
-                    let fields: Vec<Field> = col_names
-                        .iter()
-                        .map(|n| Field::new(n, DataType::Utf8, true))
-                        .collect();
-                    let schema = Arc::new(Schema::new(fields));
-
-                    let null_regex = Regex::new(r"^\\N$")?;
-                    let file_for_reader = File::open(&path)?;
-                    let mut reader = arrow_csv::ReaderBuilder::new(schema)
-                        .with_header(true)
-                        .with_delimiter(b'\t')
-                        .with_null_regex(null_regex)
-                        .with_truncated_rows(true)
-                        .with_batch_size(limit_rows)
-                        .build(file_for_reader)?;
-
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("TSV file is empty".to_string()))
-                    }
-                } else if ext == "ndjson" {
-                    let file = File::open(&path)?;
-                    let mut buf_reader = BufReader::new(file);
-                    let schema = arrow_json::reader::infer_json_schema_from_iterator(
-                        arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100)),
-                    )?;
-
-                    let file_for_reader = File::open(&path)?;
-                    let buf_reader_2 = BufReader::new(file_for_reader);
-                    let mut reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                        .with_batch_size(limit_rows)
-                        .build(buf_reader_2)?;
-
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("NDJSON file is empty".to_string()))
-                    }
-                } else if ext == "json" || ext == "jsonl" {
-                    let file = File::open(&path)?;
-                    let mut buf_reader = BufReader::new(file);
-                    let (schema, _) =
-                        arrow_json::reader::infer_json_schema(&mut buf_reader, Some(100))?;
-
-                    let file_for_reader = File::open(&path)?;
-                    let buf_reader_2 = BufReader::new(file_for_reader);
-                    let mut reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
-                        .with_batch_size(limit_rows)
-                        .build(buf_reader_2)?;
-
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("JSON file is empty".to_string()))
-                    }
-                } else if ext == "psv" {
-                    let file = File::open(&path)?;
-                    let (schema, _) = arrow_csv::reader::Format::default()
-                        .with_delimiter(b'|')
-                        .with_header(true)
-                        .infer_schema(file, Some(100))?;
-                    let file_for_reader = File::open(&path)?;
-                    let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-                        .with_delimiter(b'|')
-                        .with_header(true)
-                        .with_batch_size(limit_rows)
-                        .build(file_for_reader)?;
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("PSV file is empty".to_string()))
-                    }
-                } else if ext == "txt" {
-                    let file = File::open(&path)?;
-                    let (schema, _) = arrow_csv::reader::Format::default()
-                        .with_delimiter(b';')
-                        .with_header(true)
-                        .infer_schema(file, Some(100))?;
-                    let file_for_reader = File::open(&path)?;
-                    let mut reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
-                        .with_delimiter(b';')
-                        .with_header(true)
-                        .with_batch_size(limit_rows)
-                        .build(file_for_reader)?;
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("TXT file is empty".to_string()))
-                    }
-                } else if ext == "feather" || ext == "arrow" || ext == "ipc" {
-                    let file = File::open(&path)?;
-                    let mut reader = arrow_ipc::reader::FileReader::try_new(file, None)?;
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("Feather file is empty".to_string()))
-                    }
-                } else if ext == "parquet" || ext == "pq" {
-                    let file = File::open(&path)?;
-                    let builder =
-                        ParquetRecordBatchReaderBuilder::try_new(file)?.with_batch_size(limit_rows);
-                    let mut reader = builder.build()?;
-
-                    if let Some(batch_res) = reader.next() {
-                        let batch = batch_res?;
-                        let rows = batch.num_rows();
-                        Ok(self.filter_batch_native(&batch, rows))
-                    } else {
-                        Err(BazanError::Message("Parquet file is empty".to_string()))
-                    }
+                let handler = crate::engine::formats::handler_for(&ext)
+                    .ok_or_else(|| BazanError::UnsupportedFormat(ext.clone()))?;
+                let mut source = handler.open(&path, limit_rows)?;
+                if let Some(batch_res) = source.batches.next() {
+                    let batch = batch_res?;
+                    let rows = batch.num_rows();
+                    Ok(self.filter_batch_native(&batch, rows))
                 } else {
-                    Err(BazanError::UnsupportedFormat(ext))
+                    Err(BazanError::Message(format!(".{} file is empty", ext)))
                 }
             })
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
