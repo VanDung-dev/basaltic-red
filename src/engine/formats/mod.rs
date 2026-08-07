@@ -1,5 +1,4 @@
 pub mod avro;
-pub mod bazan;
 pub mod csv;
 pub mod feather;
 pub mod json;
@@ -31,8 +30,8 @@ pub(crate) fn clamp_batch_size(batch_size: usize) -> usize {
 /// A single source file opened as a schema + stream of RecordBatches.
 ///
 /// This is the ONE read pipeline for every consumer: `process_file` (filter
-/// counts), `slice_rows`/`slice_cols`, `filter_files_parallel`, `execute_sql`
-/// and the `.bazan` container reader all go through `FormatHandler::open`.
+/// counts), `slice_rows`/`slice_cols`, `filter_files_parallel` and
+/// `execute_sql` all go through `FormatHandler::open`.
 pub struct OpenedSource {
     pub schema: Arc<Schema>,
     pub batches: Box<dyn Iterator<Item = Result<RecordBatch, BazanError>> + Send>,
@@ -171,7 +170,6 @@ static HANDLERS: &[(&str, &dyn FormatHandler)] = &[
     ("xlsx", &xlsx::XlsxHandler),
     ("orc", &orc::OrcHandler),
     ("msgpack", &msgpack::MsgpackHandler),
-    ("bazan", &bazan::BazanHandler),
 ];
 
 /// Resolve a handler by lowercase file extension.
