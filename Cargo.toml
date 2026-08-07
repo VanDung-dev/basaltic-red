@@ -9,13 +9,8 @@ name = "basaltic-red"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-# Main CLI binary
-name = "bazan"
-path = "src/main.rs"
-
 [lib]
-# cdylib = Python extension module (.so), rlib = for bazan bin / tests.
+# cdylib = Python extension module (.so), rlib = for tests.
 # Name matches the #[pymodule] fn in src/lib.rs.
 name = "basaltic_red"
 crate-type = ["cdylib", "rlib"]
@@ -36,7 +31,7 @@ parquet = { version = "58.3.0", features = ["arrow", "async"] }  # Columnar, Arr
 apache-avro = "0.21.0"     # Avro format (row-based binary)
 orc-rust = { version = "0.8.0", default-features = false }        # ORC columnar format
 calamine = "0.36.1"        # Excel file reader (xlsx/xls)
-datafusion = "54.1.0"      # SQL query engine (bazan sql command)
+datafusion = "54.1.0"      # SQL query engine (execute_sql)
 
 # Serialization
 serde_json = "1.0"                                                 # JSON handling
@@ -49,11 +44,6 @@ pyo3 = { version = "0.28.3", features = ["extension-module", "abi3-py38"] }  # E
 # Async runtime
 tokio = { version = "1.37.0", features = ["full"] }
 
-# CLI
-clap = { version = "4.6.4", features = ["derive"] }   # Argument parsing
-comfy-table = "7.1.1"                                # Pretty CLI tables (preview/sql output)
-anyhow = "1.0.82"                                    # CLI-level error handling
-
 # Core engine
 rayon = "1.10.0"                                     # Parallel data loops (multithreading)
 thiserror = "2.0.9"                                  # Engine error taxonomy
@@ -62,5 +52,6 @@ glob = "0.3.1"                                       # File path pattern matchin
 walkdir = "2.5.0"                                    # Recursive directory traversal
 
 [dev-dependencies]
+anyhow = "1.0.82"             # Error handling in integration tests
 rust_xlsxwriter = "0.97.1"     # Generate xlsx fixtures in tests
 tempfile = "3.10.1"            # Temporary files/directories in tests
