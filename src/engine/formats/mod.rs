@@ -67,6 +67,7 @@ pub trait FormatHandler: Sync {
     ) -> Result<RecordBatch, BazanError> {
         let source = self.open(file_path, batch_size)?;
         let mut accumulated_rows = 0usize;
+        let mut got = 0usize;
         let mut matched_batches = Vec::new();
 
         for batch_res in source.batches {
@@ -74,22 +75,14 @@ pub trait FormatHandler: Sync {
             let b_len = batch.num_rows();
             if accumulated_rows + b_len > offset {
                 let start_in_batch = offset.saturating_sub(accumulated_rows);
-                let got = matched_batches
-                    .iter()
-                    .map(|b: &RecordBatch| b.num_rows())
-                    .sum::<usize>();
                 let len_in_batch = limit.saturating_sub(got).min(b_len - start_in_batch);
                 if len_in_batch > 0 {
                     matched_batches.push(batch.slice(start_in_batch, len_in_batch));
+                    got += len_in_batch;
                 }
             }
             accumulated_rows += b_len;
-            if matched_batches
-                .iter()
-                .map(|b: &RecordBatch| b.num_rows())
-                .sum::<usize>()
-                >= limit
-            {
+            if got >= limit {
                 break;
             }
         }

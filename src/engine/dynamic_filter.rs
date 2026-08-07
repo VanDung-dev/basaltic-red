@@ -1,7 +1,9 @@
 use arrow::array::{
-    Array, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray, UInt64Array,
+    Array, BooleanArray, Float64Array, Int64Array, RecordBatch, Scalar, StringArray, UInt64Array,
 };
-use arrow::compute::{filter_record_batch, not};
+use arrow::compute::kernels::cmp::{eq, gt, gt_eq, lt, lt_eq, neq};
+use arrow::compute::kernels::bitwise::{bitwise_or, bitwise_shift_left_scalar};
+use arrow::compute::{and, cast, filter, filter_record_batch, is_null, not, or};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
 
@@ -61,74 +63,59 @@ impl FilterRule {
 }
 
 impl MatrixEngine {
-    /// Evaluate dynamic rules on a RecordBatch and split into Clean and Trash RecordBatches
+    /// Evaluate dynamic rules on a RecordBatch and split into Clean and Trash RecordBatches.
+    /// Per-rule violation masks are built with vectorized kernels; the only loop left
+    /// walks the rules (not the rows).
     pub fn filter_batch_dynamic(
         &self,
         batch: &RecordBatch,
         rules: &[FilterRule],
     ) -> Result<(RecordBatch, RecordBatch), BazanError> {
         let total_rows = batch.num_rows();
-        let mut clean_mask_builder = vec![true; total_rows];
-        let mut error_code_builder = vec![0u64; total_rows];
+        let mut clean_mask = BooleanArray::from(vec![true; total_rows]);
+        let mut error_code_arr = UInt64Array::from(vec![0u64; total_rows]);
 
         for (rule_idx, rule) in rules.iter().enumerate() {
-            let bitmask_flag = 1u64 << (rule_idx % 64);
-
             if let Some(col) = batch.column_by_name(&rule.col_name) {
-                let dt = col.data_type();
-                match dt {
-                    DataType::Int64 => {
-                        if let Some(arr) = col.as_any().downcast_ref::<Int64Array>() {
-                            if let Ok(target) = rule.val_str.parse::<i64>() {
-                                for i in 0..total_rows {
-                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op)
-                                    {
-                                        clean_mask_builder[i] = false;
-                                        error_code_builder[i] |= bitmask_flag;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    DataType::Float64 => {
-                        if let Some(arr) = col.as_any().downcast_ref::<Float64Array>() {
-                            if let Ok(target) = rule.val_str.parse::<f64>() {
-                                for i in 0..total_rows {
-                                    if !arr.is_valid(i) || !eval_cmp(arr.value(i), target, &rule.op)
-                                    {
-                                        clean_mask_builder[i] = false;
-                                        error_code_builder[i] |= bitmask_flag;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    DataType::Utf8 => {
-                        if let Some(arr) = col.as_any().downcast_ref::<StringArray>() {
-                            let target = &rule.val_str;
-                            for i in 0..total_rows {
-                                if !arr.is_valid(i)
-                                    || !eval_cmp(arr.value(i), target.as_str(), &rule.op)
-                                {
-                                    clean_mask_builder[i] = false;
-                                    error_code_builder[i] |= bitmask_flag;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
+                let violation = match col.data_type() {
+                    DataType::Int64 => col
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .and_then(|_| rule.val_str.parse::<i64>().ok())
+                        .map(|target| violation_int(&col, target, &rule.op)),
+                    DataType::Float64 => col
+                        .as_any()
+                        .downcast_ref::<Float64Array>()
+                        .and_then(|_| rule.val_str.parse::<f64>().ok())
+                        .map(|target| violation_float(&col, target, &rule.op)),
+                    DataType::Utf8 => col
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .map(|_| violation_str(&col, &rule.val_str, &rule.op)),
+                    _ => None,
+                };
+
+                if let Some(violation) = violation {
+                    // clean = clean AND NOT violation; violation is null-free so AND stays null-free.
+                    clean_mask = and(&clean_mask, &not(&violation)?)?;
+                    let one_hot = cast(&violation, &DataType::UInt64)?;
+                    let one_hot = one_hot
+                        .as_any()
+                        .downcast_ref::<UInt64Array>()
+                        .expect("UInt64 one-hot array")
+                        .clone();
+                    let shift = (rule_idx % 64) as u64;
+                    let contrib = bitwise_shift_left_scalar(&one_hot, shift)?;
+                    error_code_arr = bitwise_or(&error_code_arr, &contrib)?;
                 }
             }
         }
 
-        let clean_bitmask = BooleanArray::from(clean_mask_builder);
-        let trash_bitmask = not(&clean_bitmask)?;
+        let trash_bitmask = not(&clean_mask)?;
 
-        let clean_batch = filter_record_batch(batch, &clean_bitmask)?;
+        let clean_batch = filter_record_batch(batch, &clean_mask)?;
         let trash_filtered_base = filter_record_batch(batch, &trash_bitmask)?;
-
-        let error_code_arr = UInt64Array::from(error_code_builder);
-        let trash_error_codes = arrow::compute::filter(&error_code_arr, &trash_bitmask)?;
+        let trash_error_codes = filter(&error_code_arr, &trash_bitmask)?;
 
         let mut trash_fields = trash_filtered_base.schema().fields().to_vec();
         trash_fields.push(Field::new("audit_error_code", DataType::UInt64, false).into());
@@ -143,13 +130,44 @@ impl MatrixEngine {
     }
 }
 
-fn eval_cmp<T: PartialOrd>(val: T, target: T, op: &Operator) -> bool {
-    match op {
-        Operator::Gt => val > target,
-        Operator::Gte => val >= target,
-        Operator::Lt => val < target,
-        Operator::Lte => val <= target,
-        Operator::Eq => val == target,
-        Operator::Neq => val != target,
-    }
+/// Violation mask: null OR NOT(cmp(col, target)) — `is_null` anchors the OR so the
+/// result is null-free and safe to reuse as a boolean filter.
+fn violation_int(col: &dyn Array, target: i64, op: &Operator) -> BooleanArray {
+    let arr = col.as_any().downcast_ref::<Int64Array>().unwrap();
+    let cmp = match op {
+        Operator::Gt => gt(arr, &Int64Array::new_scalar(target)),
+        Operator::Gte => gt_eq(arr, &Int64Array::new_scalar(target)),
+        Operator::Lt => lt(arr, &Int64Array::new_scalar(target)),
+        Operator::Lte => lt_eq(arr, &Int64Array::new_scalar(target)),
+        Operator::Eq => eq(arr, &Int64Array::new_scalar(target)),
+        Operator::Neq => neq(arr, &Int64Array::new_scalar(target)),
+    };
+    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+}
+
+fn violation_float(col: &dyn Array, target: f64, op: &Operator) -> BooleanArray {
+    let arr = col.as_any().downcast_ref::<Float64Array>().unwrap();
+    let cmp = match op {
+        Operator::Gt => gt(arr, &Float64Array::new_scalar(target)),
+        Operator::Gte => gt_eq(arr, &Float64Array::new_scalar(target)),
+        Operator::Lt => lt(arr, &Float64Array::new_scalar(target)),
+        Operator::Lte => lt_eq(arr, &Float64Array::new_scalar(target)),
+        Operator::Eq => eq(arr, &Float64Array::new_scalar(target)),
+        Operator::Neq => neq(arr, &Float64Array::new_scalar(target)),
+    };
+    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+}
+
+fn violation_str(col: &dyn Array, target: &str, op: &Operator) -> BooleanArray {
+    let arr = col.as_any().downcast_ref::<StringArray>().unwrap();
+    let scalar = Scalar::new(StringArray::from(vec![target.to_string()]));
+    let cmp = match op {
+        Operator::Gt => gt(arr, &scalar),
+        Operator::Gte => gt_eq(arr, &scalar),
+        Operator::Lt => lt(arr, &scalar),
+        Operator::Lte => lt_eq(arr, &scalar),
+        Operator::Eq => eq(arr, &scalar),
+        Operator::Neq => neq(arr, &scalar),
+    };
+    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
 }

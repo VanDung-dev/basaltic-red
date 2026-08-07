@@ -5,11 +5,15 @@ use parquet::file::properties::WriterProperties;
 use std::fs::File;
 use std::path::Path;
 
+use crate::engine::formats::{clamp_batch_size, handler_for};
+use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
 impl MatrixEngine {
-    /// Split a large matrix file into smaller part files (part-001, part-002, ...)
+    /// Split a large matrix file into smaller part files (part-001, part-002, ...).
+    /// Single pass over the source: rows are consumed once, carried across batch
+    /// boundaries, and emitted as soon as a full part accumulates.
     pub fn split_file_native(
         &self,
         file_path: &str,
@@ -21,32 +25,57 @@ impl MatrixEngine {
         let path = Path::new(file_path);
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("part");
 
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+        let handler = ext
+            .as_deref()
+            .and_then(handler_for)
+            .ok_or_else(|| BazanError::Message(format!("Unsupported file format: {:?}", ext)))?;
+        let source = handler.open(file_path, clamp_batch_size(DEFAULT_MAX_BATCH_SIZE))?;
+
         let mut part_index = 1;
-        let mut current_offset = 0;
         let mut total_written_parts = 0;
+        let mut carry: Option<RecordBatch> = None;
 
-        loop {
-            let batch = match self.slice_rows_native(file_path, current_offset, max_rows_per_file) {
-                Ok(b) if b.num_rows() > 0 => b,
-                _ => break,
+        for batch_res in source.batches {
+            let batch = batch_res?;
+            let rows = match carry.take() {
+                Some(prev) => arrow::compute::concat_batches(&prev.schema(), &[prev, batch])?,
+                None => batch,
             };
-
-            let rows_read = batch.num_rows();
-            let part_filename = format!("{}_part_{:03}.{}", stem, part_index, format);
-            let part_path = Path::new(output_dir).join(part_filename);
-
-            self.write_batch_to_file(&batch, &part_path.to_string_lossy(), format)?;
-
-            part_index += 1;
-            current_offset += rows_read;
-            total_written_parts += 1;
-
-            if rows_read < max_rows_per_file {
-                break;
+            let mut start = 0usize;
+            while start + max_rows_per_file <= rows.num_rows() {
+                self.write_part(stem, part_index, format, output_dir, &rows.slice(start, max_rows_per_file))?;
+                start += max_rows_per_file;
+                part_index += 1;
+                total_written_parts += 1;
+            }
+            if start < rows.num_rows() {
+                carry = Some(rows.slice(start, rows.num_rows() - start));
             }
         }
 
+        if let Some(last) = carry {
+            self.write_part(stem, part_index, format, output_dir, &last)?;
+            total_written_parts += 1;
+        }
+
         Ok(total_written_parts)
+    }
+
+    fn write_part(
+        &self,
+        stem: &str,
+        part_index: usize,
+        format: &str,
+        output_dir: &str,
+        batch: &RecordBatch,
+    ) -> Result<(), BazanError> {
+        let part_filename = format!("{}_part_{:03}.{}", stem, part_index, format);
+        let part_path = Path::new(output_dir).join(part_filename);
+        self.write_batch_to_file(batch, &part_path.to_string_lossy(), format)
     }
 
     /// Helper to write a RecordBatch to specified format file
