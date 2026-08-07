@@ -7,7 +7,7 @@ data/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-python/basaltic_red/*.so
+*.so
 
 # Build artifacts
 /dist

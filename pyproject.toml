@@ -31,5 +31,4 @@ dependencies = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-python-source = "python"
-module-name = "basaltic_red.basaltic_red"
+module-name = "basaltic_red"

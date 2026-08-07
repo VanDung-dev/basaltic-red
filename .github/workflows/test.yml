@@ -63,13 +63,11 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: uv sync
 
-      - name: Build Python package with maturin
-        run: |
-          uv build --wheel --out-dir dist
-          uv pip install --no-deps --reinstall dist/*.whl
+      - name: Build & install extension (release)
+        run: uv run maturin develop --release
 
       - name: Run Python tests
         run: .venv/bin/python -m pytest tests/python -v --junitxml=test-results-python.xml
