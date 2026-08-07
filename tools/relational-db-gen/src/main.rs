@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 
     println!("\n✅ Relational Database generation completed successfully!");
     println!(
-        "💡 Run 'bazan graph {} --output er_graph.md' to visualize the ER diagram!",
+        "💡 Use the Python SDK to visualize the ER diagram: basaltic_red.MatrixEngine().generate_er_graph_py('{}', output_path='er_graph.md')",
         args.output_dir.display()
     );
 

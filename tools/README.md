@@ -66,8 +66,8 @@ cargo run -p relational-db-gen --release -- --tables 5 --output-dir data/relatio
 # Generate 10 linked tables (custom table count from 5 to 100)
 cargo run -p relational-db-gen --release -- --tables 10 --rows 500 --output-dir data/relational_10
 
-# Visualize ER diagram using bazan CLI
-bazan graph data/relational --output er_graph.md
+# Visualize ER diagram with the Python SDK
+python -c "import basaltic_red; basaltic_red.MatrixEngine().generate_er_graph_py('data/relational', output_path='er_graph.md')"
 ```
 
 ### Parameters
