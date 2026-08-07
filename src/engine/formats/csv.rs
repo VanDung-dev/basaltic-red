@@ -3,6 +3,7 @@ use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use arrow_array::RecordBatchReader;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::ProjectionMask;
 use std::fs::File;
 use std::sync::Arc;
 
@@ -47,6 +48,36 @@ pub(crate) fn open_parquet(file_path: &str, batch_size: usize) -> Result<OpenedS
     })
 }
 
+/// Parquet opener with column projection (ProjectionMask) so wide tables only
+/// read the requested column chunks.
+pub(crate) fn open_parquet_columns(
+    file_path: &str,
+    batch_size: usize,
+    columns: &[String],
+) -> Result<OpenedSource, BazanError> {
+    let file = File::open(file_path)?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+    let arrow_schema = builder.schema().clone();
+    let mut indices = Vec::new();
+    for name in columns {
+        indices.push(
+            arrow_schema
+                .index_of(name)
+                .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
+        );
+    }
+    let mask = ProjectionMask::roots(builder.parquet_schema(), indices);
+    let reader = builder
+        .with_batch_size(clamp_batch_size(batch_size))
+        .with_projection(mask)
+        .build()?;
+    let schema = reader.schema().clone();
+    Ok(OpenedSource {
+        schema,
+        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+    })
+}
+
 /// Shared streaming opener for delimiter-separated text files (csv `,`, psv `|`, txt `;`).
 pub(crate) fn open_delimited_csv(
     file_path: &str,
@@ -74,12 +105,58 @@ pub(crate) fn open_delimited_csv(
     })
 }
 
+/// CSV opener with column projection (arrow-csv `with_projection`).
+pub(crate) fn open_delimited_csv_columns(
+    file_path: &str,
+    batch_size: usize,
+    delimiter: u8,
+    columns: &[String],
+) -> Result<OpenedSource, BazanError> {
+    let file = File::open(file_path)?;
+    let format = arrow_csv::reader::Format::default()
+        .with_delimiter(delimiter)
+        .with_header(true);
+
+    let (schema, _) = format.infer_schema(file, Some(100))?;
+    let mut indices = Vec::new();
+    for name in columns {
+        indices.push(
+            schema
+                .index_of(name)
+                .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
+        );
+    }
+
+    let batch_size = clamp_batch_size(batch_size);
+    let file_for_reader = File::open(file_path)?;
+    let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
+        .with_delimiter(delimiter)
+        .with_header(true)
+        .with_batch_size(batch_size)
+        .with_projection(indices)
+        .build(file_for_reader)?;
+
+    Ok(OpenedSource {
+        schema: Arc::new(schema),
+        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+    })
+}
+
 /// Parquet Streaming In-Memory Reader
 pub struct ParquetHandler;
 
 impl FormatHandler for ParquetHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         open_parquet(file_path, batch_size)
+    }
+
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        open_parquet_columns(file_path, batch_size, columns)
     }
 }
 
@@ -89,5 +166,14 @@ pub struct CsvHandler;
 impl FormatHandler for CsvHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         open_delimited_csv(file_path, batch_size, b',')
+    }
+
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        open_delimited_csv_columns(file_path, batch_size, b',', columns)
     }
 }

@@ -1,5 +1,6 @@
 use arrow_array::builder::*;
 use arrow_array::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -58,105 +59,74 @@ impl FormatHandler for MsgpackHandler {
     }
 }
 
+/// Convert rows to a RecordBatch. Each row is indexed once into a `key -> value`
+/// map (O(K)), then every column looks up its values (O(F)) — O(R·(K+F)) total
+/// instead of the previous field×row×entry O(F·R·K) triple loop.
 fn msgpack_values_to_record_batch(
     values: &[rmpv::Value],
     schema: &Arc<Schema>,
 ) -> Result<RecordBatch, BazanError> {
     let n = values.len();
+
+    let rows: Vec<HashMap<&str, &rmpv::Value>> = values
+        .iter()
+        .map(|v| {
+            let mut map = HashMap::new();
+            if let rmpv::Value::Map(entries) = v {
+                for (k, val) in entries {
+                    if let Some(key) = k.as_str() {
+                        map.insert(key, val);
+                    }
+                }
+            }
+            map
+        })
+        .collect();
+
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
 
     for field in schema.fields() {
         let field_name = field.name().as_str();
-
         match field.data_type() {
             DataType::Int64 => {
                 let mut builder = Int64Builder::with_capacity(n);
-                for v in values {
-                    if let rmpv::Value::Map(ref entries) = v {
-                        let mut found = false;
-                        for (k, val) in entries {
-                            if k.as_str() == Some(field_name) {
-                                if let Some(num) = val.as_i64() {
-                                    builder.append_value(num);
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if !found {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                for row in &rows {
+                    match row.get(field_name).and_then(|v| v.as_i64()) {
+                        Some(num) => builder.append_value(num),
+                        None => builder.append_null(),
                     }
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             DataType::Float64 => {
                 let mut builder = Float64Builder::with_capacity(n);
-                for v in values {
-                    if let rmpv::Value::Map(ref entries) = v {
-                        let mut found = false;
-                        for (k, val) in entries {
-                            if k.as_str() == Some(field_name) {
-                                if let Some(num) = val.as_f64() {
-                                    builder.append_value(num);
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if !found {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                for row in &rows {
+                    match row.get(field_name).and_then(|v| v.as_f64()) {
+                        Some(num) => builder.append_value(num),
+                        None => builder.append_null(),
                     }
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             DataType::Boolean => {
                 let mut builder = BooleanBuilder::with_capacity(n);
-                for v in values {
-                    if let rmpv::Value::Map(ref entries) = v {
-                        let mut found = false;
-                        for (k, val) in entries {
-                            if k.as_str() == Some(field_name) {
-                                if let rmpv::Value::Boolean(b) = val {
-                                    builder.append_value(*b);
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if !found {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                for row in &rows {
+                    match row.get(field_name).and_then(|v| match v {
+                        rmpv::Value::Boolean(b) => Some(*b),
+                        _ => None,
+                    }) {
+                        Some(b) => builder.append_value(b),
+                        None => builder.append_null(),
                     }
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             _ => {
                 let mut builder = StringBuilder::with_capacity(n, n * 20);
-                for v in values {
-                    if let rmpv::Value::Map(ref entries) = v {
-                        let mut found = false;
-                        for (k, val) in entries {
-                            if k.as_str() == Some(field_name) {
-                                if let Some(s) = val.as_str() {
-                                    builder.append_value(s);
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if !found {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                for row in &rows {
+                    match row.get(field_name).and_then(|v| v.as_str()) {
+                        Some(s) => builder.append_value(s),
+                        None => builder.append_null(),
                     }
                 }
                 columns.push(Arc::new(builder.finish()));

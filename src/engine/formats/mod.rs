@@ -66,33 +66,66 @@ pub trait FormatHandler: Sync {
         batch_size: usize,
     ) -> Result<RecordBatch, BazanError> {
         let source = self.open(file_path, batch_size)?;
-        let mut accumulated_rows = 0usize;
-        let mut got = 0usize;
-        let mut matched_batches = Vec::new();
+        read_range_from_source(source, offset, limit)
+    }
 
-        for batch_res in source.batches {
-            let batch = batch_res?;
-            let b_len = batch.num_rows();
-            if accumulated_rows + b_len > offset {
-                let start_in_batch = offset.saturating_sub(accumulated_rows);
-                let len_in_batch = limit.saturating_sub(got).min(b_len - start_in_batch);
-                if len_in_batch > 0 {
-                    matched_batches.push(batch.slice(start_in_batch, len_in_batch));
-                    got += len_in_batch;
-                }
-            }
-            accumulated_rows += b_len;
-            if got >= limit {
-                break;
+    /// Open with column projection. Default: read all columns (no pushdown);
+    /// handlers whose readers support projection (parquet, csv-family) override.
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        _columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        self.open(file_path, batch_size)
+    }
+
+    /// Read `limit` rows starting at `offset`, projecting to `columns`.
+    fn read_range_columns(
+        &self,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<RecordBatch, BazanError> {
+        let source = self.open_with_columns(file_path, batch_size, columns)?;
+        read_range_from_source(source, offset, limit)
+    }
+}
+
+/// Shared stream-and-skip for `read_range` / `read_range_columns`.
+fn read_range_from_source(
+    source: OpenedSource,
+    offset: usize,
+    limit: usize,
+) -> Result<RecordBatch, BazanError> {
+    let mut accumulated_rows = 0usize;
+    let mut got = 0usize;
+    let mut matched_batches = Vec::new();
+
+    for batch_res in source.batches {
+        let batch = batch_res?;
+        let b_len = batch.num_rows();
+        if accumulated_rows + b_len > offset {
+            let start_in_batch = offset.saturating_sub(accumulated_rows);
+            let len_in_batch = limit.saturating_sub(got).min(b_len - start_in_batch);
+            if len_in_batch > 0 {
+                matched_batches.push(batch.slice(start_in_batch, len_in_batch));
+                got += len_in_batch;
             }
         }
-
-        if matched_batches.is_empty() {
-            Ok(RecordBatch::new_empty(source.schema))
-        } else {
-            arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)
-                .map_err(BazanError::from)
+        accumulated_rows += b_len;
+        if got >= limit {
+            break;
         }
+    }
+
+    if matched_batches.is_empty() {
+        Ok(RecordBatch::new_empty(source.schema))
+    } else {
+        arrow::compute::concat_batches(&matched_batches[0].schema(), &matched_batches)
+            .map_err(BazanError::from)
     }
 }
 
