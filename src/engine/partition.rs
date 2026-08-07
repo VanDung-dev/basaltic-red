@@ -74,35 +74,45 @@ fn eval_cmp<T: PartialOrd>(val: T, target: T, op: &Operator) -> bool {
     }
 }
 
-/// Duyệt cây thư mục đệ quy và cắt tỉa (prune) các nhánh thư mục vi phạm phân vùng
+/// Duyệt cây thư mục đệ quy và cắt tỉa (prune) các nhánh thư mục vi phạm phân vùng.
+///
+/// Mỗi thư mục được duyệt đúng một lần (O(n)); một nhánh "chết" (không khớp filter
+/// và không có hậu duệ nào khớp) được đếm đúng một lần tại gốc nhánh — không phải
+/// re-scan toàn subtree ở từng cấp như `contains_subfolder_matching` cũ.
 pub fn discover_and_prune_files(
     dir: &Path,
     rules: &[FilterRule],
     explicit_partition_filter: Option<&str>,
 ) -> Result<(Vec<PathBuf>, usize), BazanError> {
-    let mut files = Vec::new();
-    let mut pruned_dirs_count = 0;
+    let (files, _, pruned) = walk_and_prune(dir, rules, explicit_partition_filter)?;
+    Ok((files, pruned))
+}
 
+/// Returns `(files, subtree_has_match, pruned_branch_count)`.
+///
+/// `subtree_has_match` is true when any path in this subtree contains the filter
+/// (or when the subtree is fully alive because the filter is unset); `pruned` counts
+/// only *maximal* dead branches — a dead parent supersedes its dead children — which
+/// reproduces the old top-down counting without re-scanning.
+fn walk_and_prune(
+    dir: &Path,
+    rules: &[FilterRule],
+    filter: Option<&str>,
+) -> Result<(Vec<PathBuf>, bool, usize), BazanError> {
     if !dir.exists() || !dir.is_dir() {
-        return Ok((files, 0));
+        return Ok((Vec::new(), false, 0));
     }
 
-    // Kiểm tra partition rules trực tiếp trên đường dẫn thư mục hiện tại
+    // Rule-based pruning is O(1) (path parse) and prunes the whole branch at once.
     let current_partitions = parse_path_partitions(dir);
     if !matches_partition_rules(&current_partitions, rules) {
-        // Nhánh thư mục này không thỏa điều kiện -> Skip toàn bộ nhánh cây này!
-        return Ok((files, 1));
+        return Ok((Vec::new(), false, 1));
     }
 
-    // Kiểm tra bộ lọc từ khóa phân vùng trực tiếp (-p / --partition-filter)
-    if let Some(filter_str) = explicit_partition_filter {
-        let dir_str = dir.to_str().unwrap_or("");
-        if !dir_str.contains(filter_str)
-            && !crate::utils::contains_subfolder_matching(dir, filter_str)
-        {
-            return Ok((files, 1)); // Prune nhánh này
-        }
-    }
+    let dir_matches = filter.map_or(true, |f| dir.to_str().unwrap_or("").contains(f));
+    let mut files = Vec::new();
+    let mut any_match = false;
+    let mut pruned = 0usize;
 
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -115,10 +125,12 @@ pub fn discover_and_prune_files(
         let path = entry.path();
 
         if file_type.is_dir() {
-            let (sub_files, sub_pruned) =
-                discover_and_prune_files(&path, rules, explicit_partition_filter)?;
-            files.extend(sub_files);
-            pruned_dirs_count += sub_pruned;
+            let (sub_files, sub_any, sub_pruned) = walk_and_prune(&path, rules, filter)?;
+            pruned += sub_pruned;
+            if sub_any {
+                any_match = true;
+                files.extend(sub_files);
+            }
         } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             let ext_lower = ext.to_lowercase();
             let is_supported = matches!(
@@ -145,10 +157,10 @@ pub fn discover_and_prune_files(
                 // Kiểm tra lại partition rules trên full path của file
                 let file_partitions = parse_path_partitions(&path);
                 if !matches_partition_rules(&file_partitions, rules) {
-                    continue; // Skip file này
+                    continue;
                 }
 
-                if let Some(filter_str) = explicit_partition_filter {
+                if let Some(filter_str) = filter {
                     let path_str = path.to_str().unwrap_or("");
                     if !path_str.contains(filter_str) {
                         continue;
@@ -156,9 +168,15 @@ pub fn discover_and_prune_files(
                 }
 
                 files.push(path);
+                any_match = true;
             }
         }
     }
 
-    Ok((files, pruned_dirs_count))
+    if !dir_matches && !any_match {
+        // Whole branch is dead: count once as the maximal pruned root.
+        Ok((Vec::new(), false, 1))
+    } else {
+        Ok((files, true, pruned))
+    }
 }

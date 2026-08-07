@@ -29,7 +29,9 @@ impl MatrixEngine {
         handler.read_range(file_path, offset, limit, DEFAULT_MAX_BATCH_SIZE)
     }
 
-    /// Read selected columns & row range (Column Projection zero-copy)
+    /// Read selected columns & row range. Columns are pushed down to the reader
+    /// where it supports projection (parquet, csv-family); other formats read
+    /// everything and project afterwards. Result columns follow `selected_cols` order.
     pub fn slice_cols_native(
         &self,
         file_path: &str,
@@ -37,25 +39,38 @@ impl MatrixEngine {
         offset: usize,
         limit: usize,
     ) -> Result<RecordBatch, BazanError> {
-        let full_batch = self.slice_rows_native(file_path, offset, limit)?;
         if selected_cols.is_empty() {
-            return Ok(full_batch);
+            return self.slice_rows_native(file_path, offset, limit);
         }
 
-        let schema = full_batch.schema();
+        let path = std::path::Path::new(file_path);
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let handler = handler_for(&ext).ok_or_else(|| {
+            BazanError::Message(format!("Format '.{}' slicing not supported yet", ext))
+        })?;
+
+        let batch = handler.read_range_columns(
+            file_path,
+            offset,
+            limit,
+            DEFAULT_MAX_BATCH_SIZE,
+            selected_cols,
+        )?;
+
+        // Reader projection preserves original schema order; reorder to requested order.
+        let schema = batch.schema();
         let mut indices = Vec::new();
-
         for col_name in selected_cols {
-            if let Ok(idx) = schema.index_of(col_name) {
-                indices.push(idx);
-            } else {
-                return Err(BazanError::Message(format!(
-                    "Column '{}' not found in schema",
-                    col_name
-                )));
-            }
+            indices.push(schema.index_of(col_name).map_err(|_| {
+                BazanError::Message(format!("Column '{}' not found in schema", col_name))
+            })?);
         }
 
-        Ok(full_batch.project(&indices)?)
+        Ok(batch.project(&indices)?)
     }
 }

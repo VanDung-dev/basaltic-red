@@ -21,13 +21,6 @@ pub fn discover_data_files(
         }
         let path = entry.path();
         if file_type.is_dir() {
-            // Partition Pruning: Check if subfolder path contains filter pattern
-            if let Some(filter) = filter_subfolder {
-                let full_path_str = path.to_str().unwrap_or("");
-                if !full_path_str.contains(filter) && !contains_subfolder_matching(&path, filter) {
-                    continue; // Skip pruned partition branch
-                }
-            }
             files.extend(discover_data_files(&path, filter_subfolder)?);
         } else if file_type.is_file() {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
@@ -73,23 +66,4 @@ pub fn discover_parquet_files(
     filter_subfolder: Option<&str>,
 ) -> Result<Vec<PathBuf>, BazanError> {
     discover_data_files(dir, filter_subfolder)
-}
-
-pub fn contains_subfolder_matching(dir: &Path, filter: &str) -> bool {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            // Do not follow symlinks while probing partition names
-            if entry.file_type().is_ok_and(|t| t.is_symlink()) {
-                continue;
-            }
-            let path = entry.path();
-            if path.to_str().is_some_and(|s| s.contains(filter)) {
-                return true;
-            }
-            if path.is_dir() && contains_subfolder_matching(&path, filter) {
-                return true;
-            }
-        }
-    }
-    false
 }
