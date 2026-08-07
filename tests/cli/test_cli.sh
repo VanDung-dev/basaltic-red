@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Auto-test for the `bazan` CLI — covers every subcommand listed in README.md:
-# slice-rows, slice-cols, split, preview, dict, graph, filter, pack, inspect, sql.
+# slice-rows, slice-cols, split, preview, dict, graph, filter, sql.
 #
 # Usage:
 #   ./tests/cli/test_cli.sh                # uses target/release/bazan
@@ -97,16 +97,10 @@ cp people.csv lake/year=2026/month=08/a.csv
 printf 'id,age,salary\n5,20,999\n' > lake/year=2025/month=08/b.csv
 assert_cmd "filter partition-pruned" "Total Files Processed: 1" -- "$BAZAN_BIN" filter lake --rule "age >= 18" -p "year=2026/month=08" --clean-output pp_clean.parquet --trash-output pp_trash.parquet
 
-# --- 9. pack --------------------------------------------------------------
-assert_cmd "pack" "Container Pack Completed" -- "$BAZAN_BIN" pack db --output lakehouse.bazan
+# --- 9. sql on a file --------------------------------------------------------
+assert_cmd "sql" "2 rows × 2 columns" -- "$BAZAN_BIN" sql "SELECT id, salary FROM 'people.csv' WHERE age >= 18 ORDER BY salary DESC"
 
-# --- 10. inspect -----------------------------------------------------------
-assert_cmd "inspect" "Total Packed Entries" -- "$BAZAN_BIN" inspect lakehouse.bazan
-
-# --- 11. sql (single-schema .bazan only) -----------------------------------
-assert_cmd "sql" "2 rows × 2 columns" -- "$BAZAN_BIN" sql "SELECT id, salary FROM 'lakehouse.bazan' WHERE age >= 18 ORDER BY salary DESC"
-
-# --- 12. bad subcommand must exit non-zero ---------------------------------
+# --- 10. bad subcommand must exit non-zero ----------------------------------
 if "$BAZAN_BIN" no-such-command >/dev/null 2>&1; then
     echo "✗ unknown subcommand: should have exited non-zero"
     FAIL=$((FAIL + 1))
@@ -115,7 +109,7 @@ else
     PASS=$((PASS + 1))
 fi
 
-# --- 13. security: injected code must never execute --------------------------
+# --- 11. security: injected code must never execute --------------------------
 # Canary: "SECBREACH" only appears if a payload actually runs — shell/python/rust
 # execution would concatenate `echo -n SEC && echo BREACH` into "SECBREACH".
 # As inert text the two halves stay apart, so the marker never shows up in any
@@ -183,12 +177,8 @@ assert_no_marker_in "graph mermaid clean" gsec.md
 assert_no_marker "filter malicious" -- "$BAZAN_BIN" filter malicious.csv --rule "id > 0" --clean-output sec_clean.csv --trash-output sec_trash.csv
 assert_no_marker_in "filter clean csv" sec_clean.csv
 assert_no_marker_in "filter trash csv" sec_trash.csv
-mkdir -p db2 && cp malicious.csv db2/data.csv
-assert_no_marker "pack malicious" -- "$BAZAN_BIN" pack db2 --output lake2.bazan
-assert_no_marker "inspect malicious" -- "$BAZAN_BIN" inspect lake2.bazan
-assert_no_marker "sql malicious" -- "$BAZAN_BIN" sql "SELECT payload FROM 'lake2.bazan' WHERE id = 0"
 
-# --- 14. CSV injection hardening: dangerous cells get a ' prefix on write -----
+# --- 12. CSV injection hardening: dangerous cells get a ' prefix on write -----
 # Spreadsheet formulas (= + @ and non-numeric -) must be neutralized in CSV output.
 printf 'id,payload\n0,=1+1\n1,+2+2\n2,@SUM(A1)\n3,-1+1\n4,-5.0\n5,plain\n' > inj.csv
 assert_cmd "split inj" "Split matrix into 3 part files" -- "$BAZAN_BIN" split inj.csv --max-rows 2 --output-dir injparts --format csv
@@ -202,7 +192,7 @@ else
     echo "✗ csv injection: dangerous cells not escaped in split output"
     FAIL=$((FAIL + 1))
 fi
-assert_cmd "sql to csv" "Saved SQL Query Results" -- "$BAZAN_BIN" sql "SELECT payload FROM 'lake2.bazan' WHERE id = 3" --output inj_out.csv
+assert_cmd "sql to csv" "Saved SQL Query Results" -- "$BAZAN_BIN" sql "SELECT payload FROM 'malicious.csv' WHERE id = 3" --output inj_out.csv
 if grep -q "'=cmd|" inj_out.csv; then
     echo "✓ csv injection escaped in sql output"
     PASS=$((PASS + 1))
@@ -211,70 +201,19 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# --- 15. crafted .bazan bounds: huge lengths must error, not OOM --------------
-# assert_clean_error <name> <expected-substring> -- <cmd...> : rc!=0, clean error, no panic
-assert_clean_error() {
-    local name="$1" expected="$2"
-    shift 3
-    local out
-    out="$("$@" 2>&1)"
-    local rc=$?
-    if (( rc == 0 )); then
-        echo "✗ $name: expected failure but command succeeded"
-        FAIL=$((FAIL + 1))
-    elif [[ "$out" != *"$expected"* ]]; then
-        echo "✗ $name: missing '$expected' in error output"
-        echo "    got: $(printf '%s' "$out" | head -2)"
-        FAIL=$((FAIL + 1))
-    elif [[ "$out" == *"panicked"* ]]; then
-        echo "✗ $name: panicked instead of clean error"
-        FAIL=$((FAIL + 1))
-    else
-        echo "✓ $name"
-        PASS=$((PASS + 1))
-    fi
-}
-
-python3 - "$WORK" <<'PY'
-import struct, sys
-
-work = sys.argv[1]
-
-# attack 1: footer claims a gigantic manifest_length -> inspect must error fast
-with open(f"{work}/evil_len.bazan", "wb") as f:
-    f.write(b"BAZAN01")
-    f.write(b"\x00" * 8)
-    f.write(struct.pack("<Q", 0))
-    f.write(struct.pack("<Q", 0xFFFF_FFFF_FFFF_FFFF))
-    f.write(b"BAZANEND")
-
-# attack 2: valid manifest but an entry whose length overflows the file
-manifest = b'{"version":1,"entries":[{"path":"x.csv","offset":0,"length":18446744073709551615,"format":"parquet","num_rows":1}]}'
-with open(f"{work}/evil_entry.bazan", "wb") as f:
-    f.write(b"BAZAN01")
-    f.write(b"\x00" * 8)
-    f.write(manifest)
-    f.write(struct.pack("<Q", 15))
-    f.write(struct.pack("<Q", len(manifest)))
-    f.write(b"BAZANEND")
-PY
-
-assert_clean_error "bazan huge manifest length" "exceeds file size" -- "$BAZAN_BIN" inspect evil_len.bazan
-assert_clean_error "bazan huge entry length" "exceeds file size" -- "$BAZAN_BIN" sql "SELECT * FROM 'evil_entry.bazan'"
-
-# --- 16. symlinked dirs must not escape the input scope ----------------------
+# --- 13. symlinked dirs must not escape the input scope ----------------------
 mkdir -p outside
 printf 'id,x\n1,secret\n' > outside/secret.csv
-ln -s ../outside db/link
-assert_cmd "pack skips symlink" "Container Pack Completed" -- "$BAZAN_BIN" pack db --output symlink.bazan
-if "$BAZAN_BIN" inspect symlink.bazan 2>&1 | grep -q "secret.csv"; then
-    echo "✗ symlink: pack followed a link outside the input scope"
+ln -s ../outside lake/link
+assert_cmd "filter skips symlink" "Total Files Processed" -- "$BAZAN_BIN" filter lake --rule "age >= 18" --clean-output sym_clean.csv --trash-output sym_trash.csv
+if grep -q "secret" sym_clean.csv sym_trash.csv 2>/dev/null; then
+    echo "✗ symlink: filter followed a link outside the input scope"
     FAIL=$((FAIL + 1))
 else
-    echo "✓ symlink: outside files not packed"
+    echo "✓ symlink: outside files not processed"
     PASS=$((PASS + 1))
 fi
-rm db/link
+rm lake/link
 
 echo
 echo "=== bazan CLI: $PASS passed, $FAIL failed ==="

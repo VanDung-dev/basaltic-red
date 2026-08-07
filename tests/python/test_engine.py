@@ -288,23 +288,13 @@ def test_filter_files_parallel_partition_pruning(tmp_path):
     assert summary == {"total_files": 1, "pruned_dirs": 1, "total_rows": 2, "clean_rows": 1, "trash_rows": 1}
 
 
-def test_pack_manifest_and_execute_sql(tmp_path):
+def test_execute_sql_on_directory(tmp_path):
     db = tmp_path / "db"
     db.mkdir()
     (db / "data.csv").write_text("id,age,salary\n1,25,1000\n2,15,500\n3,30,1200\n")
-    bazan = tmp_path / "lakehouse.bazan"
-
-    count, _ = basaltic_red.MatrixEngine().pack_directory(str(db), str(bazan))
-    assert count == 1
-
-    manifest = basaltic_red.read_bazan_manifest(str(bazan))
-    assert manifest["version"] == 1
-    assert len(manifest["entries"]) == 1
-    assert manifest["entries"][0]["format"] in ("csv", "parquet")
-    assert manifest["entries"][0]["num_rows"] == 3
 
     result = basaltic_red.MatrixEngine().execute_sql(
-        f"SELECT id, salary FROM '{bazan}' WHERE age >= 18 ORDER BY salary DESC"
+        f"SELECT id, salary FROM '{db}' WHERE age >= 18 ORDER BY salary DESC"
     )
     assert result.num_rows == 2
     assert result.num_columns == 2
