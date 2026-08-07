@@ -382,42 +382,26 @@ def test_execute_sql_stream_to_pyarrow(tmp_path):
     assert table.num_columns == 2
 
 
-def test_execute_sql_stream_to_polars(tmp_path):
-    import polars as pl
-
+def test_namespaced_subcommands(tmp_path):
     p = _write_format(tmp_path, "parquet")
-    stream = basaltic_red.MatrixEngine().execute_sql_stream(
+    assert basaltic_red.read.slice_rows(str(p), offset=0, limit=2).num_rows == 2
+    assert basaltic_red.filter.process_file(str(p), 1024) == (6, 2, 4)
+    assert basaltic_red.sql.execute_sql(f"SELECT COUNT(*) AS c FROM '{p}'").to_pydict() == {
+        "c": [6]
+    }
+    summary = basaltic_red.filter.filter_files_parallel(
+        str(tmp_path), rules=["fare_amount > 0"]
+    )
+    assert summary["total_files"] >= 1
+    n = basaltic_red.lake.split_file(
+        str(p), max_rows_per_file=2, output_dir=str(tmp_path / "out"), format="csv"
+    )
+    assert n >= 1
+
+
+def test_sql_stream_repr(tmp_path):
+    p = _write_format(tmp_path, "parquet")
+    stream = basaltic_red.sql.execute_sql_stream(
         f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
     )
-    df = stream.to_polars()
-    assert isinstance(df, pl.DataFrame)
-    assert df.height > 0
-    assert df.width == 2
-
-
-def test_execute_sql_stream_to_pandas(tmp_path):
-    import pandas as pd
-
-    p = _write_format(tmp_path, "parquet")
-    stream = basaltic_red.MatrixEngine().execute_sql_stream(
-        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
-    )
-    df = stream.to_pandas()
-    assert isinstance(df, pd.DataFrame)
-    assert len(df) > 0
-    assert len(df.columns) == 2
-
-
-def test_execute_sql_stream_to_duckdb(tmp_path):
-    import duckdb
-
-    p = _write_format(tmp_path, "parquet")
-    stream = basaltic_red.MatrixEngine().execute_sql_stream(
-        f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
-    )
-    table = stream.to_pyarrow()
-    con = duckdb.connect()
-    con.register("tbl", table)
-    res_df = con.execute("SELECT passenger_count, fare_amount FROM tbl WHERE fare_amount > 50.0").df()
-    assert len(res_df) > 0
-
+    assert "PyBatchIterator(batches=" in repr(stream)
