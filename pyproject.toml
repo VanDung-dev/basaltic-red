@@ -7,18 +7,22 @@ name = "basaltic-red"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    # Build & Testing Tools
-    "pytest>=9.1.0",
-    "maturin>=1.14.0",
-
-    # Core Arrow & Data Processing Ecosystem (Zero-Copy Interop)
+    # Core: the extension returns pyarrow Table/RecordBatch — this is the
+    # only hard runtime dependency.
     "pyarrow>=25.0.0",
-    "polars>=1.43.0",
-    "duckdb>=1.5.0",
-    "pandas>=3.0.0",
-    "numpy>=2.5.0",
+]
 
-    # Jupyter Notebook & Data Visualization Ecosystem
+# Install a group with:  uv sync --extra <group>   (--all-extras for everything)
+[project.optional-dependencies]
+interop = [
+    # Zero-copy interop targets for the SQL stream (PyBatchIterator)
+    "polars>=1.43.0",   # stream.to_polars()
+    "duckdb>=1.5.0",    # stream -> DuckDB
+    "pandas>=3.0.0",    # stream.to_pandas()
+    "numpy>=2.5.0",
+]
+notebook = [
+    # Jupyter Notebook & data visualization ecosystem (demo.ipynb)
     "jupyterlab>=4.6.0",
     "notebook>=7.6.0",
     "ipython>=9.16.0",
@@ -27,6 +31,11 @@ dependencies = [
     "matplotlib>=3.10.0",
     "seaborn>=0.13.0",
     "pandas-stubs~=3.0.5",
+]
+dev = [
+    # Test & build tooling
+    "pytest>=9.1.0",
+    "maturin>=1.14.0",  # uv run maturin develop
 ]
 
 [tool.maturin]
