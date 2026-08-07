@@ -22,12 +22,18 @@ pub use formats::*;
 #[pyclass]
 pub struct PyBatchIterator {
     pub batches: std::sync::Mutex<std::vec::IntoIter<arrow::array::RecordBatch>>,
+    pub total_batches: usize,
+    pub total_rows: usize,
 }
 
 impl PyBatchIterator {
     pub fn new(batches: Vec<arrow::array::RecordBatch>) -> Self {
+        let total_batches = batches.len();
+        let total_rows = batches.iter().map(|b| b.num_rows()).sum();
         Self {
             batches: std::sync::Mutex::new(batches.into_iter()),
+            total_batches,
+            total_rows,
         }
     }
 }
@@ -36,6 +42,14 @@ impl PyBatchIterator {
 impl PyBatchIterator {
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
+    }
+
+    /// Human-readable summary shown in notebook cells
+    pub fn __repr__(&self) -> String {
+        format!(
+            "PyBatchIterator(batches={}, rows={})",
+            self.total_batches, self.total_rows
+        )
     }
 
     pub fn __next__<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
@@ -52,7 +66,7 @@ impl PyBatchIterator {
         }
     }
 
-    /// Zero-Copy conversion of stream into PyArrow Table
+    /// Conversion of stream into PyArrow Table
     pub fn to_pyarrow<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         use arrow::pyarrow::ToPyArrow;
         let mut guard = self
@@ -68,21 +82,6 @@ impl PyBatchIterator {
             .getattr("Table")?
             .call_method1("from_batches", (py_batches,))?;
         Ok(table)
-    }
-
-    /// Zero-Copy conversion of stream into Polars DataFrame
-    pub fn to_polars<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let table = self.to_pyarrow(py)?;
-        let polars = py.import("polars")?;
-        let df = polars.call_method1("from_arrow", (table,))?;
-        Ok(df)
-    }
-
-    /// Conversion of stream into Pandas DataFrame
-    pub fn to_pandas<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let table = self.to_pyarrow(py)?;
-        let df = table.call_method0("to_pandas")?;
-        Ok(df)
     }
 }
 
@@ -140,9 +139,7 @@ impl MatrixEngine {
         let batches = rt
             .block_on(self.execute_sql_batches(query))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(PyBatchIterator {
-            batches: std::sync::Mutex::new(batches.into_iter()),
-        })
+        Ok(PyBatchIterator::new(batches))
     }
 
     /// Filters a PyArrow RecordBatch into Clean RecordBatch and Trash RecordBatch (with Audit Error Bitmask)
