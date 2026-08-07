@@ -54,7 +54,7 @@ impl MatrixEngine {
                 let path_obj = Path::new(path_str);
 
                 if path_obj.exists() {
-                    let table_name = "bazan_target";
+                    let table_name = "br_target";
                     let mut df_batches: Vec<RecordBatch> = Vec::new();
                     let primary_registered_name = table_name.to_string();
 
