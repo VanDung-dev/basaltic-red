@@ -25,10 +25,9 @@ impl FormatHandler for XlsxHandler {
             }
         };
 
-        let mut rows_iter = range.rows();
-
-        // First row as Header
-        let header = match rows_iter.next() {
+        // First row as Header (scoped so the borrow on `range` ends before
+        // `into_rows()` consumes it below).
+        let header = match range.rows().next() {
             Some(h) => h,
             None => {
                 return Ok(OpenedSource {
@@ -52,26 +51,13 @@ impl FormatHandler for XlsxHandler {
             .collect();
         let schema = Arc::new(Schema::new(fields));
 
-        // Calamine holds the whole sheet in memory anyway, so collect rows
-        // eagerly then chunk them into RecordBatches.
-        let mut all_rows: Vec<Vec<String>> = Vec::new();
-        for row_cells in rows_iter {
-            let string_row: Vec<String> = row_cells
-                .iter()
-                .map(|cell| match cell {
-                    Data::String(s) => s.to_string(),
-                    Data::Int(i) => i.to_string(),
-                    Data::Float(f) => f.to_string(),
-                    Data::Bool(b) => b.to_string(),
-                    Data::Empty => String::new(),
-                    other => other.to_string(),
-                })
-                .collect();
-            all_rows.push(string_row);
-        }
+        // Calamine holds the whole sheet in memory anyway; convert each row
+        // lazily via an owned iterator and let RowChunker buffer batch_size at a
+        // time (no whole-sheet Vec<Vec<String>> duplicate).
+        let data_rows = XlsxRows::new(range, 1); // skip the header row
 
         let chunker = RowChunker::new(
-            all_rows.into_iter().map(Ok),
+            data_rows.map(Ok),
             batch_size,
             schema.clone(),
             string_rows_to_record_batch,
@@ -81,6 +67,56 @@ impl FormatHandler for XlsxHandler {
             schema,
             batches: Box::new(chunker),
         })
+    }
+}
+
+/// Owned lazy iterator over a calamine `Range<Data>`: yields one `Vec<String>`
+/// row at a time by random access into the sheet, so only the current row's
+/// strings are allocated instead of the whole sheet's.
+struct XlsxRows {
+    range: calamine::Range<Data>,
+    row: usize,
+    width: usize,
+    total_rows: usize,
+}
+
+impl XlsxRows {
+    fn new(range: calamine::Range<Data>, start_row: usize) -> Self {
+        let width = range.width();
+        let total_rows = range.height();
+        XlsxRows {
+            range,
+            row: start_row,
+            width,
+            total_rows,
+        }
+    }
+}
+
+impl Iterator for XlsxRows {
+    type Item = Vec<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.row >= self.total_rows {
+            return None;
+        }
+        let cells = (0..self.width)
+            .map(|col| {
+                self.range
+                    .get((self.row, col))
+                    .map(|cell| match cell {
+                        Data::String(s) => s.clone(),
+                        Data::Int(i) => i.to_string(),
+                        Data::Float(f) => f.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        Data::Empty => String::new(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        self.row += 1;
+        Some(cells)
     }
 }
 
