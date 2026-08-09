@@ -167,11 +167,23 @@ fn split_file(
     default_engine().split_file(py, file_path, max_rows_per_file, output_dir, format)
 }
 
+#[pyfunction]
+#[pyo3(signature = (src_dir, dst_dir, auto_normalize=None))]
+fn ingest(
+    py: Python<'_>,
+    src_dir: &str,
+    dst_dir: &str,
+    auto_normalize: Option<bool>,
+) -> PyResult<(usize, usize)> {
+    default_engine().ingest(py, src_dir, dst_dir, auto_normalize)
+}
+
 #[pymodule]
 pub fn lake(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(process_and_write_lake, m)?)?;
     m.add_function(wrap_pyfunction!(generate_gold_table, m)?)?;
     m.add_function(wrap_pyfunction!(split_file, m)?)?;
+    m.add_function(wrap_pyfunction!(ingest, m)?)?;
     Ok(())
 }
 
