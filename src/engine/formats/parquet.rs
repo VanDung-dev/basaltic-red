@@ -42,9 +42,8 @@ impl MatrixEngine {
         clean_output_dir: &str,
         trash_output_dir: &str,
         partition_filter: Option<&str>,
-        batch_size: usize,
+        _batch_size: usize,
     ) -> Result<(usize, usize, usize, usize), BazanError> {
-        let batch_size = super::clamp_batch_size(batch_size);
         let base_input_path = Path::new(input_dir);
         let files = discover_parquet_files(base_input_path, partition_filter)?;
         let total_files = files.len();
@@ -52,6 +51,8 @@ impl MatrixEngine {
         let writer_props = WriterProperties::builder()
             .set_compression(Compression::ZSTD(Default::default()))
             .build();
+
+        let batch_size = crate::engine::memory::budget_batch_rows(files.len());
 
         let results: Vec<(usize, usize, usize)> = files
             .par_iter()
