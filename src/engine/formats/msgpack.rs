@@ -59,39 +59,42 @@ impl FormatHandler for MsgpackHandler {
     }
 }
 
-/// Convert rows to a RecordBatch. Each row is indexed once into a `key -> value`
-/// map (O(K)), then every column looks up its values (O(F)) — O(R·(K+F)) total
-/// instead of the previous field×row×entry O(F·R·K) triple loop.
+/// Convert rows to a RecordBatch in a single pass: transpose cell references
+/// straight into column vectors (no per-row HashMap, no per-cell key hashing).
 fn msgpack_values_to_record_batch(
     values: &[rmpv::Value],
     schema: &Arc<Schema>,
 ) -> Result<RecordBatch, BazanError> {
     let n = values.len();
+    let num_cols = schema.fields().len();
 
-    let rows: Vec<HashMap<&str, &rmpv::Value>> = values
-        .iter()
-        .map(|v| {
-            let mut map = HashMap::new();
-            if let rmpv::Value::Map(entries) = v {
-                for (k, val) in entries {
-                    if let Some(key) = k.as_str() {
-                        map.insert(key, val);
+    // Column index by name, computed once per batch.
+    let mut col_index: HashMap<&str, usize> = HashMap::with_capacity(num_cols);
+    for (i, field) in schema.fields().iter().enumerate() {
+        col_index.insert(field.name(), i);
+    }
+
+    let mut cells: Vec<Vec<Option<&rmpv::Value>>> = vec![vec![None; n]; num_cols];
+    for (row_i, val) in values.iter().enumerate() {
+        if let rmpv::Value::Map(entries) = val {
+            for (k, v) in entries {
+                if let Some(key) = k.as_str() {
+                    if let Some(&ci) = col_index.get(key) {
+                        cells[ci][row_i] = Some(v);
                     }
                 }
             }
-            map
-        })
-        .collect();
+        }
+    }
 
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
+    let mut columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
-    for field in schema.fields() {
-        let field_name = field.name().as_str();
+    for (field, col) in schema.fields().iter().zip(cells) {
         match field.data_type() {
             DataType::Int64 => {
                 let mut builder = Int64Builder::with_capacity(n);
-                for row in &rows {
-                    match row.get(field_name).and_then(|v| v.as_i64()) {
+                for c in &col {
+                    match c.and_then(|v| v.as_i64()) {
                         Some(num) => builder.append_value(num),
                         None => builder.append_null(),
                     }
@@ -100,8 +103,8 @@ fn msgpack_values_to_record_batch(
             }
             DataType::Float64 => {
                 let mut builder = Float64Builder::with_capacity(n);
-                for row in &rows {
-                    match row.get(field_name).and_then(|v| v.as_f64()) {
+                for c in &col {
+                    match c.and_then(|v| v.as_f64()) {
                         Some(num) => builder.append_value(num),
                         None => builder.append_null(),
                     }
@@ -110,8 +113,8 @@ fn msgpack_values_to_record_batch(
             }
             DataType::Boolean => {
                 let mut builder = BooleanBuilder::with_capacity(n);
-                for row in &rows {
-                    match row.get(field_name).and_then(|v| match v {
+                for c in &col {
+                    match c.and_then(|v| match v {
                         rmpv::Value::Boolean(b) => Some(*b),
                         _ => None,
                     }) {
@@ -123,8 +126,8 @@ fn msgpack_values_to_record_batch(
             }
             _ => {
                 let mut builder = StringBuilder::with_capacity(n, n * 20);
-                for row in &rows {
-                    match row.get(field_name).and_then(|v| v.as_str()) {
+                for c in &col {
+                    match c.and_then(|v| v.as_str()) {
                         Some(s) => builder.append_value(s),
                         None => builder.append_null(),
                     }
