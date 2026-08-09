@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use crate::engine::dynamic_filter::FilterRule;
 use crate::engine::formats::handler_for;
 use crate::engine::partition::discover_and_prune_files;
-use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -82,6 +81,11 @@ impl MatrixEngine {
 
         let total_files = files.len();
 
+        // Bound in-flight rows: per-stream batch size scales down with the number
+        // of files being filtered concurrently.
+        let batch_size =
+            crate::engine::memory::budget_batch_rows(num_threads.unwrap_or(files.len()));
+
         // (clean_rows, trash_rows) per file, streamed and counted in parallel.
         let process_fn = || -> Result<(usize, usize), BazanError> {
             let counts = files
@@ -99,7 +103,7 @@ impl MatrixEngine {
                         BazanError::Message(format!("Unsupported format: .{}", ext))
                     })?;
 
-                    let source = handler.open(file_str, DEFAULT_MAX_BATCH_SIZE)?;
+                    let source = handler.open(file_str, batch_size)?;
                     let mut clean_rows = 0usize;
                     let mut trash_rows = 0usize;
                     for batch_res in source.batches {

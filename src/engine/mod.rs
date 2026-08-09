@@ -10,8 +10,11 @@ pub mod dynamic_filter;
 pub mod filter;
 pub mod formats;
 pub mod graph;
+pub mod ingest;
+pub mod memory;
 pub mod parallel_filter;
 pub mod partition;
+pub mod recommend;
 pub mod slice;
 pub mod splitter;
 pub mod sql;
@@ -185,6 +188,26 @@ impl MatrixEngine {
 
         let stats = py.detach(|| handler.process_file(self, file_path, batch_size));
 
+        match stats {
+            Ok(res) => Ok(res),
+            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
+        }
+    }
+
+    /// Ingest a source directory into a destination lake directory, optionally
+    /// normalizing row-based formats to Parquet. Returns (files, rows).
+    pub fn ingest(
+        &self,
+        py: Python<'_>,
+        src_dir: &str,
+        dst_dir: &str,
+        auto_normalize: Option<bool>,
+    ) -> PyResult<(usize, usize)> {
+        let src = src_dir.to_string();
+        let dst = dst_dir.to_string();
+        let stats = py.detach(|| -> Result<(usize, usize), BazanError> {
+            self.ingest_native(&src, &dst, auto_normalize)
+        });
         match stats {
             Ok(res) => Ok(res),
             Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e.to_string())),
