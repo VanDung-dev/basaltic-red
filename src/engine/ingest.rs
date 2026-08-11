@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
+use rayon::prelude::*;
 
 use crate::engine::formats::handler_for;
 use crate::engine::memory::BUDGET_BATCH_ROWS;
@@ -43,31 +44,79 @@ impl MatrixEngine {
         fs::create_dir_all(dst)?;
 
         let files = discover_data_files(src, None)?;
-        let mut rows_ingested = 0usize;
 
-        for file in &files {
-            let rel = file.strip_prefix(src).map_err(|_| {
-                BazanError::Message(format!("Ingest source outside {}", src_dir))
-            })?;
-            let ext = file
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-
-            let target = if normalize && is_row_format(&ext) {
-                self.ingest_normalize(file, dst.join(rel).with_extension("parquet"))?
-            } else {
-                let target = dst.join(rel);
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::copy(file, &target).map_err(BazanError::from)?;
-                0
-            };
-            rows_ingested += target;
+        // Precompute (source, target) per file, then stream/convert in parallel.
+        // Two files sharing a target (a.csv normalized to a.parquet while
+        // a.parquet is copied) would overwrite each other. Copy files reserve
+        // their natural target first; normalized row files yield when taken.
+        let normalize_this: Vec<bool> = files
+            .iter()
+            .map(|file| {
+                let ext = file
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                normalize && is_row_format(&ext)
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        for (file, norm) in files.iter().zip(&normalize_this) {
+            if !*norm {
+                let rel = file.strip_prefix(src).map_err(|_| {
+                    BazanError::Message(format!("Ingest source outside {}", src_dir))
+                })?;
+                seen.insert(dst.join(rel));
+            }
         }
+        let jobs: Vec<(PathBuf, PathBuf, bool)> = files
+            .iter()
+            .zip(&normalize_this)
+            .map(|(file, norm)| {
+                let rel = file.strip_prefix(src).map_err(|_| {
+                    BazanError::Message(format!("Ingest source outside {}", src_dir))
+                })?;
+                let ext = file
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let target = if *norm {
+                    let plain = dst.join(rel).with_extension("parquet");
+                    if seen.contains(&plain) {
+                        dst.join(rel).with_extension(format!("{ext}.parquet"))
+                    } else {
+                        seen.insert(plain.clone());
+                        plain
+                    }
+                } else {
+                    dst.join(rel)
+                };
+                Ok((file.clone(), target, *norm))
+            })
+            .collect::<Result<Vec<_>, BazanError>>()?;
 
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(jobs.len().max(1));
+        let rows = crate::engine::memory::global_rayon_pool(threads).install(|| {
+            jobs.par_iter()
+                .map(|(file, target, should_normalize)| -> Result<usize, BazanError> {
+                    if *should_normalize {
+                        self.ingest_normalize(file, target.clone())
+                    } else {
+                        if let Some(parent) = target.parent() {
+                            fs::create_dir_all(parent)?;
+                        }
+                        fs::copy(file, target).map_err(BazanError::from)?;
+                        Ok(0)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })?;
+
+        let rows_ingested: usize = rows.iter().sum();
         Ok((files.len(), rows_ingested))
     }
 
