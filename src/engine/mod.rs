@@ -179,6 +179,7 @@ impl MatrixEngine {
             .unwrap_or("")
             .to_lowercase();
 
+        formats::maybe_hint_not_parquet(file_path, &ext);
         let handler = formats::handler_for(&ext).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "Unsupported file format: '.{}'. Supported formats: csv, tsv, psv, txt, json, jsonl, ndjson, parquet, pq, feather, arrow, ipc, avro, xlsx, orc, msgpack",
@@ -357,7 +358,7 @@ impl MatrixEngine {
         rules: Vec<String>,
     ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
         use crate::engine::dynamic_filter::FilterRule;
-        use crate::engine::formats::handler_for;
+        use crate::engine::formats::{handler_for, maybe_hint_not_parquet};
         use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
         use arrow::array::{ArrayRef, RecordBatch};
         use arrow::compute::concat_batches;
@@ -380,6 +381,7 @@ impl MatrixEngine {
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_lowercase();
+                maybe_hint_not_parquet(&path, &ext);
                 let handler = handler_for(&ext).ok_or_else(|| {
                     BazanError::Message(format!("Unsupported format: .{}", ext))
                 })?;
