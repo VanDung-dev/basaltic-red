@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 use crate::engine::dynamic_filter::FilterRule;
-use crate::engine::formats::handler_for;
+use crate::engine::formats::{handler_for, maybe_hint_not_parquet};
 use crate::engine::partition::discover_and_prune_files;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -99,6 +99,7 @@ impl MatrixEngine {
                         .and_then(|s| s.to_str())
                         .unwrap_or("")
                         .to_lowercase();
+                    maybe_hint_not_parquet(file_str, &ext);
                     let handler = handler_for(&ext).ok_or_else(|| {
                         BazanError::Message(format!("Unsupported format: .{}", ext))
                     })?;
@@ -122,10 +123,7 @@ impl MatrixEngine {
         };
 
         let (clean_rows, trash_rows) = if let Some(threads) = num_threads {
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(threads)
-                .build()?;
-            pool.install(process_fn)?
+            crate::engine::memory::global_rayon_pool(threads).install(process_fn)?
         } else {
             process_fn()?
         };
