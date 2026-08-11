@@ -202,3 +202,26 @@ static HANDLERS: &[(&str, &dyn FormatHandler)] = &[
 pub fn handler_for(ext: &str) -> Option<&'static dyn FormatHandler> {
     HANDLERS.iter().find(|(e, _)| *e == ext).map(|(_, h)| *h)
 }
+
+/// Print a one-time hint to stderr when a non-parquet file is about to be read
+/// (once per format per process). Parquet gets full parallel read power; other
+/// formats stream safely but miss pushdown/row-group parallelism.
+pub fn maybe_hint_not_parquet(file_path: &str, ext: &str) {
+    if matches!(ext, "parquet" | "pq") {
+        return;
+    }
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static HINTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut seen = HINTED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap();
+    if seen.insert(ext.to_string()) {
+        eprintln!(
+            "[basaltic-red] hint: '{}' is not parquet — convert with \
+             br.lake.ingest('{}', out_dir) for full parallel read power",
+            file_path, file_path
+        );
+    }
+}
