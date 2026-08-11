@@ -5,7 +5,7 @@ use parquet::file::properties::WriterProperties;
 use std::fs::File;
 use std::path::Path;
 
-use crate::engine::formats::{clamp_batch_size, handler_for};
+use crate::engine::formats::{clamp_batch_size, handler_for, maybe_hint_not_parquet};
 use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -29,6 +29,7 @@ impl MatrixEngine {
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_lowercase());
+        maybe_hint_not_parquet(file_path, ext.as_deref().unwrap_or(""));
         let handler = ext
             .as_deref()
             .and_then(handler_for)
