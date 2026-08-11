@@ -4,6 +4,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use datafusion::datasource::MemTable;
+use datafusion::datasource::file_format::{
+    arrow::ArrowFormat, csv::CsvFormat, json::JsonFormat, parquet::ParquetFormat, FileFormat,
+};
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::prelude::*;
 
 use crate::engine::formats::handler_for;
@@ -11,6 +17,68 @@ use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use crate::utils::discover_data_files;
+
+/// Map a file extension to a DataFusion native `FileFormat`, or `None` when
+/// the format has no native DataFusion reader (msgpack/xlsx/orc/txt/mixed).
+fn listing_format_for(ext: &str) -> Option<Arc<dyn FileFormat>> {
+    let format: Arc<dyn FileFormat> = match ext {
+        "parquet" | "pq" => Arc::new(ParquetFormat::new()),
+        "csv" => Arc::new(CsvFormat::default().with_delimiter(b',')),
+        "tsv" => Arc::new(CsvFormat::default().with_delimiter(b'\t')),
+        "psv" => Arc::new(CsvFormat::default().with_delimiter(b'|')),
+        "json" | "jsonl" | "ndjson" => Arc::new(JsonFormat::default()),
+        "arrow" | "ipc" | "feather" => Arc::new(ArrowFormat),
+        _ => return None,
+    };
+    Some(format)
+}
+
+/// First non-whitespace byte of `path`, used to detect top-level JSON arrays
+/// (which `JsonFormat` cannot read — it expects newline-delimited objects).
+fn first_non_ws_byte(path: &Path) -> Option<u8> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut buf = [0u8; 1024];
+    let n = f.read(&mut buf).ok()?;
+    buf[..n].iter().copied().find(|b| !b.is_ascii_whitespace())
+}
+
+/// DataFusion native reader for `ext`; `None` for msgpack/xlsx/orc/txt/mixed,
+/// and for JSON files that are top-level arrays (handled by the streaming
+/// handler instead).
+fn native_reader_for(path: &Path, ext: &str) -> Option<Arc<dyn FileFormat>> {
+    if matches!(ext, "json" | "jsonl" | "ndjson") && first_non_ws_byte(path) == Some(b'[') {
+        return None;
+    }
+    listing_format_for(ext)
+}
+
+/// Register `path` (a file or a homogeneous-extension directory) as a
+/// DataFusion listing table named `br_target`. Returns `true` when a native
+/// listing table was registered, `false` when the caller should fall back to
+/// the in-memory handler path.
+async fn register_listing_table(
+    ctx: &SessionContext,
+    path: &Path,
+    ext: &str,
+) -> Result<bool, BazanError> {
+    let Some(format) = native_reader_for(path, ext) else {
+        return Ok(false);
+    };
+    let url = ListingTableUrl::parse(format!("file://{}", path.display()))
+        .map_err(|e| BazanError::Message(format!("listing url: {e}")))?;
+    let options = ListingOptions::new(format).with_file_extension(format!(".{ext}"));
+    let config = ListingTableConfig::new(url)
+        .with_listing_options(options)
+        .infer_schema(&ctx.state())
+        .await
+        .map_err(|e| BazanError::Message(format!("listing schema: {e}")))?;
+    let table = ListingTable::try_new(config)
+        .map_err(|e| BazanError::Message(format!("listing table: {e}")))?;
+    ctx.register_table("br_target", Arc::new(table))
+        .map_err(|e| BazanError::Message(format!("register table: {e}")))?;
+    Ok(true)
+}
 
 /// Reorder batches so every batch matches one canonical schema (union of field
 /// names in first-seen order); missing columns become nulls.
@@ -62,6 +130,12 @@ impl MatrixEngine {
                         |handler: &'static dyn crate::engine::formats::FormatHandler,
                          file_str: &str|
                          -> Result<(), BazanError> {
+                            let ext = std::path::Path::new(file_str)
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            crate::engine::formats::maybe_hint_not_parquet(file_str, &ext);
                             let source = handler.open(file_str, DEFAULT_MAX_BATCH_SIZE)?;
                             for batch_res in source.batches {
                                 df_batches.push(batch_res?);
@@ -75,25 +149,75 @@ impl MatrixEngine {
                             .and_then(|s| s.to_str())
                             .unwrap_or("")
                             .to_lowercase();
-                        let handler = handler_for(&ext).ok_or_else(|| {
-                            BazanError::Message(format!("Unsupported format: .{}", ext))
-                        })?;
-                        register_source(handler, path_str)?;
-                    } else if path_obj.is_dir() {
-                        let files = discover_data_files(path_obj, None)?;
-                        for file in files {
-                            let file_str = file.to_str().ok_or_else(|| {
-                                BazanError::Message("Invalid file path string".to_string())
-                            })?;
-                            let ext = file
-                                .extension()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("")
-                                .to_lowercase();
+                        // Fast path: DataFusion native reader (parquet/csv/json/...)
+                        // with pushdown + row-group parallelism. Falls back to the
+                        // in-memory handler when the format has no native reader.
+                        if !register_listing_table(&ctx, path_obj, &ext).await? {
                             let handler = handler_for(&ext).ok_or_else(|| {
                                 BazanError::Message(format!("Unsupported format: .{}", ext))
                             })?;
-                            register_source(handler, file_str)?;
+                            register_source(handler, path_str)?;
+                        }
+                    } else if path_obj.is_dir() {
+                        let files = discover_data_files(path_obj, None)?;
+                        let ext = files
+                            .first()
+                            .map(|f| {
+                                f.extension()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase()
+                            })
+                            .unwrap_or_default();
+                        let homogeneous = !files.is_empty()
+                            && files.iter().all(|f| {
+                                let e = f
+                                    .extension()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+                                e == ext
+                            });
+                        if homogeneous {
+                            if !register_listing_table(&ctx, path_obj, &ext).await? {
+                                for file in files {
+                                    let file_str = file.to_str().ok_or_else(|| {
+                                        BazanError::Message(
+                                            "Invalid file path string".to_string(),
+                                        )
+                                    })?;
+                                    let file_ext = file
+                                        .extension()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or("")
+                                        .to_lowercase();
+                                    let handler = handler_for(&file_ext).ok_or_else(|| {
+                                        BazanError::Message(format!(
+                                            "Unsupported format: .{}",
+                                            file_ext
+                                        ))
+                                    })?;
+                                    register_source(handler, file_str)?;
+                                }
+                            }
+                        } else {
+                            for file in files {
+                                let file_str = file.to_str().ok_or_else(|| {
+                                    BazanError::Message("Invalid file path string".to_string())
+                                })?;
+                                let ext = file
+                                    .extension()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+                                let handler = handler_for(&ext).ok_or_else(|| {
+                                    BazanError::Message(format!(
+                                        "Unsupported format: .{}",
+                                        ext
+                                    ))
+                                })?;
+                                register_source(handler, file_str)?;
+                            }
                         }
                     }
 
