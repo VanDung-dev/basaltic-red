@@ -82,9 +82,20 @@ impl MatrixEngine {
         let total_files = files.len();
 
         // Bound in-flight rows: per-stream batch size scales down with the number
-        // of files being filtered concurrently.
-        let batch_size =
-            crate::engine::memory::budget_batch_rows(num_threads.unwrap_or(files.len()));
+        // of files being filtered concurrently. Estimate row width from the first
+        // file's schema (schema only, no row re-read) for a tighter bound.
+        // ponytail: probe first file's schema (header/footer only) for a tighter
+        // row-width bound; re-opens file[0] once, negligible vs the full job.
+        let est_row_bytes = files.first().and_then(|first| {
+            let ext = first.extension().and_then(|s| s.to_str())?.to_lowercase();
+            let handler = handler_for(&ext)?;
+            let source = handler.open(first.to_str()?, 64).ok()?;
+            Some(crate::engine::memory::schema_row_bytes(&source.schema))
+        });
+        let batch_size = crate::engine::memory::budget_batch_rows_for(
+            num_threads.unwrap_or(files.len()),
+            est_row_bytes.unwrap_or(256),
+        );
 
         // (clean_rows, trash_rows) per file, streamed and counted in parallel.
         let process_fn = || -> Result<(usize, usize), BazanError> {
