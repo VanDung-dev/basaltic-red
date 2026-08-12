@@ -122,7 +122,7 @@ impl MatrixEngine {
 
     /// Stream `src` through its format handler and write Parquet to `target`.
     /// Returns the number of rows written.
-    fn ingest_normalize(
+    pub(crate) fn ingest_normalize(
         &self,
         src: &Path,
         target: PathBuf,
