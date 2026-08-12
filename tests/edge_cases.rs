@@ -347,3 +347,96 @@ async fn sql_empty_result_errors() {
         .to_string();
     assert!(err.contains("returned 0 rows"), "{err}");
 }
+
+// --- lazy execute_sql_stream ------------------------------------------------
+
+#[tokio::test]
+async fn sql_stream_is_lazy_and_emits_batches() {
+    use futures::StreamExt;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("big.csv");
+    big_csv(&path, 100);
+
+    let mut stream = engine()
+        .execute_sql_stream_inner(&format!("SELECT id FROM '{}' WHERE id < 5", path.display()))
+        .await
+        .unwrap();
+
+    let mut rows = 0;
+    while let Some(batch) = stream.next().await {
+        rows += batch.unwrap().num_rows();
+    }
+    assert_eq!(rows, 5);
+}
+
+#[tokio::test]
+async fn sql_stream_empty_result_no_error() {
+    // The lazy stream must not raise the eager "0 rows" error.
+    use futures::StreamExt;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("d.csv");
+    std::fs::write(&path, "id,val\n1,10\n").unwrap();
+
+    let mut stream = engine()
+        .execute_sql_stream_inner(&format!(
+            "SELECT * FROM '{}' WHERE id > 99",
+            path.display()
+        ))
+        .await
+        .unwrap();
+
+    let mut got = 0;
+    while let Some(batch) = stream.next().await {
+        got += batch.unwrap().num_rows();
+    }
+    assert_eq!(got, 0);
+}
+
+// --- SQL auto-normalize cache -----------------------------------------------
+
+#[tokio::test]
+async fn sql_auto_normalize_caches_msgpack_to_parquet() {
+    std::env::set_var("BASALTIC_RED_AUTO_NORMALIZE", "1");
+    std::env::set_var("BASALTIC_RED_CACHE_DIR", "");
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("data.msgpack");
+    {
+        use rmpv::Value;
+        let mut out = File::create(&src).unwrap();
+        for (id, val) in [(1i64, 10.5f64), (2, 20.5), (1, 30.5), (2, 40.5)] {
+            let map = Value::Map(vec![
+                (Value::from("id"), Value::Integer(id.into())),
+                (Value::from("val"), Value::from(val)),
+            ]);
+            rmpv::encode::write_value(&mut out, &map).unwrap();
+        }
+    }
+
+    // First query: no cache → transcode msgpack → parquet under <.br_cache>.
+    let table = engine()
+        .execute_sql(&format!("SELECT COUNT(*) AS c FROM '{}'", src.display()))
+        .await
+        .unwrap();
+    let c = table
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow::array::Int64Array>()
+        .unwrap();
+    assert_eq!(c.value(0), 4);
+
+    let cache = src
+        .parent()
+        .unwrap()
+        .join(".br_cache")
+        .join("data.msgpack.parquet");
+    assert!(cache.exists(), "cache parquet not created");
+
+    // Second query: hits the cached parquet instead of re-reading msgpack.
+    let table = engine()
+        .execute_sql(&format!("SELECT val FROM '{}' WHERE id = 1", src.display()))
+        .await
+        .unwrap();
+    assert_eq!(table.num_rows(), 2);
+}
