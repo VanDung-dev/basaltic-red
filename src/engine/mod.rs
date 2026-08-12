@@ -21,10 +21,17 @@ pub mod sql;
 
 pub use formats::*;
 
+/// Source of batches for a [`PyBatchIterator`]: an eagerly collected Vec
+/// (non-native formats / explicit collect) or a live DataFusion stream.
+pub enum PyBatchSource {
+    Eager(std::vec::IntoIter<arrow::array::RecordBatch>),
+    Lazy(datafusion::physical_plan::SendableRecordBatchStream),
+}
+
 /// Synchronous Python iterator yielding RecordBatch streams from DataFusion SQL execution
 #[pyclass]
 pub struct PyBatchIterator {
-    pub batches: std::sync::Mutex<std::vec::IntoIter<arrow::array::RecordBatch>>,
+    pub source: std::sync::Mutex<PyBatchSource>,
     pub total_batches: usize,
     pub total_rows: usize,
 }
@@ -34,9 +41,18 @@ impl PyBatchIterator {
         let total_batches = batches.len();
         let total_rows = batches.iter().map(|b| b.num_rows()).sum();
         Self {
-            batches: std::sync::Mutex::new(batches.into_iter()),
+            source: std::sync::Mutex::new(PyBatchSource::Eager(batches.into_iter())),
             total_batches,
             total_rows,
+        }
+    }
+
+    pub fn from_stream(stream: datafusion::physical_plan::SendableRecordBatchStream) -> Self {
+        // Row counts are unknown until the stream is consumed.
+        Self {
+            source: std::sync::Mutex::new(PyBatchSource::Lazy(stream)),
+            total_batches: 0,
+            total_rows: 0,
         }
     }
 }
@@ -57,29 +73,58 @@ impl PyBatchIterator {
 
     pub fn __next__<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         use arrow::pyarrow::ToPyArrow;
+        use futures::StreamExt;
         let mut guard = self
-            .batches
+            .source
             .lock()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        if let Some(batch) = guard.next() {
-            let py_batch = batch.to_pyarrow(py)?;
-            Ok(Some(py_batch))
-        } else {
-            Ok(None)
+        match &mut *guard {
+            PyBatchSource::Eager(iter) => {
+                if let Some(batch) = iter.next() {
+                    let py_batch = batch.to_pyarrow(py)?;
+                    Ok(Some(py_batch))
+                } else {
+                    Ok(None)
+                }
+            }
+            PyBatchSource::Lazy(stream) => {
+                match crate::engine::memory::global_runtime().block_on(stream.next()) {
+                    Some(Ok(batch)) => {
+                        let py_batch = batch.to_pyarrow(py)?;
+                        Ok(Some(py_batch))
+                    }
+                    Some(Err(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
+                    None => Ok(None),
+                }
+            }
         }
     }
 
     /// Conversion of stream into PyArrow Table
     pub fn to_pyarrow<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         use arrow::pyarrow::ToPyArrow;
+        use futures::StreamExt;
         let mut guard = self
-            .batches
+            .source
             .lock()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let pyarrow = py.import("pyarrow")?;
-        let mut py_batches = Vec::with_capacity(guard.len());
-        for batch in guard.by_ref() {
-            py_batches.push(batch.to_pyarrow(py)?);
+        let mut py_batches = Vec::new();
+        match &mut *guard {
+            PyBatchSource::Eager(iter) => {
+                for batch in iter.by_ref() {
+                    py_batches.push(batch.to_pyarrow(py)?);
+                }
+            }
+            PyBatchSource::Lazy(stream) => loop {
+                match crate::engine::memory::global_runtime().block_on(stream.next()) {
+                    Some(Ok(batch)) => py_batches.push(batch.to_pyarrow(py)?),
+                    Some(Err(e)) => {
+                        return Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+                    }
+                    None => break,
+                }
+            },
         }
         let table = pyarrow
             .getattr("Table")?
@@ -126,23 +171,21 @@ impl MatrixEngine {
     #[pyo3(name = "execute_sql")]
     pub fn execute_sql_py<'py>(&self, py: Python<'py>, query: &str) -> PyResult<Bound<'py, PyAny>> {
         use arrow::pyarrow::ToPyArrow;
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let batch = rt
+        let batch = crate::engine::memory::global_runtime()
             .block_on(self.execute_sql(query))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         batch.to_pyarrow(py)
     }
 
-    /// Execute SQL query directly and return a Python iterator yielding PyArrow RecordBatches
+    /// Execute SQL query directly and return a Python iterator yielding PyArrow RecordBatches.
+    /// Native files stream lazily from DataFusion; non-native files still collect
+    /// into a MemTable during registration, but no 0-row error is raised.
     #[pyo3(name = "execute_sql_stream")]
     pub fn execute_sql_stream_py<'py>(&self, _py: Python<'py>, query: &str) -> PyResult<PyBatchIterator> {
-        let rt = tokio::runtime::Runtime::new()
+        let stream = crate::engine::memory::global_runtime()
+            .block_on(self.execute_sql_stream_inner(query))
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let batches = rt
-            .block_on(self.execute_sql_batches(query))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(PyBatchIterator::new(batches))
+        Ok(PyBatchIterator::from_stream(stream))
     }
 
     /// Filters a PyArrow RecordBatch into Clean RecordBatch and Trash RecordBatch (with Audit Error Bitmask)
