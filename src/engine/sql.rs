@@ -1,6 +1,6 @@
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow::compute::concat_batches;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use datafusion::datasource::MemTable;
@@ -109,9 +109,59 @@ fn align_batches(batches: Vec<RecordBatch>) -> Result<Vec<RecordBatch>, BazanErr
         .collect()
 }
 
+/// `BASALTIC_RED_AUTO_NORMALIZE=1` gates the SQL-side transcoding cache.
+fn auto_normalize_enabled() -> bool {
+    std::env::var("BASALTIC_RED_AUTO_NORMALIZE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Cache root for `path`: `BASALTIC_RED_CACHE_DIR` override, else `<dir>/.br_cache`
+/// where `<dir>` is the path itself (for a directory) or its parent (for a file).
+fn auto_cache_root(path: &Path) -> PathBuf {
+    if let Ok(dir) = std::env::var("BASALTIC_RED_CACHE_DIR") {
+        if !dir.trim().is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    let dir = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
+    dir.join(".br_cache")
+}
+
+/// Transcode a non-native file into a cached Parquet, reusing an existing
+/// cache entry. Returns the cached file path (registered as a native table).
+fn cached_parquet_for(engine: &MatrixEngine, src: &Path) -> Result<PathBuf, BazanError> {
+    let root = auto_cache_root(src);
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("data")
+        .to_string();
+    let ext = src
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let target = root.join(format!("{stem}.{ext}.parquet"));
+    if !target.exists() {
+        engine.ingest_normalize(src, target.clone())?;
+    }
+    Ok(target)
+}
+
 impl MatrixEngine {
-    /// Execute SQL query directly on any supported file or directory tree
-    pub async fn execute_sql_batches_inner(&self, query_str: &str) -> Result<Vec<RecordBatch>, BazanError> {
+    /// Register the `'path'` from `query_str` as a DataFusion table and return
+    /// the query with the path replaced by the registered table name. Shared by
+    /// the eager (`execute_sql_batches_inner`) and lazy (`execute_sql_stream_inner`)
+    /// execution paths.
+    async fn prepare_query_context(
+        &self,
+        query_str: &str,
+    ) -> Result<(SessionContext, String), BazanError> {
         let ctx = SessionContext::new();
         let mut modified_query = query_str.to_string();
 
@@ -143,6 +193,7 @@ impl MatrixEngine {
                             Ok(())
                         };
 
+                    // `None` when the file was registered natively (no handler fallback needed).
                     if path_obj.is_file() {
                         let ext = path_obj
                             .extension()
@@ -153,10 +204,23 @@ impl MatrixEngine {
                         // with pushdown + row-group parallelism. Falls back to the
                         // in-memory handler when the format has no native reader.
                         if !register_listing_table(&ctx, path_obj, &ext).await? {
-                            let handler = handler_for(&ext).ok_or_else(|| {
-                                BazanError::Message(format!("Unsupported format: .{}", ext))
-                            })?;
-                            register_source(handler, path_str)?;
+                            // Auto-normalize cache: transcode non-native files to
+                            // Parquet once, then query the cached copy natively.
+                            let auto_cached = if auto_normalize_enabled() {
+                                cached_parquet_for(self, path_obj).ok()
+                            } else {
+                                None
+                            };
+                            let registered = match &auto_cached {
+                                Some(cache) => register_listing_table(&ctx, cache, "parquet").await?,
+                                None => false,
+                            };
+                            if !registered {
+                                let handler = handler_for(&ext).ok_or_else(|| {
+                                    BazanError::Message(format!("Unsupported format: .{}", ext))
+                                })?;
+                                register_source(handler, path_str)?;
+                            }
                         }
                     } else if path_obj.is_dir() {
                         let files = discover_data_files(path_obj, None)?;
@@ -180,6 +244,9 @@ impl MatrixEngine {
                             });
                         if homogeneous {
                             if !register_listing_table(&ctx, path_obj, &ext).await? {
+                                // ponytail: dir auto-normalize not cached (per-file
+                                // transcode would need a cache-dir listing); fall back
+                                // to the streaming handler path. Add when dir caches matter.
                                 for file in files {
                                     let file_str = file.to_str().ok_or_else(|| {
                                         BazanError::Message(
@@ -249,6 +316,13 @@ impl MatrixEngine {
             }
         }
 
+        Ok((ctx, modified_query))
+    }
+
+    /// Execute SQL query directly on any supported file or directory tree
+    pub async fn execute_sql_batches_inner(&self, query_str: &str) -> Result<Vec<RecordBatch>, BazanError> {
+        let (ctx, modified_query) = self.prepare_query_context(query_str).await?;
+
         // Execute query plan with DataFusion SQL Engine
         let df = ctx.sql(&modified_query).await?;
         let result_batches = df.collect().await?;
@@ -260,6 +334,18 @@ impl MatrixEngine {
         }
 
         Ok(result_batches)
+    }
+
+    /// Execute SQL lazily: returns the DataFusion `SendableRecordBatchStream`
+    /// from `execute_stream()` without collecting up front. Native files stream
+    /// lazily; non-native files still load into a MemTable during registration.
+    pub async fn execute_sql_stream_inner(
+        &self,
+        query_str: &str,
+    ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, BazanError> {
+        let (ctx, modified_query) = self.prepare_query_context(query_str).await?;
+        let df = ctx.sql(&modified_query).await?;
+        Ok(df.execute_stream().await?)
     }
 
     /// Execute SQL query directly and return raw list of RecordBatch streams
