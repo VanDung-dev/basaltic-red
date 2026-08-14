@@ -134,25 +134,7 @@ fn walk_and_prune(
             }
         } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             let ext_lower = ext.to_lowercase();
-            let is_supported = matches!(
-                ext_lower.as_str(),
-                "parquet"
-                    | "pq"
-                    | "csv"
-                    | "tsv"
-                    | "psv"
-                    | "txt"
-                    | "json"
-                    | "ndjson"
-                    | "jsonl"
-                    | "feather"
-                    | "arrow"
-                    | "ipc"
-                    | "avro"
-                    | "xlsx"
-                    | "orc"
-                    | "msgpack"
-            );
+            let is_supported = crate::engine::formats::handler_for(&ext_lower).is_some();
 
             if is_supported {
                 // Re-check partition rules against the file's full path

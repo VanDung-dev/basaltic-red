@@ -177,7 +177,7 @@ impl MatrixEngine {
                     let primary_registered_name = table_name.to_string();
 
                     let mut register_source =
-                        |handler: &'static dyn crate::engine::formats::FormatHandler,
+                        |handler: std::sync::Arc<dyn crate::engine::formats::FormatHandler>,
                          file_str: &str|
                          -> Result<(), BazanError> {
                             let ext = std::path::Path::new(file_str)

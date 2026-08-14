@@ -42,7 +42,7 @@ pub struct OpenedSource {
 /// Each handler owns its format-specific parsing (schema inference, row
 /// conversion) and exposes it as `open()`; the shared `process_file` /
 /// `read_range` defaults build on top so all consumers behave identically.
-pub trait FormatHandler: Sync {
+pub trait FormatHandler: Send + Sync {
     /// Open `file_path` as a stream of RecordBatches (clamped `batch_size`).
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError>;
 
@@ -100,23 +100,32 @@ fn read_range_from_source(
     offset: usize,
     limit: usize,
 ) -> Result<RecordBatch, BazanError> {
-    let mut accumulated_rows = 0usize;
-    let mut got = 0usize;
+    if limit == 0 {
+        return Ok(RecordBatch::new_empty(source.schema));
+    }
+
+    let mut skipped = 0usize;
+    let mut collected = 0usize;
     let mut matched_batches = Vec::new();
 
     for batch_res in source.batches {
         let batch = batch_res?;
-        let b_len = batch.num_rows();
-        if accumulated_rows + b_len > offset {
-            let start_in_batch = offset.saturating_sub(accumulated_rows);
-            let len_in_batch = limit.saturating_sub(got).min(b_len - start_in_batch);
-            if len_in_batch > 0 {
-                matched_batches.push(batch.slice(start_in_batch, len_in_batch));
-                got += len_in_batch;
-            }
+        let batch_rows = batch.num_rows();
+
+        if skipped + batch_rows <= offset {
+            skipped += batch_rows;
+            continue;
         }
-        accumulated_rows += b_len;
-        if got >= limit {
+
+        let slice_start = offset.saturating_sub(skipped);
+        let available_in_batch = batch_rows - slice_start;
+        let take = (limit - collected).min(available_in_batch);
+
+        matched_batches.push(batch.slice(slice_start, take));
+        collected += take;
+        skipped += batch_rows;
+
+        if collected >= limit {
             break;
         }
     }
@@ -176,9 +185,82 @@ where
     }
 }
 
-/// Registry: lowercase file extension -> format handler.
-///
-/// Adding a format = new handler struct + one registry entry, nothing else.
+/// Base Template for custom delimited formats (e.g. `|`, `~`, `;`, `^`, tab, custom char).
+#[derive(Debug, Clone)]
+pub struct DelimitedFormatHandler {
+    pub delimiter: u8,
+    pub has_header: bool,
+}
+
+impl DelimitedFormatHandler {
+    pub fn new(delimiter: u8, has_header: bool) -> Self {
+        Self {
+            delimiter,
+            has_header,
+        }
+    }
+}
+
+impl FormatHandler for DelimitedFormatHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        let file = std::fs::File::open(file_path)?;
+        let format = arrow::csv::reader::Format::default()
+            .with_delimiter(self.delimiter)
+            .with_header(self.has_header);
+
+        let (schema, _) = format.infer_schema(file, Some(100))?;
+        let batch_size = clamp_batch_size(batch_size);
+        let file_for_reader = std::fs::File::open(file_path)?;
+        let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
+            .with_delimiter(self.delimiter)
+            .with_header(self.has_header)
+            .with_batch_size(batch_size)
+            .build(file_for_reader)?;
+
+        Ok(OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
+    }
+
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        let file = std::fs::File::open(file_path)?;
+        let format = arrow::csv::reader::Format::default()
+            .with_delimiter(self.delimiter)
+            .with_header(self.has_header);
+
+        let (schema, _) = format.infer_schema(file, Some(100))?;
+        let mut indices = Vec::new();
+        for name in columns {
+            indices.push(
+                schema
+                    .index_of(name)
+                    .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
+            );
+        }
+
+        let batch_size = clamp_batch_size(batch_size);
+        let file_for_reader = std::fs::File::open(file_path)?;
+        let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
+            .with_delimiter(self.delimiter)
+            .with_header(self.has_header)
+            .with_batch_size(batch_size)
+            .with_projection(indices)
+            .build(file_for_reader)?;
+
+        Ok(OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
+    }
+}
+
+/// Static Built-in Table: lowercase file extension -> format handler.
 static HANDLERS: &[(&str, &dyn FormatHandler)] = &[
     ("csv", &csv::CsvHandler),
     ("tsv", &tsv::TsvHandler),
@@ -198,9 +280,96 @@ static HANDLERS: &[(&str, &dyn FormatHandler)] = &[
     ("msgpack", &msgpack::MsgpackHandler),
 ];
 
-/// Resolve a handler by lowercase file extension.
-pub fn handler_for(ext: &str) -> Option<&'static dyn FormatHandler> {
-    HANDLERS.iter().find(|(e, _)| *e == ext).map(|(_, h)| *h)
+struct StaticRefHandler(&'static dyn FormatHandler);
+
+impl FormatHandler for StaticRefHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        self.0.open(file_path, batch_size)
+    }
+    fn process_file(
+        &self,
+        engine: &MatrixEngine,
+        file_path: &str,
+        batch_size: usize,
+    ) -> Result<(usize, usize, usize), BazanError> {
+        self.0.process_file(engine, file_path, batch_size)
+    }
+    fn read_range(
+        &self,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+        batch_size: usize,
+    ) -> Result<RecordBatch, BazanError> {
+        self.0.read_range(file_path, offset, limit, batch_size)
+    }
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        self.0.open_with_columns(file_path, batch_size, columns)
+    }
+    fn read_range_columns(
+        &self,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<RecordBatch, BazanError> {
+        self.0.read_range_columns(file_path, offset, limit, batch_size, columns)
+    }
+}
+
+static DYNAMIC_HANDLERS: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<String, Arc<dyn FormatHandler>>>,
+> = std::sync::OnceLock::new();
+
+fn dynamic_registry(
+) -> &'static std::sync::RwLock<std::collections::HashMap<String, Arc<dyn FormatHandler>>> {
+    DYNAMIC_HANDLERS.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+/// Register a custom format handler dynamically at runtime.
+pub fn register_format(ext: &str, handler: Arc<dyn FormatHandler>) {
+    let mut reg = dynamic_registry().write().unwrap();
+    reg.insert(ext.to_lowercase(), handler);
+}
+
+/// Unregister a dynamically registered format handler.
+pub fn unregister_format(ext: &str) -> bool {
+    let mut reg = dynamic_registry().write().unwrap();
+    reg.remove(&ext.to_lowercase()).is_some()
+}
+
+/// List all currently supported format extensions (both built-in and dynamic).
+pub fn list_supported_formats() -> Vec<String> {
+    let mut formats: Vec<String> = HANDLERS.iter().map(|(ext, _)| ext.to_string()).collect();
+    if let Ok(reg) = dynamic_registry().read() {
+        for ext in reg.keys() {
+            if !formats.contains(ext) {
+                formats.push(ext.clone());
+            }
+        }
+    }
+    formats.sort();
+    formats
+}
+
+/// Resolve a handler by lowercase file extension (Dynamic registry first, fallback to static built-ins).
+pub fn handler_for(ext: &str) -> Option<Arc<dyn FormatHandler>> {
+    let ext_lower = ext.to_lowercase();
+    if let Ok(reg) = dynamic_registry().read() {
+        if let Some(h) = reg.get(&ext_lower) {
+            return Some(h.clone());
+        }
+    }
+    HANDLERS
+        .iter()
+        .find(|(e, _)| *e == ext_lower)
+        .map(|(_, h)| Arc::new(StaticRefHandler(*h)) as Arc<dyn FormatHandler>)
 }
 
 /// Print a one-time hint to stderr when a non-parquet file is about to be read
