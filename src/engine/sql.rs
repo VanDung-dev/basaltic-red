@@ -12,7 +12,7 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::*;
 
-use crate::engine::formats::handler_for;
+use crate::engine::formats::{handler_for, maybe_hint_not_parquet};
 use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -200,6 +200,7 @@ impl MatrixEngine {
                             .and_then(|s| s.to_str())
                             .unwrap_or("")
                             .to_lowercase();
+                        maybe_hint_not_parquet(path_str, &ext);
                         // Fast path: DataFusion native reader (parquet/csv/json/...)
                         // with pushdown + row-group parallelism. Falls back to the
                         // in-memory handler when the format has no native reader.
@@ -243,6 +244,7 @@ impl MatrixEngine {
                                 e == ext
                             });
                         if homogeneous {
+                            maybe_hint_not_parquet(path_str, &ext);
                             if !register_listing_table(&ctx, path_obj, &ext).await? {
                                 // ponytail: dir auto-normalize not cached (per-file
                                 // transcode would need a cache-dir listing); fall back
