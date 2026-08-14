@@ -25,25 +25,7 @@ pub fn discover_data_files(
         } else if file_type.is_file() {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 let ext_lower = ext.to_lowercase();
-                let is_supported = matches!(
-                    ext_lower.as_str(),
-                    "parquet"
-                        | "pq"
-                        | "csv"
-                        | "tsv"
-                        | "psv"
-                        | "txt"
-                        | "json"
-                        | "ndjson"
-                        | "jsonl"
-                        | "feather"
-                        | "arrow"
-                        | "ipc"
-                        | "avro"
-                        | "xlsx"
-                        | "orc"
-                        | "msgpack"
-                );
+                let is_supported = crate::engine::formats::handler_for(&ext_lower).is_some();
                 if is_supported {
                     if let Some(filter) = filter_subfolder {
                         let full_path_str = path.to_str().unwrap_or("");
