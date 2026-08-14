@@ -2,6 +2,7 @@
 .idea/
 .venv/
 data/
+logs/
 
 # Python
 __pycache__/
