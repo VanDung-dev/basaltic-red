@@ -1,28 +1,23 @@
-pub mod avro;
-pub mod csv;
-pub mod feather;
-pub mod json;
-pub mod jsonl;
-pub mod msgpack;
-pub mod ndjson;
-pub mod orc;
-pub mod parquet;
-pub mod psv;
-pub mod tsv;
-pub mod txt;
-pub mod xlsx;
+pub mod common;
+pub mod core;
+pub mod plugins;
 
 use arrow::array::RecordBatch;
 use arrow::datatypes::Schema;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
+// Re-export all handlers across the 3 Tiers for seamless ergonomics
+pub use self::common::*;
+pub use self::core::*;
+pub use self::plugins::*;
+
 /// Cap a user-supplied batch_size before it reaches arrow readers or
-/// `Vec::with_capacity`, which size allocations off it (batch_size = 10^12
-/// previously forced a ~24GB allocation). See slice.rs for the same pattern.
+/// `Vec::with_capacity`, which size allocations off it.
 pub(crate) fn clamp_batch_size(batch_size: usize) -> usize {
     batch_size.min(DEFAULT_MAX_BATCH_SIZE)
 }
@@ -38,10 +33,6 @@ pub struct OpenedSource {
 }
 
 /// Pure-Rust streaming reader for one file format.
-///
-/// Each handler owns its format-specific parsing (schema inference, row
-/// conversion) and exposes it as `open()`; the shared `process_file` /
-/// `read_range` defaults build on top so all consumers behave identically.
 pub trait FormatHandler: Send + Sync {
     /// Open `file_path` as a stream of RecordBatches (clamped `batch_size`).
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError>;
@@ -138,146 +129,27 @@ fn read_range_from_source(
     }
 }
 
-/// Lazily chunk a stream of row-values into RecordBatches of at most `batch_size`.
-/// Used by row-oriented handlers (avro, msgpack, xlsx) whose readers are not
-/// arrow iterators.
-pub(crate) struct RowChunker<I, T, F> {
-    rows: I,
-    buffer: Vec<T>,
-    batch_size: usize,
-    schema: Arc<Schema>,
-    convert: F,
-}
-
-impl<I, T, F> RowChunker<I, T, F> {
-    pub(crate) fn new(rows: I, batch_size: usize, schema: Arc<Schema>, convert: F) -> Self {
-        Self {
-            rows,
-            buffer: Vec::with_capacity(batch_size.min(1024)),
-            batch_size,
-            schema,
-            convert,
-        }
-    }
-}
-
-impl<I, T, F> Iterator for RowChunker<I, T, F>
-where
-    I: Iterator<Item = Result<T, BazanError>>,
-    F: Fn(&[T], &Arc<Schema>) -> Result<RecordBatch, BazanError>,
-{
-    type Item = Result<RecordBatch, BazanError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.buffer.len() < self.batch_size {
-            match self.rows.next() {
-                Some(Ok(row)) => self.buffer.push(row),
-                Some(Err(e)) => return Some(Err(e)),
-                None => break,
-            }
-        }
-        if self.buffer.is_empty() {
-            return None;
-        }
-        let result = (self.convert)(&self.buffer, &self.schema);
-        self.buffer.clear();
-        Some(result)
-    }
-}
-
-/// Base Template for custom delimited formats (e.g. `|`, `~`, `;`, `^`, tab, custom char).
-#[derive(Debug, Clone)]
-pub struct DelimitedFormatHandler {
-    pub delimiter: u8,
-    pub has_header: bool,
-}
-
-impl DelimitedFormatHandler {
-    pub fn new(delimiter: u8, has_header: bool) -> Self {
-        Self {
-            delimiter,
-            has_header,
-        }
-    }
-}
-
-impl FormatHandler for DelimitedFormatHandler {
-    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
-        let file = std::fs::File::open(file_path)?;
-        let format = arrow::csv::reader::Format::default()
-            .with_delimiter(self.delimiter)
-            .with_header(self.has_header);
-
-        let (schema, _) = format.infer_schema(file, Some(100))?;
-        let batch_size = clamp_batch_size(batch_size);
-        let file_for_reader = std::fs::File::open(file_path)?;
-        let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
-            .with_delimiter(self.delimiter)
-            .with_header(self.has_header)
-            .with_batch_size(batch_size)
-            .build(file_for_reader)?;
-
-        Ok(OpenedSource {
-            schema: Arc::new(schema),
-            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-        })
-    }
-
-    fn open_with_columns(
-        &self,
-        file_path: &str,
-        batch_size: usize,
-        columns: &[String],
-    ) -> Result<OpenedSource, BazanError> {
-        let file = std::fs::File::open(file_path)?;
-        let format = arrow::csv::reader::Format::default()
-            .with_delimiter(self.delimiter)
-            .with_header(self.has_header);
-
-        let (schema, _) = format.infer_schema(file, Some(100))?;
-        let mut indices = Vec::new();
-        for name in columns {
-            indices.push(
-                schema
-                    .index_of(name)
-                    .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
-            );
-        }
-
-        let batch_size = clamp_batch_size(batch_size);
-        let file_for_reader = std::fs::File::open(file_path)?;
-        let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
-            .with_delimiter(self.delimiter)
-            .with_header(self.has_header)
-            .with_batch_size(batch_size)
-            .with_projection(indices)
-            .build(file_for_reader)?;
-
-        Ok(OpenedSource {
-            schema: Arc::new(schema),
-            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-        })
-    }
-}
-
-/// Static Built-in Table: lowercase file extension -> format handler.
+/// Static Built-in Table mapping default extensions to handlers
 static HANDLERS: &[(&str, &dyn FormatHandler)] = &[
-    ("csv", &csv::CsvHandler),
-    ("tsv", &tsv::TsvHandler),
-    ("psv", &psv::PsvHandler),
-    ("txt", &txt::TxtHandler),
-    ("json", &json::JsonHandler),
-    ("jsonl", &jsonl::JsonlHandler),
-    ("ndjson", &ndjson::NdjsonHandler),
-    ("parquet", &csv::ParquetHandler),
-    ("pq", &csv::ParquetHandler),
-    ("feather", &feather::FeatherHandler),
-    ("arrow", &feather::FeatherHandler),
-    ("ipc", &feather::FeatherHandler),
-    ("avro", &avro::AvroHandler),
-    ("xlsx", &xlsx::XlsxHandler),
-    ("orc", &orc::OrcHandler),
-    ("msgpack", &msgpack::MsgpackHandler),
+    // Tier 1: Core Standard
+    ("parquet", &ParquetHandler),
+    ("pq", &ParquetHandler),
+    ("feather", &FeatherHandler),
+    ("arrow", &FeatherHandler),
+    ("ipc", &FeatherHandler),
+    // Tier 2: Common Built-in
+    ("csv", &CsvHandler),
+    ("tsv", &TsvHandler),
+    ("psv", &PsvHandler),
+    ("txt", &TxtHandler),
+    ("json", &JsonHandler),
+    ("jsonl", &JsonlHandler),
+    ("ndjson", &NdjsonHandler),
+    // Tier 3: Pluggable Adapters
+    ("xlsx", &XlsxHandler),
+    ("avro", &AvroHandler),
+    ("orc", &OrcHandler),
+    ("msgpack", &MsgpackHandler),
 ];
 
 struct StaticRefHandler(&'static dyn FormatHandler);
@@ -323,13 +195,10 @@ impl FormatHandler for StaticRefHandler {
     }
 }
 
-static DYNAMIC_HANDLERS: std::sync::OnceLock<
-    std::sync::RwLock<std::collections::HashMap<String, Arc<dyn FormatHandler>>>,
-> = std::sync::OnceLock::new();
+static DYNAMIC_HANDLERS: OnceLock<RwLock<HashMap<String, Arc<dyn FormatHandler>>>> = OnceLock::new();
 
-fn dynamic_registry(
-) -> &'static std::sync::RwLock<std::collections::HashMap<String, Arc<dyn FormatHandler>>> {
-    DYNAMIC_HANDLERS.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+fn dynamic_registry() -> &'static RwLock<HashMap<String, Arc<dyn FormatHandler>>> {
+    DYNAMIC_HANDLERS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 /// Register a custom format handler dynamically at runtime.
@@ -372,15 +241,13 @@ pub fn handler_for(ext: &str) -> Option<Arc<dyn FormatHandler>> {
         .map(|(_, h)| Arc::new(StaticRefHandler(*h)) as Arc<dyn FormatHandler>)
 }
 
-/// Print a one-time hint to stderr when a non-parquet file is about to be read
-/// (once per format per process). Parquet gets full parallel read power; other
-/// formats stream safely but miss pushdown/row-group parallelism.
+/// Print a one-time hint to stderr when a non-parquet file is about to be read.
 pub fn maybe_hint_not_parquet(file_path: &str, ext: &str) {
     if matches!(ext, "parquet" | "pq") {
         return;
     }
     use std::collections::HashSet;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
     static HINTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let mut seen = HINTED
         .get_or_init(|| Mutex::new(HashSet::new()))
