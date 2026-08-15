@@ -1,15 +1,17 @@
 use arrow_array::builder::*;
 use arrow_array::*;
+use arrow_schema::{DataType, Field, Schema};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
+use crate::engine::formats::plugins::base_templates::RowChunker;
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::error::BazanError;
-use arrow_schema::{DataType, Field, Schema};
 
-/// MessagePack (.msgpack) Binary JSON Reader
+/// MessagePack (.msgpack) Binary JSON Reader (Tier 3 Adapter)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct MsgpackHandler;
 
 impl FormatHandler for MsgpackHandler {
@@ -21,7 +23,6 @@ impl FormatHandler for MsgpackHandler {
         let mut values = std::iter::from_fn(move || rmpv::decode::read_value(&mut read).ok());
 
         // Schema is inferred from the first Map row; rows before it are dropped
-        // (matches the previous buffer-then-skip behaviour).
         let mut schema: Option<Arc<Schema>> = None;
         let mut first: Option<rmpv::Value> = None;
         for val in values.by_ref() {
@@ -59,8 +60,6 @@ impl FormatHandler for MsgpackHandler {
     }
 }
 
-/// Convert rows to a RecordBatch in a single pass: transpose cell references
-/// straight into column vectors (no per-row HashMap, no per-cell key hashing).
 fn msgpack_values_to_record_batch(
     values: &[rmpv::Value],
     schema: &Arc<Schema>,
@@ -68,7 +67,6 @@ fn msgpack_values_to_record_batch(
     let n = values.len();
     let num_cols = schema.fields().len();
 
-    // Column index by name, computed once per batch.
     let mut col_index: HashMap<&str, usize> = HashMap::with_capacity(num_cols);
     for (i, field) in schema.fields().iter().enumerate() {
         col_index.insert(field.name(), i);

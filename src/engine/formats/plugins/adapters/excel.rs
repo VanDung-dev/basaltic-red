@@ -1,13 +1,15 @@
 use arrow_array::builder::*;
 use arrow_array::*;
+use arrow_schema::{DataType, Field, Schema};
 use calamine::{open_workbook, Data, Reader, Xlsx};
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
+use crate::engine::formats::plugins::base_templates::RowChunker;
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::error::BazanError;
-use arrow_schema::{DataType, Field, Schema};
 
-/// Excel (.xlsx) Streaming Reader via Calamine
+/// Excel (.xlsx) Streaming Reader via Calamine (Tier 3 Adapter)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct XlsxHandler;
 
 impl FormatHandler for XlsxHandler {
@@ -25,8 +27,7 @@ impl FormatHandler for XlsxHandler {
             }
         };
 
-        // First row as Header (scoped so the borrow on `range` ends before
-        // `into_rows()` consumes it below).
+        // First row as Header
         let header = match range.rows().next() {
             Some(h) => h,
             None => {
@@ -51,9 +52,6 @@ impl FormatHandler for XlsxHandler {
             .collect();
         let schema = Arc::new(Schema::new(fields));
 
-        // Calamine holds the whole sheet in memory anyway; convert each row
-        // lazily via an owned iterator and let RowChunker buffer batch_size at a
-        // time (no whole-sheet Vec<Vec<String>> duplicate).
         let data_rows = XlsxRows::new(range, 1); // skip the header row
 
         let chunker = RowChunker::new(
@@ -70,9 +68,6 @@ impl FormatHandler for XlsxHandler {
     }
 }
 
-/// Owned lazy iterator over a calamine `Range<Data>`: yields one `Vec<String>`
-/// row at a time by random access into the sheet, so only the current row's
-/// strings are allocated instead of the whole sheet's.
 struct XlsxRows {
     range: calamine::Range<Data>,
     row: usize,

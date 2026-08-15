@@ -2,15 +2,17 @@ use apache_avro::types::Value;
 use apache_avro::Reader as AvroReader;
 use arrow_array::builder::*;
 use arrow_array::*;
+use arrow_schema::{DataType, Field, Schema};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use super::{clamp_batch_size, FormatHandler, OpenedSource, RowChunker};
+use crate::engine::formats::plugins::base_templates::RowChunker;
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::error::BazanError;
-use arrow_schema::{DataType, Field, Schema};
 
-/// Apache Avro Streaming Reader
+/// Apache Avro Streaming Reader (Tier 3 Adapter)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AvroHandler;
 
 impl FormatHandler for AvroHandler {

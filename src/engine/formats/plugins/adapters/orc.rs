@@ -1,10 +1,12 @@
-use super::{clamp_batch_size, FormatHandler, OpenedSource};
-use crate::error::BazanError;
 use arrow_array::RecordBatchReader;
 use orc_rust::ArrowReaderBuilder;
 use std::fs::File;
 
-/// Apache ORC Columnar Streaming Reader (pure-Rust `orc-rust`, arrow-native).
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::error::BazanError;
+
+/// Apache ORC Columnar Streaming Reader (Tier 3 Adapter)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct OrcHandler;
 
 impl FormatHandler for OrcHandler {
