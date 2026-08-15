@@ -12,5 +12,17 @@ mod basaltic_red {
     use crate::engine::{MatrixEngine, PyBatchIterator};
 
     #[pymodule_export]
-    use crate::pyapi::{dictionary, filter, formats, graph, lake, read, sql};
+    use crate::pyapi::dictionary::dictionary;
+    #[pymodule_export]
+    use crate::pyapi::filter::filter;
+    #[pymodule_export]
+    use crate::pyapi::formats::formats;
+    #[pymodule_export]
+    use crate::pyapi::graph::graph;
+    #[pymodule_export]
+    use crate::pyapi::lake::lake;
+    #[pymodule_export]
+    use crate::pyapi::read::read;
+    #[pymodule_export]
+    use crate::pyapi::sql::sql;
 }
