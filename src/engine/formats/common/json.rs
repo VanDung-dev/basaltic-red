@@ -1,11 +1,14 @@
-use super::{clamp_batch_size, FormatHandler, OpenedSource};
-use crate::error::BazanError;
-use arrow_schema::Schema;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
 
-/// Formatted Pretty Printed JSON Array Reader (Multi-line formatted JSON [ {\n  "id": 1 ... \n} ])
+use arrow_schema::Schema;
+
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::error::BazanError;
+
+/// Formatted Pretty Printed JSON Array Reader (Tier 2 Common)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct JsonHandler;
 
 impl FormatHandler for JsonHandler {
@@ -32,6 +35,44 @@ impl FormatHandler for JsonHandler {
 
         // Fallback: stream a top-level JSON array `[ {...}, {...} ]` in a single pass.
         open_json_array(file_path, batch_size)
+    }
+}
+
+/// JSONL Single-Line Compact JSON Array Reader ([{"id":1,...},{"id":2,...}])
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JsonlHandler;
+
+impl FormatHandler for JsonlHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        open_json_array(file_path, batch_size)
+    }
+}
+
+/// NDJSON Newline Delimited Stream Reader (1 complete JSON object per line, no outer array brackets)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NdjsonHandler;
+
+impl FormatHandler for NdjsonHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
+        let file = File::open(file_path)?;
+        let mut buf_reader = BufReader::new(file);
+
+        let schema = arrow_json::reader::infer_json_schema_from_iterator(
+            arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100)),
+        )?;
+
+        let file_for_reader = File::open(file_path)?;
+        let buf_reader_2 = BufReader::new(file_for_reader);
+
+        let reader = arrow_json::ReaderBuilder::new(Arc::new(schema.clone()))
+            .with_batch_size(batch_size)
+            .build(buf_reader_2)?;
+
+        Ok(OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
     }
 }
 
@@ -68,8 +109,6 @@ impl<R: Read> JsonArrayStream<R> {
     }
 }
 
-/// Shared state machine for `filter`; fields are passed disjoint so the chunk
-/// buffer (which aliases `JsonArrayStream.buffer`) can be borrowed separately.
 fn filter_chunk(
     started: &mut bool,
     finished: &mut bool,
@@ -160,8 +199,6 @@ impl<R: Read> Read for JsonArrayStream<R> {
                 self.pos += n;
                 return Ok(n);
             }
-            // Drain the buffer before honouring `finished`: filter_chunk may set
-            // `finished` (closing `]`) in the same chunk that still holds data.
             if self.finished {
                 return Ok(0);
             }
@@ -180,7 +217,7 @@ impl<R: Read> Read for JsonArrayStream<R> {
             );
             self.pos = 0;
             if self.filled == 0 {
-                continue; // chunk was entirely separators — keep reading
+                continue;
             }
         }
     }
@@ -188,14 +225,12 @@ impl<R: Read> Read for JsonArrayStream<R> {
 
 /// Open a JSON array (`[{...},{...}]`, compact or multi-line) as a streaming
 /// single-pass cursor. Memory is O(batch), independent of file size.
-pub(crate) fn open_json_array(
+pub fn open_json_array(
     file_path: &str,
     batch_size: usize,
 ) -> Result<OpenedSource, BazanError> {
     let batch_size = clamp_batch_size(batch_size);
 
-    // Schema inference: stream the first 100 elements through the same adapter
-    // (serde yields each top-level value of the stripped object stream).
     let file = File::open(file_path)?;
     let stream = JsonArrayStream::new(BufReader::new(file));
     let deser = serde_json::Deserializer::from_reader(stream);
@@ -212,7 +247,6 @@ pub(crate) fn open_json_array(
         });
     }
 
-    // Streaming read from a fresh handle.
     let file = File::open(file_path)?;
     let stream = BufReader::new(JsonArrayStream::new(file));
     let reader = arrow_json::ReaderBuilder::new(Arc::new(schema.clone()))

@@ -1,11 +1,13 @@
-use super::{clamp_batch_size, FormatHandler, OpenedSource};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::sync::Arc;
+
+use arrow_schema::{DataType, Field, Schema};
+use regex::Regex;
+
+use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use arrow_array::RecordBatchReader;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::arrow::ProjectionMask;
-use std::fs::File;
-use std::sync::Arc;
 
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
@@ -35,51 +37,8 @@ impl MatrixEngine {
     }
 }
 
-/// Shared streaming opener for Parquet.
-pub(crate) fn open_parquet(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
-    let file = File::open(file_path)?;
-    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-        .with_batch_size(clamp_batch_size(batch_size))
-        .build()?;
-    let schema = reader.schema().clone();
-    Ok(OpenedSource {
-        schema,
-        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-    })
-}
-
-/// Parquet opener with column projection (ProjectionMask) so wide tables only
-/// read the requested column chunks.
-pub(crate) fn open_parquet_columns(
-    file_path: &str,
-    batch_size: usize,
-    columns: &[String],
-) -> Result<OpenedSource, BazanError> {
-    let file = File::open(file_path)?;
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-    let arrow_schema = builder.schema().clone();
-    let mut indices = Vec::new();
-    for name in columns {
-        indices.push(
-            arrow_schema
-                .index_of(name)
-                .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
-        );
-    }
-    let mask = ProjectionMask::roots(builder.parquet_schema(), indices);
-    let reader = builder
-        .with_batch_size(clamp_batch_size(batch_size))
-        .with_projection(mask)
-        .build()?;
-    let schema = reader.schema().clone();
-    Ok(OpenedSource {
-        schema,
-        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-    })
-}
-
-/// Shared streaming opener for delimiter-separated text files (csv `,`, psv `|`, txt `;`).
-pub(crate) fn open_delimited_csv(
+/// Generic delimited reader with automatic schema inference
+pub fn open_delimited_csv(
     file_path: &str,
     batch_size: usize,
     delimiter: u8,
@@ -105,8 +64,8 @@ pub(crate) fn open_delimited_csv(
     })
 }
 
-/// CSV opener with column projection (arrow-csv `with_projection`).
-pub(crate) fn open_delimited_csv_columns(
+/// Delimited CSV opener with column projection (arrow-csv `with_projection`).
+pub fn open_delimited_csv_columns(
     file_path: &str,
     batch_size: usize,
     delimiter: u8,
@@ -142,25 +101,8 @@ pub(crate) fn open_delimited_csv_columns(
     })
 }
 
-/// Parquet Streaming In-Memory Reader
-pub struct ParquetHandler;
-
-impl FormatHandler for ParquetHandler {
-    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
-        open_parquet(file_path, batch_size)
-    }
-
-    fn open_with_columns(
-        &self,
-        file_path: &str,
-        batch_size: usize,
-        columns: &[String],
-    ) -> Result<OpenedSource, BazanError> {
-        open_parquet_columns(file_path, batch_size, columns)
-    }
-}
-
-/// CSV Streaming In-Memory Reader with Schema Inference
+/// CSV Streaming In-Memory Reader with Schema Inference (Tier 2 Common)
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CsvHandler;
 
 impl FormatHandler for CsvHandler {
@@ -175,5 +117,84 @@ impl FormatHandler for CsvHandler {
         columns: &[String],
     ) -> Result<OpenedSource, BazanError> {
         open_delimited_csv_columns(file_path, batch_size, b',', columns)
+    }
+}
+
+/// TSV Streaming In-Memory Reader (Tab-Separated Values)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TsvHandler;
+
+impl FormatHandler for TsvHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        let batch_size = clamp_batch_size(batch_size);
+        let header_file = File::open(file_path)?;
+        let mut header_reader = BufReader::new(header_file);
+        let mut header_line = String::new();
+        header_reader.read_line(&mut header_line)?;
+        let col_names: Vec<String> = header_line
+            .trim_end_matches(['\n', '\r'])
+            .split('\t')
+            .map(|s| s.to_string())
+            .collect();
+
+        // Force all columns as Utf8 — safest for raw/dirty TSV data
+        let fields: Vec<Field> = col_names
+            .iter()
+            .map(|name| Field::new(name, DataType::Utf8, true))
+            .collect();
+        let schema = Arc::new(Schema::new(fields));
+
+        let null_regex = Regex::new(r"^\\N$")?;
+        let file_for_reader = File::open(file_path)?;
+        let reader = arrow_csv::ReaderBuilder::new(schema.clone())
+            .with_header(true)
+            .with_delimiter(b'\t')
+            .with_null_regex(null_regex)
+            .with_truncated_rows(true)
+            .with_batch_size(batch_size)
+            .build(file_for_reader)?;
+
+        Ok(OpenedSource {
+            schema,
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        })
+    }
+}
+
+/// PSV Streaming In-Memory Reader (Pipe-Separated Values)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PsvHandler;
+
+impl FormatHandler for PsvHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        open_delimited_csv(file_path, batch_size, b'|')
+    }
+
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        open_delimited_csv_columns(file_path, batch_size, b'|', columns)
+    }
+}
+
+/// TXT Streaming In-Memory Reader (Semicolon-Separated Values)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TxtHandler;
+
+impl FormatHandler for TxtHandler {
+    fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
+        open_delimited_csv(file_path, batch_size, b';')
+    }
+
+    fn open_with_columns(
+        &self,
+        file_path: &str,
+        batch_size: usize,
+        columns: &[String],
+    ) -> Result<OpenedSource, BazanError> {
+        open_delimited_csv_columns(file_path, batch_size, b';', columns)
     }
 }
