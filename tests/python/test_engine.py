@@ -405,3 +405,37 @@ def test_sql_stream_repr(tmp_path):
         f"SELECT passenger_count, fare_amount FROM '{p}' WHERE fare_amount > 0"
     )
     assert "PyBatchIterator(batches=" in repr(stream)
+
+
+def test_dynamic_format_plugin_registration_python(tmp_path):
+    custom_file = tmp_path / "data.piped"
+    custom_file.write_text("id|name|amount\n1|Alice|100\n2|Bob|200\n3|Charlie|300\n")
+
+    # Dynamic registration
+    basaltic_red.formats.register_delimited(ext="piped", delimiter="|", has_header=True)
+    assert "piped" in basaltic_red.formats.list_formats()
+
+    # Slice rows
+    df = basaltic_red.read.slice_rows(str(custom_file), offset=0, limit=2)
+    assert df.num_rows == 2
+
+    # SQL query
+    res = basaltic_red.sql.execute_sql(f"SELECT name, amount FROM '{custom_file}' WHERE amount > 150")
+    assert res.num_rows == 2
+
+    # Unregister
+    assert basaltic_red.formats.unregister_format("piped") is True
+
+
+def test_magic_sniff_file_without_extension_python(tmp_path):
+    no_ext_file = tmp_path / "raw_parquet_blob"
+    no_ext_file.write_text(TAXI_CSV)
+
+    # Should sniff CSV without extension
+    df = basaltic_red.read.slice_rows(str(no_ext_file), offset=0, limit=3)
+    assert df.num_rows == 3
+
+    # SQL query on file without extension
+    res = basaltic_red.sql.execute_sql(f"SELECT * FROM '{no_ext_file}' WHERE fare_amount > 0")
+    assert res.num_rows == 4
+

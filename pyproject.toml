@@ -41,3 +41,7 @@ dev = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "basaltic_red"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/python"]

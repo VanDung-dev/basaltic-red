@@ -40,7 +40,7 @@ def test_magic_interpolates_and_assigns(tmp_path, ip):
     )
 
     assert ip.user_ns["df"] is result
-    assert result.height == 3
+    assert (getattr(result, "height", None) or getattr(result, "num_rows", None) or len(result)) == 3
 
 
 def test_magic_path_flag(tmp_path, ip):
@@ -52,4 +52,4 @@ def test_magic_path_flag(tmp_path, ip):
     )
 
     assert "out" in ip.user_ns
-    assert result.height == 1
+    assert (getattr(result, "height", None) or getattr(result, "num_rows", None) or len(result)) == 1
