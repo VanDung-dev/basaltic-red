@@ -12,7 +12,7 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::*;
 
-use crate::engine::formats::{handler_for, maybe_hint_not_parquet};
+use crate::engine::formats::{handler_for, maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -217,7 +217,7 @@ impl MatrixEngine {
                                 None => false,
                             };
                             if !registered {
-                                let handler = handler_for(&ext).ok_or_else(|| {
+                                let handler = resolve_handler_for_file(path_str).ok_or_else(|| {
                                     BazanError::Message(format!("Unsupported format: .{}", ext))
                                 })?;
                                 register_source(handler, path_str)?;

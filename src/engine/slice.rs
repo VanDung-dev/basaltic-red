@@ -1,6 +1,6 @@
 use arrow::array::RecordBatch;
 
-use crate::engine::formats::{handler_for, maybe_hint_not_parquet};
+use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -23,8 +23,8 @@ impl MatrixEngine {
             .to_lowercase();
 
         maybe_hint_not_parquet(file_path, &ext);
-        let handler = handler_for(&ext).ok_or_else(|| {
-            BazanError::Message(format!("Format '.{}' slicing not supported yet", ext))
+        let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
+            BazanError::Message(format!("Format for '{}' not supported or recognized", file_path))
         })?;
 
         handler.read_range(file_path, offset, limit, DEFAULT_MAX_BATCH_SIZE)
@@ -52,8 +52,8 @@ impl MatrixEngine {
             .to_lowercase();
 
         maybe_hint_not_parquet(file_path, &ext);
-        let handler = handler_for(&ext).ok_or_else(|| {
-            BazanError::Message(format!("Format '.{}' slicing not supported yet", ext))
+        let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
+            BazanError::Message(format!("Format for '{}' not supported or recognized", file_path))
         })?;
 
         let batch = handler.read_range_columns(

@@ -241,6 +241,98 @@ pub fn handler_for(ext: &str) -> Option<Arc<dyn FormatHandler>> {
         .map(|(_, h)| Arc::new(StaticRefHandler(*h)) as Arc<dyn FormatHandler>)
 }
 
+/// Inspect raw header bytes to sniff the underlying format.
+pub fn sniff_format_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    // 1. Tier 1 Core: Parquet (b"PAR1")
+    if bytes.starts_with(b"PAR1") {
+        return Some("parquet");
+    }
+
+    // 2. Tier 1 Core: Arrow IPC / Feather (b"ARROW1")
+    if bytes.starts_with(b"ARROW1") {
+        return Some("feather");
+    }
+
+    // 3. Tier 3: Excel XLSX (PKZip header: b"PK\x03\x04")
+    if bytes.starts_with(b"PK\x03\x04") {
+        return Some("xlsx");
+    }
+
+    // 4. Tier 3: Apache Avro (b"Obj\x01")
+    if bytes.starts_with(b"Obj\x01") {
+        return Some("avro");
+    }
+
+    // 5. Tier 3: Apache ORC (b"ORC")
+    if bytes.starts_with(b"ORC") {
+        return Some("orc");
+    }
+
+    // 6. Tier 3: MessagePack (Map / FixMap indicators)
+    if matches!(bytes[0], 0x80..=0x8f | 0xde | 0xdf) {
+        return Some("msgpack");
+    }
+
+    // 7. Tier 2: JSON (Array `[` or Object `{`, skipping leading ASCII whitespace)
+    let trimmed = bytes
+        .iter()
+        .copied()
+        .find(|&b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'));
+    if let Some(b) = trimmed {
+        if b == b'[' {
+            return Some("json");
+        }
+        if b == b'{' {
+            return Some("ndjson");
+        }
+    }
+
+    // 8. Tier 2: CSV / Delimited plaintext sniff
+    // Check if the initial chunk is valid UTF-8 text
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        if let Some(first_line) = text.lines().next() {
+            if first_line.contains('\t') {
+                return Some("tsv");
+            } else if first_line.contains('|') {
+                return Some("psv");
+            } else if first_line.contains(';') {
+                return Some("txt");
+            } else if first_line.contains(',') {
+                return Some("csv");
+            }
+        }
+    }
+
+    None
+}
+
+/// Open file, read first 512 bytes, and sniff the format handler.
+pub fn sniff_format_from_file(file_path: &str) -> Option<Arc<dyn FormatHandler>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(file_path).ok()?;
+    let mut buf = [0u8; 512];
+    let n = file.read(&mut buf).ok()?;
+    let ext = sniff_format_from_bytes(&buf[..n])?;
+    handler_for(ext)
+}
+
+/// Resolve handler for a file path:
+/// 1. Try file extension (fast O(1))
+/// 2. If extension is missing or unknown, sniff header magic bytes
+pub fn resolve_handler_for_file(file_path: &str) -> Option<Arc<dyn FormatHandler>> {
+    let path = std::path::Path::new(file_path);
+    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+        if let Some(h) = handler_for(ext) {
+            return Some(h);
+        }
+    }
+    sniff_format_from_file(file_path)
+}
+
 /// Print a one-time hint to stderr when a non-parquet file is about to be read.
 pub fn maybe_hint_not_parquet(file_path: &str, ext: &str) {
     if matches!(ext, "parquet" | "pq") {
