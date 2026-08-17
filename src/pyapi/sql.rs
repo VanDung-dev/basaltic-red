@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 use super::default_engine;
-use crate::engine::PyBatchIterator;
+use crate::pyapi::iterator::PyBatchIterator;
 
 #[pyfunction]
 fn execute_sql<'py>(py: Python<'py>, query: &str) -> PyResult<Bound<'py, PyAny>> {
