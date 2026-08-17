@@ -9,7 +9,9 @@ pub mod utils;
 #[pymodule]
 mod basaltic_red {
     #[pymodule_export]
-    use crate::engine::{MatrixEngine, PyBatchIterator};
+    use crate::engine::MatrixEngine;
+    #[pymodule_export]
+    use crate::pyapi::iterator::PyBatchIterator;
 
     #[pymodule_export]
     use crate::pyapi::dictionary::dictionary;
