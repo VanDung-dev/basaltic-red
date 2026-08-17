@@ -453,7 +453,17 @@ impl MatrixEngine {
 
                 let trash_b = if trash_batches.is_empty() {
                     let mut fields = source_schema.fields().to_vec();
-                    fields.push(Field::new("audit_error_code", DataType::UInt64, false).into());
+                    fields.push(Field::new("audit_error_code", DataType::UInt64, true).into());
+                    if parsed_rules.len() > 64 {
+                        fields.push(
+                            Field::new(
+                                "audit_violated_rules",
+                                DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
+                                true,
+                            )
+                            .into(),
+                        );
+                    }
                     let schema = Arc::new(Schema::new(fields));
                     let columns: Vec<ArrayRef> = schema
                         .fields()

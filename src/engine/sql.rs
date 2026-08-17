@@ -65,7 +65,8 @@ async fn register_listing_table(
     let Some(format) = native_reader_for(path, ext) else {
         return Ok(false);
     };
-    let url = ListingTableUrl::parse(format!("file://{}", path.display()))
+    let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let url = ListingTableUrl::parse(abs_path.to_str().unwrap_or(""))
         .map_err(|e| BazanError::Message(format!("listing url: {e}")))?;
     let options = ListingOptions::new(format).with_file_extension(format!(".{ext}"));
     let config = ListingTableConfig::new(url)

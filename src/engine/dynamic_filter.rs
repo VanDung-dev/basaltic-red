@@ -140,18 +140,23 @@ impl MatrixEngine {
             }
         }
 
-        let trash_bitmask = not(&clean_mask)?;
+        let clean_bool: BooleanArray = (0..total_rows)
+            .map(|i| Some(!clean_mask.is_null(i) && clean_mask.value(i)))
+            .collect();
+        let trash_bool: BooleanArray = (0..total_rows)
+            .map(|i| Some(clean_mask.is_null(i) || !clean_mask.value(i)))
+            .collect();
 
-        let clean_batch = filter_record_batch(batch, &clean_mask)?;
-        let trash_filtered_base = filter_record_batch(batch, &trash_bitmask)?;
+        let clean_batch = filter_record_batch(batch, &clean_bool)?;
+        let trash_filtered_base = filter_record_batch(batch, &trash_bool)?;
 
-        let trash_error_codes_c0 = filter(&error_chunks[0], &trash_bitmask)?;
+        let trash_error_codes_c0 = filter(&error_chunks[0], &trash_bool)?;
 
         let mut trash_fields = trash_filtered_base.schema().fields().to_vec();
         let mut trash_columns = trash_filtered_base.columns().to_vec();
 
         // Primary audit_error_code column (first 64 rules chunk) for 100% backward compatibility
-        trash_fields.push(Field::new("audit_error_code", DataType::UInt64, false).into());
+        trash_fields.push(Field::new("audit_error_code", DataType::UInt64, true).into());
         trash_columns.push(trash_error_codes_c0);
 
         // When rules exceed 64, append an audit_violated_rules List<UInt32> column
@@ -162,9 +167,9 @@ impl MatrixEngine {
             );
 
             for row_idx in 0..total_rows {
-                if trash_bitmask.value(row_idx) {
+                if trash_bool.value(row_idx) {
                     for (c, chunk) in error_chunks.iter().enumerate() {
-                        let mut val = chunk.value(row_idx);
+                        let mut val = if chunk.is_null(row_idx) { 0 } else { chunk.value(row_idx) };
                         while val > 0 {
                             let bit = val.trailing_zeros();
                             let rule_id = (c * 64 + bit as usize) as u32;
@@ -181,7 +186,7 @@ impl MatrixEngine {
                 Field::new(
                     "audit_violated_rules",
                     DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
-                    false,
+                    true,
                 )
                 .into(),
             );
