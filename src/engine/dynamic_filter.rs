@@ -140,12 +140,8 @@ impl MatrixEngine {
             }
         }
 
-        let clean_bool: BooleanArray = (0..total_rows)
-            .map(|i| Some(!clean_mask.is_null(i) && clean_mask.value(i)))
-            .collect();
-        let trash_bool: BooleanArray = (0..total_rows)
-            .map(|i| Some(clean_mask.is_null(i) || !clean_mask.value(i)))
-            .collect();
+        let clean_bool = clean_mask;
+        let trash_bool = not(&clean_bool)?;
 
         let clean_batch = filter_record_batch(batch, &clean_bool)?;
         let trash_filtered_base = filter_record_batch(batch, &trash_bool)?;
