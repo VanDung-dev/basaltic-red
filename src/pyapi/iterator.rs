@@ -67,7 +67,10 @@ impl PyBatchIterator {
                 }
             }
             PyBatchSource::Lazy(stream) => {
-                match crate::engine::memory::global_runtime().block_on(stream.next()) {
+                let next_item = py.detach(|| {
+                    crate::engine::memory::global_runtime().block_on(stream.next())
+                });
+                match next_item {
                     Some(Ok(batch)) => {
                         let py_batch = batch.to_pyarrow(py)?;
                         Ok(Some(py_batch))
@@ -96,7 +99,10 @@ impl PyBatchIterator {
                 }
             }
             PyBatchSource::Lazy(stream) => loop {
-                match crate::engine::memory::global_runtime().block_on(stream.next()) {
+                let next_item = py.detach(|| {
+                    crate::engine::memory::global_runtime().block_on(stream.next())
+                });
+                match next_item {
                     Some(Ok(batch)) => py_batches.push(batch.to_pyarrow(py)?),
                     Some(Err(e)) => {
                         return Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
