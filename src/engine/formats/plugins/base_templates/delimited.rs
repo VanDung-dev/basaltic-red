@@ -1,3 +1,4 @@
+use std::io::Seek;
 use std::sync::Arc;
 
 use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
@@ -21,19 +22,20 @@ impl DelimitedFormatHandler {
 
 impl FormatHandler for DelimitedFormatHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
-        let file = std::fs::File::open(file_path)?;
+        let mut file = std::fs::File::open(file_path)?;
         let format = arrow::csv::reader::Format::default()
             .with_delimiter(self.delimiter)
             .with_header(self.has_header);
 
-        let (schema, _) = format.infer_schema(file, Some(100))?;
+        let (schema, _) = format.infer_schema(&mut file, Some(100))?;
+        let _ = file.rewind();
+
         let batch_size = clamp_batch_size(batch_size);
-        let file_for_reader = std::fs::File::open(file_path)?;
         let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
             .with_delimiter(self.delimiter)
             .with_header(self.has_header)
             .with_batch_size(batch_size)
-            .build(file_for_reader)?;
+            .build(file)?;
 
         Ok(OpenedSource {
             schema: Arc::new(schema),
@@ -47,12 +49,14 @@ impl FormatHandler for DelimitedFormatHandler {
         batch_size: usize,
         columns: &[String],
     ) -> Result<OpenedSource, BazanError> {
-        let file = std::fs::File::open(file_path)?;
+        let mut file = std::fs::File::open(file_path)?;
         let format = arrow::csv::reader::Format::default()
             .with_delimiter(self.delimiter)
             .with_header(self.has_header);
 
-        let (schema, _) = format.infer_schema(file, Some(100))?;
+        let (schema, _) = format.infer_schema(&mut file, Some(100))?;
+        let _ = file.rewind();
+
         let mut indices = Vec::new();
         for name in columns {
             indices.push(
@@ -63,13 +67,12 @@ impl FormatHandler for DelimitedFormatHandler {
         }
 
         let batch_size = clamp_batch_size(batch_size);
-        let file_for_reader = std::fs::File::open(file_path)?;
         let reader = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
             .with_delimiter(self.delimiter)
             .with_header(self.has_header)
             .with_batch_size(batch_size)
             .with_projection(indices)
-            .build(file_for_reader)?;
+            .build(file)?;
 
         Ok(OpenedSource {
             schema: Arc::new(schema),
