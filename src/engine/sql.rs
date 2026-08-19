@@ -134,7 +134,7 @@ fn auto_cache_root(path: &Path) -> PathBuf {
 }
 
 /// Transcode a non-native file into a cached Parquet, reusing an existing
-/// cache entry. Returns the cached file path (registered as a native table).
+/// cache entry if fresh. Returns the cached file path (registered as a native table).
 fn cached_parquet_for(engine: &MatrixEngine, src: &Path) -> Result<PathBuf, BazanError> {
     let root = auto_cache_root(src);
     let stem = src
@@ -148,7 +148,20 @@ fn cached_parquet_for(engine: &MatrixEngine, src: &Path) -> Result<PathBuf, Baza
         .unwrap_or("")
         .to_lowercase();
     let target = root.join(format!("{stem}.{ext}.parquet"));
-    if !target.exists() {
+
+    let is_stale = if !target.exists() {
+        true
+    } else {
+        match (
+            src.metadata().and_then(|m| m.modified()),
+            target.metadata().and_then(|m| m.modified()),
+        ) {
+            (Ok(src_time), Ok(target_time)) => src_time > target_time,
+            _ => false,
+        }
+    };
+
+    if is_stale {
         engine.ingest_normalize(src, target.clone())?;
     }
     Ok(target)
