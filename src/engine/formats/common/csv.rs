@@ -1,6 +1,6 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::sync::Arc;
+use std::io::{BufRead, BufReader, Seek};
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::{DataType, Field, Schema};
 use regex::Regex;
@@ -8,6 +8,12 @@ use regex::Regex;
 use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
+
+static TSV_NULL_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn tsv_null_regex() -> &'static Regex {
+    TSV_NULL_REGEX.get_or_init(|| Regex::new(r"^\\N$").expect("valid regex"))
+}
 
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
@@ -43,20 +49,20 @@ pub fn open_delimited_csv(
     batch_size: usize,
     delimiter: u8,
 ) -> Result<OpenedSource, BazanError> {
-    let file = File::open(file_path)?;
+    let mut file = File::open(file_path)?;
     let format = arrow_csv::reader::Format::default()
         .with_delimiter(delimiter)
         .with_header(true);
 
-    let (schema, _) = format.infer_schema(file, Some(100))?;
+    let (schema, _) = format.infer_schema(&mut file, Some(100))?;
+    let _ = file.rewind();
 
     let batch_size = clamp_batch_size(batch_size);
-    let file_for_reader = File::open(file_path)?;
     let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
         .with_delimiter(delimiter)
         .with_header(true)
         .with_batch_size(batch_size)
-        .build(file_for_reader)?;
+        .build(file)?;
 
     Ok(OpenedSource {
         schema: Arc::new(schema),
@@ -71,12 +77,14 @@ pub fn open_delimited_csv_columns(
     delimiter: u8,
     columns: &[String],
 ) -> Result<OpenedSource, BazanError> {
-    let file = File::open(file_path)?;
+    let mut file = File::open(file_path)?;
     let format = arrow_csv::reader::Format::default()
         .with_delimiter(delimiter)
         .with_header(true);
 
-    let (schema, _) = format.infer_schema(file, Some(100))?;
+    let (schema, _) = format.infer_schema(&mut file, Some(100))?;
+    let _ = file.rewind();
+
     let mut indices = Vec::new();
     for name in columns {
         indices.push(
@@ -87,13 +95,12 @@ pub fn open_delimited_csv_columns(
     }
 
     let batch_size = clamp_batch_size(batch_size);
-    let file_for_reader = File::open(file_path)?;
     let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
         .with_delimiter(delimiter)
         .with_header(true)
         .with_batch_size(batch_size)
         .with_projection(indices)
-        .build(file_for_reader)?;
+        .build(file)?;
 
     Ok(OpenedSource {
         schema: Arc::new(schema),
@@ -127,10 +134,12 @@ pub struct TsvHandler;
 impl FormatHandler for TsvHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
-        let header_file = File::open(file_path)?;
-        let mut header_reader = BufReader::new(header_file);
+        let mut file = File::open(file_path)?;
         let mut header_line = String::new();
-        header_reader.read_line(&mut header_line)?;
+        {
+            let mut header_reader = BufReader::new(&mut file);
+            header_reader.read_line(&mut header_line)?;
+        }
         let col_names: Vec<String> = header_line
             .trim_end_matches(['\n', '\r'])
             .split('\t')
@@ -144,15 +153,14 @@ impl FormatHandler for TsvHandler {
             .collect();
         let schema = Arc::new(Schema::new(fields));
 
-        let null_regex = Regex::new(r"^\\N$")?;
-        let file_for_reader = File::open(file_path)?;
+        let _ = file.rewind();
         let reader = arrow_csv::ReaderBuilder::new(schema.clone())
             .with_header(true)
             .with_delimiter(b'\t')
-            .with_null_regex(null_regex)
+            .with_null_regex(tsv_null_regex().clone())
             .with_truncated_rows(true)
             .with_batch_size(batch_size)
-            .build(file_for_reader)?;
+            .build(file)?;
 
         Ok(OpenedSource {
             schema,
