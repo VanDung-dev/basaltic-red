@@ -17,42 +17,47 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Arrow columnar format
-arrow = { version = "58.3.0", features = ["ffi", "pyarrow", "csv", "json", "ipc"] }
-arrow-array = "58.3.0"     # Arrow array types (Int64Array, StringArray, ...)
-arrow-schema = "58.3.0"    # Table schema / data type definitions
-arrow-select = "58.3.0"    # Row/column selection and projection over RecordBatch
-arrow-buffer = "58.3.0"    # Arrow buffer memory management
-arrow-csv = "58.3.0"       # CSV read/write via Arrow
-arrow-json = "58.3.0"      # JSON read/write via Arrow
-arrow-ipc = "58.3.0"       # Arrow IPC protocol (Feather format)
+arrow = { version = "58.0", features = ["ffi", "pyarrow", "csv", "json", "ipc"] }
+arrow-array = "58.0"     # Arrow array types (Int64Array, StringArray, ...)
+arrow-schema = "58.0"    # Table schema / data type definitions
+arrow-select = "58.0"    # Row/column selection and projection over RecordBatch
+arrow-buffer = "58.0"    # Arrow buffer memory management
+arrow-csv = "58.0"       # CSV read/write via Arrow
+arrow-json = "58.0"      # JSON read/write via Arrow
+arrow-ipc = "58.0"       # Arrow IPC protocol (Feather format)
 
 # File formats
-parquet = { version = "58.3.0", features = ["arrow", "async"] }   # Columnar, Arrow integration + async read/write
-apache-avro = "0.21.0"                                            # Avro format (row-based binary)
-orc-rust = { version = "0.8.0", default-features = false }        # ORC columnar format
-calamine = "0.36.1"                                               # Excel file reader (xlsx/xls)
-datafusion = "54.1.0"                                             # SQL query engine (execute_sql)
+parquet = { version = "58.0", features = ["arrow", "async"] }   # Columnar, Arrow integration + async read/write
+apache-avro = "0.21"                                            # Avro format (row-based binary)
+orc-rust = { version = "0.8", default-features = false }        # ORC columnar format
+calamine = "0.36"                                               # Excel file reader (xlsx/xls)
+datafusion = "54.0"                                             # SQL query engine (execute_sql)
 
 # Serialization
 serde_json = "1.0"                                                 # JSON handling
-rmpv = { version = "1.3.1", features = ["with-serde"] }            # MessagePack value type (serde support)
-rmp-serde = "1.3.0"                                                # MessagePack serialization via serde
+rmpv = { version = "1.0", features = ["with-serde"] }            # MessagePack value type (serde support)
+rmp-serde = "1.0"                                                # MessagePack serialization via serde
 
 # Python bindings
-pyo3 = { version = "0.28.3", features = ["extension-module", "abi3-py38"] }  # Expose engine as a Python extension module
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py38"] }  # Expose engine as a Python extension module
 
 # Async runtime
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"                                      # StreamExt for lazy RecordBatch streams
 
 # Core engine
-rayon = "1.10.0"               # Parallel data loops (multithreading)
-thiserror = "2.0.9"            # Engine error taxonomy
-regex = "1.10.0"               # Regular expressions (e.g. filter rule parsing)
-glob = "0.3.1"                 # File path pattern matching
+rayon = "1.0"               # Parallel data loops (multithreading)
+thiserror = "2.0"            # Engine error taxonomy
+regex = "1.0"               # Regular expressions (e.g. filter rule parsing)
+glob = "0.3"                 # File path pattern matching
 walkdir = "2.5.0"              # Recursive directory traversal
 
 [dev-dependencies]
-anyhow = "1.0.82"              # Error handling in integration tests
-rust_xlsxwriter = "0.97.1"     # Generate xlsx fixtures in tests
-tempfile = "3.10.1"            # Temporary files/directories in tests
+anyhow = "1.0"              # Error handling in integration tests
+rust_xlsxwriter = "0.97"     # Generate xlsx fixtures in tests
+tempfile = "3.0"            # Temporary files/directories in tests
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "engine_benchmarks"
+harness = false
