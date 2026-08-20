@@ -110,6 +110,42 @@ impl MatrixEngine {
         }
     }
 
+    /// Create or rebuild an Arrow IPC Binary Map (.br_map.ipc) for a data directory
+    pub fn create_map(&self, py: Python<'_>, dir_path: &str) -> PyResult<String> {
+        let dir = dir_path.to_string();
+        let map_path = py.detach(|| self.create_lake_map_native(&dir));
+        match map_path {
+            Ok(p) => Ok(p),
+            Err(e) => Err(bazan_to_pyerr(e)),
+        }
+    }
+
+    /// Run doctor health check and optional auto-healing sync on a data directory
+    #[pyo3(signature = (dir_path, auto_heal=false))]
+    pub fn doctor<'py>(
+        &self,
+        py: Python<'py>,
+        dir_path: &str,
+        auto_heal: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let dir = dir_path.to_string();
+        let report = py.detach(|| self.doctor_lake_map_native(&dir, auto_heal));
+        match report {
+            Ok(rep) => {
+                let dict = PyDict::new(py);
+                dict.set_item("status", rep.status)?;
+                dict.set_item("total_files", rep.total_files)?;
+                dict.set_item("healthy_count", rep.healthy_count)?;
+                dict.set_item("modified_files", rep.modified_files)?;
+                dict.set_item("unindexed_files", rep.unindexed_files)?;
+                dict.set_item("missing_files", rep.missing_files)?;
+                dict.set_item("healed", rep.healed)?;
+                Ok(dict)
+            }
+            Err(e) => Err(bazan_to_pyerr(e)),
+        }
+    }
+
     /// Enterprise Multi-File Partition Handler & Async Parquet Writer
     pub fn process_and_write_lake(
         &self,

@@ -62,11 +62,28 @@ fn ingest(
     default_engine().ingest(py, src_dir, dst_dir, auto_normalize)
 }
 
+#[pyfunction]
+fn create_map(py: Python<'_>, dir_path: &str) -> PyResult<String> {
+    default_engine().create_map(py, dir_path)
+}
+
+#[pyfunction]
+#[pyo3(signature = (dir_path, auto_heal=false))]
+fn doctor<'py>(
+    py: Python<'py>,
+    dir_path: &str,
+    auto_heal: bool,
+) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    default_engine().doctor(py, dir_path, auto_heal)
+}
+
 #[pymodule]
 pub fn lake(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(process_and_write_lake, m)?)?;
     m.add_function(wrap_pyfunction!(generate_gold_table, m)?)?;
     m.add_function(wrap_pyfunction!(split_file, m)?)?;
     m.add_function(wrap_pyfunction!(ingest, m)?)?;
+    m.add_function(wrap_pyfunction!(create_map, m)?)?;
+    m.add_function(wrap_pyfunction!(doctor, m)?)?;
     Ok(())
 }
