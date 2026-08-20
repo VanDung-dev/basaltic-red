@@ -6,6 +6,7 @@ pub mod filter;
 pub mod formats;
 pub mod graph;
 pub mod ingest;
+pub mod map;
 pub mod memory;
 pub mod parallel_filter;
 pub mod partition;
