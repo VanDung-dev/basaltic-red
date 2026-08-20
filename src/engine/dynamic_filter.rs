@@ -3,7 +3,7 @@ use arrow::array::{
 };
 use arrow::compute::kernels::cmp::{eq, gt, gt_eq, lt, lt_eq, neq};
 use arrow::compute::kernels::bitwise::{bitwise_or, bitwise_shift_left_scalar};
-use arrow::compute::{and, cast, filter, filter_record_batch, is_null, not, or};
+use arrow::compute::{and, cast, filter, filter_record_batch, not};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
 
@@ -196,110 +196,126 @@ impl MatrixEngine {
     }
 }
 
-/// Violation mask: null OR NOT(cmp(col, target)) — `is_null` anchors the OR so the
-/// result is null-free and safe to reuse as a boolean filter.
+fn cmp_to_violation(cmp_opt: Option<BooleanArray>, len: usize) -> BooleanArray {
+    let mut builder = arrow::array::BooleanBuilder::with_capacity(len);
+    if let Some(cmp) = cmp_opt {
+        for i in 0..len {
+            if cmp.is_valid(i) && cmp.value(i) {
+                builder.append_value(false);
+            } else {
+                builder.append_value(true);
+            }
+        }
+    } else {
+        for _ in 0..len {
+            builder.append_value(true);
+        }
+    }
+    builder.finish()
+}
+
 fn violation_int(col: &dyn Array, target: i64, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<Int64Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &Int64Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &Int64Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &Int64Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &Int64Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &Int64Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &Int64Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &Int64Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &Int64Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &Int64Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &Int64Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &Int64Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &Int64Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_int32(col: &dyn Array, target: i32, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<arrow::array::Int32Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &arrow::array::Int32Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &arrow::array::Int32Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &arrow::array::Int32Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &arrow::array::Int32Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &arrow::array::Int32Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &arrow::array::Int32Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &arrow::array::Int32Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_u64(col: &dyn Array, target: u64, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<UInt64Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &UInt64Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &UInt64Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &UInt64Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &UInt64Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &UInt64Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &UInt64Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &UInt64Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &UInt64Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &UInt64Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &UInt64Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &UInt64Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &UInt64Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_u32(col: &dyn Array, target: u32, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<arrow::array::UInt32Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &arrow::array::UInt32Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &arrow::array::UInt32Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &arrow::array::UInt32Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &arrow::array::UInt32Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &arrow::array::UInt32Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &arrow::array::UInt32Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &arrow::array::UInt32Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_float(col: &dyn Array, target: f64, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<Float64Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &Float64Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &Float64Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &Float64Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &Float64Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &Float64Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &Float64Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &Float64Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &Float64Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &Float64Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &Float64Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &Float64Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &Float64Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_float32(col: &dyn Array, target: f32, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<arrow::array::Float32Array>().unwrap();
     let cmp = match op {
-        Operator::Gt => gt(arr, &arrow::array::Float32Array::new_scalar(target)),
-        Operator::Gte => gt_eq(arr, &arrow::array::Float32Array::new_scalar(target)),
-        Operator::Lt => lt(arr, &arrow::array::Float32Array::new_scalar(target)),
-        Operator::Lte => lt_eq(arr, &arrow::array::Float32Array::new_scalar(target)),
-        Operator::Eq => eq(arr, &arrow::array::Float32Array::new_scalar(target)),
-        Operator::Neq => neq(arr, &arrow::array::Float32Array::new_scalar(target)),
+        Operator::Gt => gt(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
+        Operator::Gte => gt_eq(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
+        Operator::Lt => lt(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
+        Operator::Lte => lt_eq(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
+        Operator::Eq => eq(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
+        Operator::Neq => neq(arr, &arrow::array::Float32Array::new_scalar(target)).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_str(col: &dyn Array, target: &str, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<StringArray>().unwrap();
     let scalar = Scalar::new(StringArray::from(vec![target.to_string()]));
     let cmp = match op {
-        Operator::Gt => gt(arr, &scalar),
-        Operator::Gte => gt_eq(arr, &scalar),
-        Operator::Lt => lt(arr, &scalar),
-        Operator::Lte => lt_eq(arr, &scalar),
-        Operator::Eq => eq(arr, &scalar),
-        Operator::Neq => neq(arr, &scalar),
+        Operator::Gt => gt(arr, &scalar).ok(),
+        Operator::Gte => gt_eq(arr, &scalar).ok(),
+        Operator::Lt => lt(arr, &scalar).ok(),
+        Operator::Lte => lt_eq(arr, &scalar).ok(),
+        Operator::Eq => eq(arr, &scalar).ok(),
+        Operator::Neq => neq(arr, &scalar).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
 
 fn violation_large_str(col: &dyn Array, target: &str, op: &Operator) -> BooleanArray {
     let arr = col.as_any().downcast_ref::<arrow::array::LargeStringArray>().unwrap();
     let scalar = Scalar::new(arrow::array::LargeStringArray::from(vec![target.to_string()]));
     let cmp = match op {
-        Operator::Gt => gt(arr, &scalar),
-        Operator::Gte => gt_eq(arr, &scalar),
-        Operator::Lt => lt(arr, &scalar),
-        Operator::Lte => lt_eq(arr, &scalar),
-        Operator::Eq => eq(arr, &scalar),
-        Operator::Neq => neq(arr, &scalar),
+        Operator::Gt => gt(arr, &scalar).ok(),
+        Operator::Gte => gt_eq(arr, &scalar).ok(),
+        Operator::Lt => lt(arr, &scalar).ok(),
+        Operator::Lte => lt_eq(arr, &scalar).ok(),
+        Operator::Eq => eq(arr, &scalar).ok(),
+        Operator::Neq => neq(arr, &scalar).ok(),
     };
-    or(&is_null(arr).unwrap(), &not(&cmp.unwrap()).unwrap()).unwrap()
+    cmp_to_violation(cmp, arr.len())
 }
