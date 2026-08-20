@@ -152,3 +152,29 @@ fn test_dynamic_filter_massive_rules_scaling() {
 
     assert_eq!(violations, vec![250, 499]);
 }
+
+#[test]
+fn test_filter_batch_on_parquet_mini_with_70_rules() {
+    use basaltic_red::engine::formats::handler_for;
+    let path = "data/test_mini.parquet";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let mut rules = vec![
+        FilterRule::parse("passenger_count >= 1").unwrap(),
+        FilterRule::parse("trip_distance > 0.0").unwrap(),
+        FilterRule::parse("fare_amount > 0.0").unwrap(),
+        FilterRule::parse("total_amount > 0.0").unwrap(),
+    ];
+    for i in 1..=66 {
+        rules.push(FilterRule::parse(&format!("fare_amount >= {}.0", i)).unwrap());
+    }
+    let handler = handler_for("parquet").unwrap();
+    let source = handler.open(path, 65536).unwrap();
+    for batch_res in source.batches {
+        let batch = batch_res.unwrap();
+        let (clean, trash) = engine.filter_batch_dynamic(&batch, &rules).unwrap();
+        println!("Clean rows: {}, Trash rows: {}", clean.num_rows(), trash.num_rows());
+    }
+}
