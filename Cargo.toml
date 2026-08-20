@@ -34,7 +34,8 @@ calamine = "0.36"                                               # Excel file rea
 datafusion = "54.0"                                             # SQL query engine (execute_sql)
 
 # Serialization
-serde_json = "1.0"                                                 # JSON handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"                                               # JSON handling
 rmpv = { version = "1.0", features = ["with-serde"] }            # MessagePack value type (serde support)
 rmp-serde = "1.0"                                                # MessagePack serialization via serde
 

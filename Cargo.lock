@@ -481,6 +481,7 @@ dependencies = [
  "rmp-serde",
  "rmpv",
  "rust_xlsxwriter",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.19",
