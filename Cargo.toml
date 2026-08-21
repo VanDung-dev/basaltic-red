@@ -47,11 +47,12 @@ tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"                                      # StreamExt for lazy RecordBatch streams
 
 # Core engine
-rayon = "1.0"               # Parallel data loops (multithreading)
+rayon = "1.0"                # Parallel data loops (multithreading)
 thiserror = "2.0"            # Engine error taxonomy
-regex = "1.0"               # Regular expressions (e.g. filter rule parsing)
+regex = "1.0"                # Regular expressions (e.g. filter rule parsing)
 glob = "0.3"                 # File path pattern matching
-walkdir = "2.5.0"              # Recursive directory traversal
+walkdir = "2.5.0"            # Recursive directory traversal
+memmap2 = "0.9"              # Memory-mapped file I/O for zero-copy IPC reading
 
 [dev-dependencies]
 anyhow = "1.0"              # Error handling in integration tests
