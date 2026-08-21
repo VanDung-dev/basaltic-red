@@ -7,9 +7,11 @@ use arrow::datatypes::Schema;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
+
+/// Unified 2 GB RAM Budget Max Batch Size: 2^20 = 1,048,576 rows per batch (~500MB-1.5GB RAM)
+pub const DEFAULT_MAX_BATCH_SIZE: usize = 1 << 20;
 
 // Re-export all handlers across the 3 Tiers for seamless ergonomics
 pub use self::common::*;

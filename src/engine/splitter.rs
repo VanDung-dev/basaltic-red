@@ -5,8 +5,7 @@ use parquet::file::properties::WriterProperties;
 use std::fs::File;
 use std::path::Path;
 
-use crate::engine::formats::{clamp_batch_size, handler_for, maybe_hint_not_parquet};
-use crate::engine::slice::DEFAULT_MAX_BATCH_SIZE;
+use crate::engine::formats::{clamp_batch_size, handler_for, maybe_hint_not_parquet, DEFAULT_MAX_BATCH_SIZE};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 

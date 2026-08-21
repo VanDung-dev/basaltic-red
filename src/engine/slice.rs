@@ -1,11 +1,9 @@
 use arrow::array::RecordBatch;
 
+pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-
-/// Unified 2 GB RAM Budget Max Batch Size: 2^20 = 1,048,576 rows per batch (~500MB-1.5GB RAM)
-pub const DEFAULT_MAX_BATCH_SIZE: usize = 1 << 20;
 
 impl MatrixEngine {
     /// Read a specific row range (offset..offset+limit) zero-copy from any supported format
