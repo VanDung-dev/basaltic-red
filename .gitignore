@@ -12,6 +12,7 @@ __pycache__/
 
 # Build artifacts
 /dist
+/site
 
 # macOS
 .DS_Store
