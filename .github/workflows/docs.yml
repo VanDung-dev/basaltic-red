@@ -1,0 +1,71 @@
+name: Publish Docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs.vi.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs.vi.yml'
+  workflow_dispatch:
+    inputs:
+      publish_docs:
+        description: "Publish live to https://vandung-dev.github.io/basaltic-red/"
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  Docs:
+    if: github.repository == 'VanDung-dev/basaltic-red'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: ${{ github.head_ref || github.ref }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ env.GITHUB_REF }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install zensical==0.0.43
+
+      - name: Build English Docs
+        run: zensical build -f mkdocs.yml
+
+      - name: Build Vietnamese Docs
+        run: zensical build -f mkdocs.vi.yml
+
+      - name: Check for Build Warnings
+        run: |
+          if [ -d "site" ]; then
+            echo "✓ Docs built successfully"
+          else
+            echo "✗ Docs build failed"
+            exit 1
+          fi
+
+      - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_docs == 'true')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          commit_message: "docs: deploy documentation site for basaltic-red"
