@@ -1,0 +1,137 @@
+site_name: Basaltic-Red Docs
+site_url: https://vandung-dev.github.io/basaltic-red/
+site_description: High-Performance Zero-Copy Data Lake & SIMD Data Quality Engine in Rust & Apache Arrow
+site_author: Nguyễn Lê Văn Dũng
+repo_name: VanDung-dev/basaltic-red
+repo_url: https://github.com/VanDung-dev/basaltic-red
+edit_uri: https://github.com/VanDung-dev/basaltic-red/tree/master/docs/en/
+copyright: Copyright &copy; 2026 Nguyễn Lê Văn Dũng
+
+docs_dir: docs/en/
+site_dir: site
+use_directory_urls: true
+
+exclude_docs: |
+  site/
+  locales/
+  *.py
+  *.bak
+  *.toml
+
+theme:
+  name: zensical
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - content.action.edit
+    - content.action.view
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: red
+      accent: red
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: red
+      accent: red
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/install.md
+      - Quickstart: getting-started/quickstart.md
+      - Core Concepts: getting-started/concepts.md
+  - Components:
+      - Overview: architecture/overview.md
+      - MatrixEngine Core: architecture/matrix-engine.md
+      - SIMD Bitmask Kernel: architecture/simd-kernel.md
+      - Format Registry & Sniffing: architecture/formats.md
+      - DataFusion SQL Layer: architecture/datafusion.md
+      - Lake Map & Lake Doctor: architecture/lake-map.md
+      - Filtering Pipeline: architecture/filtering-pipeline.md
+      - Lakehouse Pipeline: architecture/lakehouse-pipeline.md
+  - Guides:
+      - Data Quality Filtering: workflows/data-quality-filtering.md
+      - Clean & Trash Partitioning: workflows/partitioning.md
+      - Lake Doctor & Self-Healing: workflows/lake-doctor.md
+      - Zero-Copy SQL Analytics: workflows/sql-analytics.md
+      - Multi-File Parallel Processing: how-to/parallel-processing.md
+      - Integrate with Polars & DuckDB: how-to/integrate-polars-duckdb.md
+      - Run NYC Taxi Demo: how-to/run-demo-notebook.md
+      - Troubleshooting & Optimization: how-to/troubleshooting.md
+  - Reference:
+      - Python API Reference: reference/python-api.md
+      - Rule Syntax: reference/rule-syntax.md
+      - Lake Map Specification: reference/lake-map-spec.md
+      - Audit Error Codes & Schema: reference/audit-codes.md
+      - Glossary: glossary.md
+  - Other:
+      - Performance Benchmarks: other/benchmarks.md
+      - Changelog: changelog.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - md_in_html
+  - tables
+  - attr_list
+  - def_list
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/VanDung-dev/basaltic-red
+      name: GitHub
+  alternate:
+    - name: English
+      link: /basaltic-red/
+      lang: en
+    - name: Tiếng Việt
+      link: /basaltic-red/vi/
+      lang: vi
