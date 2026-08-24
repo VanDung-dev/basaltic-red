@@ -37,6 +37,9 @@ dev = [
     "pytest>=9.1.0",
     "maturin>=1.14.0",  # uv run maturin develop
 ]
+doc = [
+    "zensical>=0.0.43",
+]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
