@@ -40,7 +40,7 @@ rmpv = { version = "1.0", features = ["with-serde"] }            # MessagePack v
 rmp-serde = "1.0"                                                # MessagePack serialization via serde
 
 # Python bindings
-pyo3 = { version = "0.28", features = ["extension-module", "abi3-py38"] }  # Expose engine as a Python extension module
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py312"] }  # Expose engine as a Python extension module
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
