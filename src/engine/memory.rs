@@ -88,7 +88,7 @@ pub fn global_rayon_pool(threads: usize) -> &'static rayon::ThreadPool {
     let mut pools = POOLS
         .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
         .lock()
-        .unwrap();
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     pools
         .entry(threads)
         .or_insert_with(|| {
