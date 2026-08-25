@@ -397,7 +397,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
         }
     }
 
-    for (rel_path, _) in &disk_map {
+    for rel_path in disk_map.keys() {
         if !indexed_rel_paths.contains(rel_path) {
             unindexed_files.push(rel_path.clone());
         }
