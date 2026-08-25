@@ -110,7 +110,7 @@ fn walk_and_prune(
         return Ok((Vec::new(), false, 1));
     }
 
-    let dir_matches = filter.map_or(true, |f| dir.to_str().unwrap_or("").contains(f));
+    let dir_matches = filter.is_none_or(|f| dir.to_str().unwrap_or("").contains(f));
     let mut files = Vec::new();
     let mut any_match = false;
     let mut pruned = 0usize;
