@@ -205,13 +205,17 @@ fn dynamic_registry() -> &'static RwLock<HashMap<String, Arc<dyn FormatHandler>>
 
 /// Register a custom format handler dynamically at runtime.
 pub fn register_format(ext: &str, handler: Arc<dyn FormatHandler>) {
-    let mut reg = dynamic_registry().write().unwrap();
+    let mut reg = dynamic_registry()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     reg.insert(ext.to_lowercase(), handler);
 }
 
 /// Unregister a dynamically registered format handler.
 pub fn unregister_format(ext: &str) -> bool {
-    let mut reg = dynamic_registry().write().unwrap();
+    let mut reg = dynamic_registry()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     reg.remove(&ext.to_lowercase()).is_some()
 }
 
