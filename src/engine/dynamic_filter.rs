@@ -67,107 +67,30 @@ macro_rules! eval_primitive_rule {
             if let Ok(target) = $rule.val_str.parse::<$target_type>() {
                 let values = arr.values();
                 let nulls = arr.nulls();
+                // Bind the comparison to a named result instead of `!(a > b)`:
+                // NaN fails every ordering comparison, so `!passed` correctly
+                // routes NaN rows to Trash alongside nulls.
+                let passed = |i: usize| match $rule.op {
+                    Operator::Gt => values[i] > target,
+                    Operator::Gte => values[i] >= target,
+                    Operator::Lt => values[i] < target,
+                    Operator::Lte => values[i] <= target,
+                    Operator::Eq => values[i] == target,
+                    Operator::Neq => values[i] != target,
+                };
                 if let Some(null_buf) = nulls {
-                    match $rule.op {
-                        Operator::Gt => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] > target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Gte => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] >= target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Lt => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] < target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Lte => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] <= target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Eq => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] == target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Neq => {
-                            for i in 0..$total_rows {
-                                if null_buf.is_null(i) || !(values[i] != target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
+                    for i in 0..$total_rows {
+                        if null_buf.is_null(i) || !passed(i) {
+                            $target_chunk[i] |= $bit;
+                            $clean_bits[i] = false;
                         }
                     }
                 } else {
                     // Fast path without null checks (100% LLVM auto-vectorizable)
-                    match $rule.op {
-                        Operator::Gt => {
-                            for i in 0..$total_rows {
-                                if !(values[i] > target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Gte => {
-                            for i in 0..$total_rows {
-                                if !(values[i] >= target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Lt => {
-                            for i in 0..$total_rows {
-                                if !(values[i] < target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Lte => {
-                            for i in 0..$total_rows {
-                                if !(values[i] <= target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Eq => {
-                            for i in 0..$total_rows {
-                                if !(values[i] == target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
-                        }
-                        Operator::Neq => {
-                            for i in 0..$total_rows {
-                                if !(values[i] != target) {
-                                    $target_chunk[i] |= $bit;
-                                    $clean_bits[i] = false;
-                                }
-                            }
+                    for i in 0..$total_rows {
+                        if !passed(i) {
+                            $target_chunk[i] |= $bit;
+                            $clean_bits[i] = false;
                         }
                     }
                 }
@@ -223,6 +146,39 @@ macro_rules! eval_string_rule {
     };
 }
 
+fn resolve_column<'a>(batch: &'a RecordBatch, col_name: &str) -> Option<&'a Arc<dyn Array>> {
+    if let Some(col) = batch.column_by_name(col_name) {
+        return Some(col);
+    }
+    if let Some(idx) = batch
+        .schema()
+        .fields()
+        .iter()
+        .position(|f| f.name().eq_ignore_ascii_case(col_name))
+    {
+        return Some(batch.column(idx));
+    }
+    let alias = match col_name.to_ascii_lowercase().as_str() {
+        "fare_amount" => "Fare_Amt",
+        "fare_amt" => "fare_amount",
+        "total_amount" => "Total_Amt",
+        "total_amt" => "total_amount",
+        "trip_distance" => "Trip_Distance",
+        "passenger_count" => "Passenger_Count",
+        "vendorid" => "vendor_name",
+        _ => return None,
+    };
+    if let Some(col) = batch.column_by_name(alias) {
+        return Some(col);
+    }
+    batch
+        .schema()
+        .fields()
+        .iter()
+        .position(|f| f.name().eq_ignore_ascii_case(alias))
+        .map(|idx| batch.column(idx))
+}
+
 impl MatrixEngine {
     /// Evaluate dynamic rules on a RecordBatch and split into Clean and Trash RecordBatches.
     /// Supports arbitrary number of rules (> 64) with direct in-place zero-allocation bitmasking
@@ -235,7 +191,7 @@ impl MatrixEngine {
         let total_rows = batch.num_rows();
         let mut clean_bits = vec![true; total_rows];
 
-        let num_chunks = ((rules.len() + 63) / 64).max(1);
+        let num_chunks = rules.len().div_ceil(64).max(1);
         let mut error_chunks_raw: Vec<Vec<u64>> = vec![vec![0u64; total_rows]; num_chunks];
 
         for (rule_idx, rule) in rules.iter().enumerate() {
@@ -243,7 +199,7 @@ impl MatrixEngine {
             let bit = 1u64 << (rule_idx % 64);
             let target_chunk = &mut error_chunks_raw[chunk_idx];
 
-            if let Some(col) = batch.column_by_name(&rule.col_name) {
+            if let Some(col) = resolve_column(batch, &rule.col_name) {
                 match col.data_type() {
                     DataType::Int64 => {
                         eval_primitive_rule!(Int64Array, i64, col, rule, total_rows, bit, target_chunk, clean_bits);
