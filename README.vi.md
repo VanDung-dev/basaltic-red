@@ -1,95 +1,113 @@
 # Basaltic-Red
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https.mit-license.org)
-[![Rust](https://img.shields.io/badge/Rust-1.96+-orange.svg)](https://www.rust-lang.org/)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Arrow](https://img.shields.io/badge/Arrow--rs-58.3.0-red.svg)](https://crates.io/crates/arrow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![Arrow](https://img.shields.io/badge/Arrow--rs-58.4.0-red.svg)](https://crates.io/crates/arrow)
 [![DataFusion](https://img.shields.io/badge/DataFusion-54.1.0-purple.svg)](https://crates.io/crates/datafusion)
 
+> **Engine Data Lake zero-copy và kiểm tra chất lượng dữ liệu viết bằng Rust + Apache Arrow (Python qua PyO3)**
+
+`basaltic-red` cung cấp lõi Rust để làm việc với data lake dạng file: catalog ánh xạ bộ nhớ (`.br_map.ipc`), cắt lát dòng/cột không cần đọc toàn bộ file, lọc chất lượng song song với mã audit theo dòng, và SQL qua DataFusion trên Arrow batch. Lớp Python chỉ là binding PyO3 mỏng; kết quả trả về `pyarrow.Table` / `RecordBatch` để dùng tiếp với Polars, DuckDB, pandas...
+
+Bộ dữ liệu demo trong [`demo.ipynb`](demo.ipynb): **NYC TLC Yellow Taxi 2009–2025, 204 file Parquet, 29.66 GB, 1,826,960,642 dòng × 20 cột** (đếm bằng `pq.read_metadata` trong notebook).
+
 ---
 
-## Hiệu Năng Engine & Giới Hạn Bộ Nhớ RAM
+## Kết quả đo trong demo
 
-**Basaltic-Red** được tối ưu để xử lý Big Data doanh nghiệp với tốc độ `500+ MB/s` cùng hạn mức bộ nhớ RAM được cân bằng hợp lý:
-- **Hạn Mức Mặc Định (Bounded RAM)**: `< 2048 MB` (2 GB) RAM - Tối ưu cho xử lý stream SIMD zero-copy tốc độ cao.
+Số liệu dưới đây lấy từ một lần chạy `demo.ipynb` trên máy phổ thông (Apple Silicon, macOS). Tùy phần cứng, cache hệ thống và cách lưu file mà kết quả khác nhau — chỉ mang tính tham khảo.
+
+| Kịch bản | Phạm vi | Quan sát trong demo |
+| :--- | :--- | :--- |
+| **Kiểm tra catalog (cold vs warm)** | 204 file | Quét cold + tạo map ~18.07 s → đọc warm qua `memmap2` ~0.5 ms (trung bình 5 lần). Nhanh hơn do warm tránh quét thư mục. |
+| **Quét khối lượng (chỉ metadata)** | 1,826,960,642 dòng (36.5B ô) | Chỉ đọc metadata (số dòng + dung lượng) xong trong dưới 1 s; notebook ghi ~0.7 s. |
+| **Lọc chất lượng toàn lake** | 1,826,960,642 dòng, 5 rule | ~21 s end-to-end qua `filter_files_parallel` (đọc song song + lọc Rayon). Kết quả: 1,780,228,507 clean / 46,732,135 trash với 5 rule demo. |
+| **SQL aggregation một file** | 4,305,006 dòng (một batch tháng) | `GROUP BY` qua `execute_sql_stream` ~0.1 s; bàn giao zero-copy sang DuckDB/Polars qua `to_pyarrow()`. |
+
+> Lọc dùng vòng lặp Rust trên Arrow array được LLVM tự vector hóa; chữ "SIMD" trong tài liệu cũ nghĩa là auto-vectorized, không phải intrinsic viết tay. Mã audit là bitmask `u64` theo dòng (bit *i* = rule *i* vi phạm, chia chunk khi >64 rule).
 
 ---
 
-## Cài Đặt & Biên Dịch Trực Tiếp
+## Cài đặt
 
 ```bash
-# Clone repository
-git clone https://github.com/vandungdev/basaltic-red.git
+# Từ GitHub qua uv
+uv add "git+https://github.com/VanDung-dev/basaltic-red.git"
+
+# Kèm interop (Polars, DuckDB, pandas, numpy)
+uv add "basaltic-red[interop] @ git+https://github.com/VanDung-dev/basaltic-red.git"
+
+# Kèm notebook (Jupyter, matplotlib, seaborn)
+uv add "basaltic-red[interop,notebook] @ git+https://github.com/VanDung-dev/basaltic-red.git"
+```
+
+Build từ mã nguồn:
+
+```bash
+git clone https://github.com/VanDung-dev/basaltic-red.git
 cd basaltic-red
-
-# Khởi tạo môi trường ảo Python và build thư viện Rust
-uv sync --extra dev --extra interop
-uv run maturin develop --release
+uv run --no-sync maturin develop --release
 ```
+
+Yêu cầu Python 3.12+.
 
 ---
 
-## Tổng Quan Python SDK
-
-**Basaltic-Red** là Python SDK (**`import basaltic_red`**) chạy trên Engine Rust tốc độ cao. API được tổ chức thành các submodule theo nhóm để mọi lệnh đều nằm dưới `basaltic_red.<nhóm>.<lệnh>`:
-
-| Nhóm | Thao Tác / Tính Năng | Cú Pháp Python (`import basaltic_red as br`) |
-| :--- | :--- | :--- |
-| `read` | **Cắt Khoảng Dòng Zero-Copy** | `br.read.slice_rows("data.parquet", offset=100, limit=50)` |
-| `read` | **Lọc Chọn Cột (Projection)** | `br.read.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
-| `read` | **Xem Trước Mẫu Dữ Liệu** | `br.read.preview_sample("data.parquet", limit_rows=100)` |
-| `filter` | **Lọc Quy Tắc Cột Động** | `clean_b, trash_b = br.filter.filter_matrix("data.csv", rules=["price >= 50.0"])` |
-| `filter` | **Lọc Đa Luồng Song Song (Rayon)** | `summary = br.filter.filter_files_parallel("data/", rules=["age >= 18"])` |
-| `filter` | **Cắt Tỉa Phân Vùng Stream (Hive)** | `summary = br.filter.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
-| `filter` | **Lọc Bitmask Hàng Loạt** | `clean_b, trash_b = br.filter.process_batch(record_batch)` |
-| `sql` | **Truy Vấn SQL (DataFusion)** | `table = br.sql.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
-| `sql` | **Stream SQL** | `stream = br.sql.execute_sql_stream("SELECT * FROM 'data/analytics'")` |
-| `lake` | **Chia Tách File Ma Trận** | `br.lake.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
-| `lake` | **Xử Lý & Ghi Lakehouse** | `br.lake.process_and_write_lake("in/", "clean/", "trash/", partition_filter=None, batch_size=65536)` |
-| `lake` | **Tạo Bảng Vàng (Gold Table)** | `br.lake.generate_gold_table("clean/", "gold/", table_version="v1", partition_filter=None, batch_size=65536)` |
-| `dictionary` | **Xuất Từ Điển Dữ Liệu** | `br.dictionary.export_data_dictionary_md("data.parquet", "schema.md")` |
-| `graph` | **Tạo Sơ Đồ Mermaid ER Graph** | `br.graph.generate_er_graph("data/relational", output_path="er.md")` |
-
-> `MatrixEngine` vẫn dùng được qua `br.MatrixEngine()` cho các trường hợp nâng cao (ngưỡng lọc tùy chỉnh).
-
-### Stream SQL Interop (Phía Người Dùng)
-
-`execute_sql_stream` trả về `PyBatchIterator` với cầu nối Arrow qua `to_pyarrow()`. Hệ sinh thái tiêu thụ trực tiếp — SDK không bọc wrapper:
-
-```python
-import polars as pl
-import duckdb
-
-stream = br.sql.execute_sql_stream("SELECT * FROM 'data/analytics'")
-df = pl.from_arrow(stream.to_pyarrow())        # Polars DataFrame
-rel = duckdb.from_arrow(stream.to_pyarrow())   # DuckDB relation
-```
-
----
-
-## Ví Dụ Minh Họa Trong Python
+## Ví dụ
 
 ```python
 import basaltic_red as br
+import polars as pl
+import duckdb
 
-# 1. Cắt dòng zero-copy (Trả về PyArrow Table)
-table = br.read.slice_rows("data/sample.parquet", offset=100, limit=50)
+# 1. Chẩn đoán / tạo catalog. Lần đầu tạo .br_map.ipc; lần sau đọc qua mmap.
+report = br.lake.doctor("data", auto_heal=True)
+print(report["status"], report["total_files"])  # HEALTHY / HEALED / DRIFT_DETECTED
 
-# 2. Lọc chọn cột và khoảng dòng
-cols_table = br.read.slice_cols("data/sample.csv", selected_cols=["id", "email"], offset=0, limit=50)
+# 2. Cắt lát dòng không đọc toàn bộ file
+table = br.read.slice_rows("data/yellow_tripdata_2025-12.parquet", offset=0, limit=100)
+df = pl.from_arrow(table)
 
-# 3. Thực thi câu lệnh SQL ANSI với Động cơ Apache DataFusion Pushdown trên cây thư mục
-sql_result = br.sql.execute_sql("SELECT id, age, salary FROM 'data/analytics' WHERE age >= 18 ORDER BY salary DESC")
+# 3. Lọc theo rule động. Trả về (clean, trash); trash có cột audit_error_code.
+summary = br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[
+    "passenger_count >= 1",
+    "trip_distance > 0.0",
+    "fare_amount > 0.0",
+    "total_amount > 0.0",
+])
+print(summary)
 
-# 4. Tách file dữ liệu khổng lồ thành các file phần
-parts_count = br.lake.split_file("data/sample.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")
-
-# 5. Xuất sơ đồ Mermaid ER Diagram
-mermaid_code = br.graph.generate_er_graph("data/relational", output_path="er_graph.md")
+# 4. SQL qua DataFusion rồi đưa sang DuckDB/Polars
+stream = br.sql.execute_sql_stream(
+    "SELECT passenger_count, AVG(fare_amount) FROM 'data/yellow_tripdata_2025-12.parquet' GROUP BY passenger_count"
+)
+duck_rel = duckdb.from_arrow(stream.to_pyarrow())
+print(duck_rel.df())
 ```
+
+Luồng đầy đủ xem `demo.ipynb` mục 0–6: tải dữ liệu → doctor → schema → preview → filter → SQL → mô phỏng drift của lake map → kiểm tra cuối.
 
 ---
 
-## Giấy Phép (License)
+## Python API
+
+| Nhóm | Thao tác | Lệnh |
+| :--- | :--- | :--- |
+| `lake` | Chẩn đoán / tự phục hồi | `br.lake.doctor("data", auto_heal=True)` |
+| `lake` | Tạo catalog | `br.lake.create_map("data")` |
+| `read` | Cắt dòng | `br.read.slice_rows("file.parquet", offset=0, limit=100)` |
+| `read` | Chiếu cột | `br.read.slice_cols("file.parquet", columns=["fare_amount", "trip_distance"])` |
+| `filter` | Lọc trong RAM (một file) | `clean, trash = br.filter.filter_matrix("file.parquet", rules=[...])` |
+| `filter` | Lọc song song (nhiều file) | `br.filter.filter_files_parallel("data/*.parquet", rules=[...])` |
+| `sql` | DataFusion stream | `br.sql.execute_sql_stream("SELECT * FROM 'file.parquet'")` |
+| `sql` | DataFusion execute | `br.sql.execute_sql("SELECT ...")` |
+| `formats` | Định dạng phân cách tùy chỉnh | `br.formats.register_delimited(ext="dat", delimiter="|", has_header=True)` |
+
+Chi tiết: `docs/vi/reference/python-api.md`, cú pháp rule: `docs/vi/reference/rule-syntax.md`.
+
+---
+
+## Giấy phép
 
 Dự án được phân phối dưới giấy phép **[MIT License](LICENSE)**.

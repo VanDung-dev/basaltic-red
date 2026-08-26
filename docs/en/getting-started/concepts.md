@@ -42,5 +42,5 @@ Traditional filtering evaluates rules row-by-row or creates intermediate boolean
 
 Rather than performing recursive filesystem walks across thousands of files on every query, `basaltic-red` maintains an Arrow IPC binary map (`.br_map.ipc`) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
-- Loaded in **<1 ms** using `memmap2`.
-- `br.lake.doctor` detects data drift (unindexed, modified, deleted files) and incrementally heals the catalog.
+- Warm reads via `memmap2` (sub-millisecond in `demo.ipynb`; actual time depends on hardware/filesystem).
+- `br.lake.doctor` detects drift (unindexed, modified, missing files) and incrementally heals the catalog.

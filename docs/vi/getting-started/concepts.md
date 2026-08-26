@@ -42,5 +42,5 @@ Thay vì tạo các mảng boolean trung gian gây tốn RAM, `basaltic-red` c�
 
 Thay vì quét đệ quy hàng ngàn tệp trên ổ đĩa ở mỗi truy vấn, `basaltic-red` duy trì tệp bản đồ `.br_map.ipc`:
 - Chứa đường dẫn tương đối, dung lượng, thời gian sửa đổi, số dòng và thống kê min/max từng cột.
-- Tải tức thì trong **<1 ms** nhờ `memmap2`.
-- `br.lake.doctor` phát hiện sai lệch (drift) và tự động chữa lành danh mục tệp.
+- Đọc warm qua `memmap2` (sub-mili-giây trong `demo.ipynb`; thực tế tùy phần cứng/hệ thống file).
+- `br.lake.doctor` phát hiện drift (thiếu/sửa/chưa index) và tự động chữa lành catalog.

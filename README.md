@@ -1,92 +1,110 @@
 # Basaltic-Red
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https.mit-license.org)
-[![Rust](https://img.shields.io/badge/Rust-1.96+-orange.svg)](https://www.rust-lang.org/)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Arrow](https://img.shields.io/badge/Arrow--rs-58.3.0-red.svg)](https://crates.io/crates/arrow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
+[![Arrow](https://img.shields.io/badge/Arrow--rs-58.4.0-red.svg)](https://crates.io/crates/arrow)
 [![DataFusion](https://img.shields.io/badge/DataFusion-54.1.0-purple.svg)](https://crates.io/crates/datafusion)
 
+> **Zero-copy Data Lake and data-quality engine in Rust + Apache Arrow (Python via PyO3)**
+
+`basaltic-red` provides a Rust core for working with file-based data lakes: a memory-mapped catalog (`.br_map.ipc`), row/column slicing without full file reads, parallel data-quality filtering with per-row audit codes, and DataFusion SQL over Arrow batches. Python is a thin PyO3 layer; results are returned as `pyarrow.Table` / `RecordBatch` for use with Polars, DuckDB, pandas, etc.
+
+Demo dataset in [`demo.ipynb`](demo.ipynb): **NYC TLC Yellow Taxi 2009–2025, 204 Parquet files, 29.66 GB, 1,826,960,642 rows × 20 columns** (verified by `pq.read_metadata` in the notebook).
+
 ---
 
-## Engine Performance & Memory Budget
+## What the demo measures
 
-**Basaltic-Red** is engineered for enterprise Big Data processing at `500+ MB/s` with a balanced, comfortable memory budget:
-- **Default Bounded RAM**: `< 2048 MB` (2 GB) RAM - Ideal for high-throughput zero-copy SIMD streaming.
+Numbers below are from a single run of `demo.ipynb` on commodity hardware (Apple Silicon, macOS). They vary by machine, filesystem cache and dataset layout — treat them as indicative, not guarantees.
+
+| Scenario | Scope | Observed in demo |
+| :--- | :--- | :--- |
+| **Catalog inspection (cold vs warm)** | 204 files | Cold scan + map build ~18.07 s → warm `memmap2` read ~0.5 ms (avg over 5 runs). Orders of magnitude faster because warm path avoids a directory walk. |
+| **Volume scan (metadata only)** | 1,826,960,642 rows (36.5B cells) | Metadata crawl (row counts + file sizes) completes in under a second; reported as ~0.7 s in the notebook. |
+| **Full-lake quality filter** | 1,826,960,642 rows, 5 rules | ~21 s end-to-end via Rayon parallel read + filter (`filter_files_parallel`). Summary: 1,780,228,507 clean / 46,732,135 trash on those 5 rules. |
+| **Single-file SQL aggregation** | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` completes in ~0.1 s; zero-copy handoff to DuckDB/Polars via `to_pyarrow()`. |
+
+> Filtering uses plain Rust loops over Arrow arrays that LLVM auto-vectorizes; the "SIMD" label in older docs means auto-vectorized, not hand-written intrinsics. Audit codes are `u64` bitmasks per row (bit *i* = rule *i* violated, chunked for >64 rules).
 
 ---
 
-## Quick Start & Installation
+## Installation
 
 ```bash
-# Clone repository
-git clone https://github.com/vandungdev/basaltic-red.git
+# From GitHub via uv
+uv add "git+https://github.com/VanDung-dev/basaltic-red.git"
+
+# With interop helpers (Polars, DuckDB, pandas, numpy)
+uv add "basaltic-red[interop] @ git+https://github.com/VanDung-dev/basaltic-red.git"
+
+# With notebook dependencies (Jupyter, matplotlib, seaborn)
+uv add "basaltic-red[interop,notebook] @ git+https://github.com/VanDung-dev/basaltic-red.git"
+```
+
+Build from source:
+
+```bash
+git clone https://github.com/VanDung-dev/basaltic-red.git
 cd basaltic-red
-
-# Setup Python environment and build Rust extension
-uv sync --extra dev --extra interop
-uv run maturin develop --release
+uv run --no-sync maturin develop --release
 ```
+
+Requires Python 3.12+.
 
 ---
 
-## Python SDK Overview
-
-**Basaltic-Red** is a Python SDK (**`import basaltic_red`**) powered by a high-speed Rust engine. The API is organized into namespaced submodules so every command lives under `basaltic_red.<group>.<command>`:
-
-| Group | Operation | Python SDK (`import basaltic_red as br`) |
-| :--- | :--- | :--- |
-| `read` | **Slice Row Range** | `br.read.slice_rows("data.parquet", offset=100, limit=50)` |
-| `read` | **Slice Column Projection** | `br.read.slice_cols("data.csv", selected_cols=["id", "email"], offset=0, limit=50)` |
-| `read` | **Preview Sample** | `br.read.preview_sample("data.parquet", limit_rows=100)` |
-| `filter` | **Dynamic Column Filter** | `clean_b, trash_b = br.filter.filter_matrix("data.csv", rules=["price >= 50.0"])` |
-| `filter` | **Multi-Threaded Parallel Filter** | `summary = br.filter.filter_files_parallel("data/", rules=["age >= 18"])` |
-| `filter` | **Stream Partition Pruning** | `summary = br.filter.filter_files_parallel("test_lakehouse", partition_filter="year=2026/month=08")` |
-| `filter` | **Batch Bitmask Filter** | `clean_b, trash_b = br.filter.process_batch(record_batch)` |
-| `sql` | **SQL Query Pushdown (DataFusion)** | `table = br.sql.execute_sql("SELECT id, salary FROM 'data/analytics'")` |
-| `sql` | **SQL Stream** | `stream = br.sql.execute_sql_stream("SELECT * FROM 'data/analytics'")` |
-| `lake` | **Split Matrix File** | `br.lake.split_file("data.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")` |
-| `lake` | **Process & Write Lakehouse** | `br.lake.process_and_write_lake("in/", "clean/", "trash/", partition_filter=None, batch_size=65536)` |
-| `lake` | **Generate Gold Table** | `br.lake.generate_gold_table("clean/", "gold/", table_version="v1", partition_filter=None, batch_size=65536)` |
-| `dictionary` | **Export Data Dictionary** | `br.dictionary.export_data_dictionary_md("data.parquet", "schema.md")` |
-| `graph` | **Generate ER Diagram** | `br.graph.generate_er_graph("data/relational", output_path="er.md")` |
-
-> `MatrixEngine` remains available as `br.MatrixEngine()` for advanced use (custom filter thresholds).
-
-### SQL Stream Interop (User-Side)
-
-`execute_sql_stream` returns a `PyBatchIterator` exposing an Arrow bridge via `to_pyarrow()`. The ecosystem consumes it directly — no SDK wrappers:
-
-```python
-import polars as pl
-import duckdb
-
-stream = br.sql.execute_sql_stream("SELECT * FROM 'data/analytics'")
-df = pl.from_arrow(stream.to_pyarrow())        # Polars DataFrame
-rel = duckdb.from_arrow(stream.to_pyarrow())   # DuckDB relation
-```
-
----
-
-## Basic Python Example
+## Example
 
 ```python
 import basaltic_red as br
+import polars as pl
+import duckdb
 
-# 1. Zero-copy row slicing (Returns PyArrow Table)
-table = br.read.slice_rows("data/sample.parquet", offset=100, limit=50)
+# 1. Diagnose / create the catalog. First call builds .br_map.ipc; later calls are mmap'd.
+report = br.lake.doctor("data", auto_heal=True)
+print(report["status"], report["total_files"])  # HEALTHY / HEALED / DRIFT_DETECTED
 
-# 2. Selected column projection slicing
-cols_table = br.read.slice_cols("data/sample.csv", selected_cols=["id", "email"], offset=0, limit=50)
+# 2. Slice rows without reading the whole file
+table = br.read.slice_rows("data/yellow_tripdata_2025-12.parquet", offset=0, limit=100)
+df = pl.from_arrow(table)
 
-# 3. Execute ANSI SQL query with Apache DataFusion Pushdown on a directory tree
-sql_result = br.sql.execute_sql("SELECT id, age, salary FROM 'data/analytics' WHERE age >= 18 ORDER BY salary DESC")
+# 3. Filter with dynamic rules. Returns (clean, trash) Arrow tables; trash has audit_error_code.
+summary = br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[
+    "passenger_count >= 1",
+    "trip_distance > 0.0",
+    "fare_amount > 0.0",
+    "total_amount > 0.0",
+])
+print(summary)  # {total_files, total_rows, clean_rows, trash_rows}
 
-# 4. Split giant matrix file into part files
-parts_count = br.lake.split_file("data/sample.csv", max_rows_per_file=100000, output_dir="./parts", format="parquet")
-
-# 5. Generate Mermaid ER Diagram
-mermaid_code = br.graph.generate_er_graph("data/relational", output_path="er_graph.md")
+# 4. SQL over files via DataFusion, then hand off to DuckDB/Polars
+stream = br.sql.execute_sql_stream(
+    "SELECT passenger_count, AVG(fare_amount) FROM 'data/yellow_tripdata_2025-12.parquet' GROUP BY passenger_count"
+)
+duck_rel = duckdb.from_arrow(stream.to_pyarrow())
+print(duck_rel.df())
 ```
+
+See `demo.ipynb` sections 0–6 for the full pipeline: download → doctor → schema → preview → filter → SQL → lake-map drift simulation → final audit.
+
+---
+
+## Python API
+
+| Group | Operation | Call |
+| :--- | :--- | :--- |
+| `lake` | Diagnose / heal catalog | `br.lake.doctor("data", auto_heal=True)` |
+| `lake` | Build catalog | `br.lake.create_map("data")` |
+| `read` | Row slice | `br.read.slice_rows("file.parquet", offset=0, limit=100)` |
+| `read` | Column projection | `br.read.slice_cols("file.parquet", columns=["fare_amount", "trip_distance"])` |
+| `filter` | In-memory filter (one file) | `clean, trash = br.filter.filter_matrix("file.parquet", rules=[...])` |
+| `filter` | Parallel filter (many files) | `br.filter.filter_files_parallel("data/*.parquet", rules=[...])` |
+| `sql` | DataFusion stream | `br.sql.execute_sql_stream("SELECT * FROM 'file.parquet'")` |
+| `sql` | DataFusion execute | `br.sql.execute_sql("SELECT ...")` |
+| `formats` | Custom delimited format | `br.formats.register_delimited(ext="dat", delimiter="|", has_header=True)` |
+
+Full reference: `docs/en/reference/python-api.md`. Rules syntax: `docs/en/reference/rule-syntax.md`.
 
 ---
 

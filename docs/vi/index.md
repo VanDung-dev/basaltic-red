@@ -1,80 +1,76 @@
 ---
 title: Trang chủ - Basaltic-Red
-description: Công cụ Data Lake Zero-Copy & Bộ lọc chất lượng dữ liệu SIMD hiệu năng cao viết bằng Rust & Apache Arrow
+description: Engine Data Lake zero-copy và kiểm tra chất lượng dữ liệu bằng Rust + Apache Arrow
 icon: material/home
 ---
 
 # Basaltic-Red
 
 <p align="center">
-  <strong>Công cụ Data Lake Zero-Copy & Bộ lọc chất lượng dữ liệu SIMD hiệu năng cao viết bằng Rust & Apache Arrow</strong>
+  <strong>Engine Data Lake zero-copy và kiểm tra chất lượng dữ liệu bằng Rust + Apache Arrow (Python qua PyO3)</strong>
 </p>
 
 ---
 
 ## Tổng quan
 
-**`basaltic-red`** là công cụ xử lý Data Lake và kiểm toán chất lượng dữ liệu (Data Quality) tốc độ cao, được phát triển bằng Rust nguyên bản, tận dụng bộ nhớ dạng cột Apache Arrow và cung cấp liên kết Python (PyO3). Hệ thống mang lại tốc độ thực thi dưới 1 mili-giây cho các tập dữ liệu hàng triệu dòng, kết nối liền mạch với các công cụ phân tích hiện đại như DataFusion, Polars và DuckDB.
+`basaltic-red` là lõi Rust cho data lake dạng file, kèm lớp Python mỏng. Chức năng: catalog ánh xạ bộ nhớ (`.br_map.ipc`), cắt lát dòng/cột không cần đọc toàn bộ file, lọc chất lượng song song với mã audit theo dòng, và SQL qua DataFusion trên Arrow batch. Kết quả là `pyarrow.Table` / `RecordBatch` để dùng tiếp với Polars, DuckDB, pandas.
+
+Demo trong [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb): **NYC TLC Yellow Taxi 2009–2025 — 204 file Parquet, 29.66 GB, 1,826,960,642 dòng × 20 cột**.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant F as Tệp thô (Parquet / IPC / CSV)
-    participant E as Lõi Rust Engine
-    participant M as Bản đồ nhị phân (.br_map.ipc)
-    participant K as Nhân lọc SIMD DQ
-    participant S as Luồng SQL DataFusion
-    participant P as DuckDB / Polars
-
-    F->>E: mở tệp (handler_for / sniff magic-byte)
-    E->>M: create_map · doctor · chữa lành drift
-    E->>K: đánh giá quy tắc chất lượng từng batch
-    K-->>E: dòng sạch · dòng rác + audit_error_code
-    E-->>F: Clean Parquet · Trash Parquet
-    E->>S: execute_sql_stream(query)
-    S-->>P: batch Arrow zero-copy
+graph LR
+    A["File thô (204 Parquet / 29.66 GB)"] --> B["Lõi Rust"]
+    B --> C["Catalog (.br_map.ipc / memmap2)"]
+    B --> D["Lọc song song (Rayon, 1.82B dòng)"]
+    B --> E["SQL stream (DataFusion)"]
+    D --> F["Clean (1.78B)"]
+    D --> G["Trash (46.7M + mã audit)"]
+    E --> H["DuckDB / Polars"]
 ```
 
-## Điểm nổi bật
+## Chức năng chính
 
-- **Nhân SIMD Bitmask Zero-Allocation**: Đánh giá đồng thời >64 quy tắc kiểm tra động bằng mảng bit đa khối `u64` đạt tốc độ **>200 triệu lượt kiểm tra/giây**.
-- **Bản đồ nhị phân Memory-Mapped (`.br_map.ipc`)**: Truy xuất danh mục tệp chỉ trong **<0.5 ms** nhờ kỹ thuật ánh xạ bộ nhớ `memmap2` (Zero-Syscall).
-- **Bác sĩ Data Lake & Tự phục hồi (Self-Healing)**: Tự động chẩn đoán tệp chưa index, tệp thiếu, tệp bị sửa đổi và tự động đồng bộ tức thì.
-- **Phân tích luồng Zero-Copy**: Đẩy truy vấn DataFusion SQL truyền trực tiếp RecordBatch sang Polars và DuckDB mà không phải copy bộ nhớ RAM.
-- **Bảo vệ CSV theo chuẩn OWASP**: Tự động vô hiệu hóa các ký tự injection độc hại (`=`, `+`, `-`, `@`, `\t`, `\r`).
-- **Nhận diện Magic Byte & Tùy biến định dạng**: Tự động nhận diện tệp không có đuôi mở rộng và hỗ trợ đăng ký định dạng phân cách tùy chỉnh.
+- **Catalog (`.br_map.ipc`)**: một file Arrow IPC ở gốc lake; đọc warm qua `memmap2` tránh quét thư mục. Doctor trả về `HEALTHY` / `DRIFT_DETECTED` / `HEALED`.
+- **Cắt lát**: `slice_rows` / `slice_cols` chỉ đọc phần được yêu cầu.
+- **Lọc**: rule động dạng `cột op giá_trị`, `op ∈ {>=, <=, ==, !=, >, <}`; dòng lỗi mang `audit_error_code` (bitmask `u64`, chia chunk khi >64 rule) và `audit_violated_rules` khi cần.
+- **SQL**: DataFusion; `execute_sql_stream` trả về `PyBatchIterator`, `to_pyarrow()` bàn giao batch cho Polars/DuckDB không copy thêm.
+- **Định dạng**: đăng ký delimited tùy chỉnh qua `br.formats.register_delimited`; file không có đuôi được nhận diện bằng magic byte.
 
 ---
 
-## Bảng so sánh hiệu năng
+## Kết quả đo trong demo
 
-| Tác vụ kiểm thử | Hệ sinh thái thông thường | `basaltic-red` (SIMD / Arrow) | Tăng tốc |
-| :--- | :--- | :--- | :--- |
-| **Kiểm tra sức khỏe Lake Doctor** | ~14.2 s (quét thư mục) | **0.48 ms** (`.br_map.ipc`) | **>29,000x** |
-| **Lọc 70 quy tắc động (4.3M dòng)** | ~25.8 s (Pandas/Python) | **1.12 s** (Multi-Chunk SIMD) | **>23x** |
-| **Tổng hợp SQL Zero-Copy** | 0.85 s (PyArrow sang DF) | **0.107 s** (DataFusion stream) | **~8x** |
+Một lần chạy `demo.ipynb` trên Apple Silicon / macOS. Tùy phần cứng — chỉ tham khảo.
+
+| Kịch bản | Phạm vi | Quan sát |
+| :--- | :--- | :--- |
+| Catalog cold vs warm | 204 file | Cold ~18.07 s → warm ~0.5 ms (trung bình 5 lần) |
+| Quét khối lượng (chỉ metadata) | 1,826,960,642 dòng | < 1 s (~0.7 s) |
+| Lọc toàn lake (5 rule) | 1,826,960,642 dòng | ~21 s (1,780,228,507 clean / 46,732,135 trash) |
+| SQL `GROUP BY` một file | 4,305,006 dòng | ~0.1 s |
+
+Vòng lặp lọc là Rust thuần trên Arrow array, LLVM tự vector hóa. Không có intrinsic SIMD viết tay.
 
 ---
 
 ## Cài đặt nhanh
 
-Cài đặt thông qua UV hoặc pip:
-
 ```bash
-uv pip install "git+https://github.com/VanDung-dev/basaltic-red.git"
+uv add "git+https://github.com/VanDung-dev/basaltic-red.git"
 ```
 
 ```python
 import basaltic_red as br
 
-# 1. Khởi tạo và kiểm tra sức khỏe Data Lake
 report = br.lake.doctor("data/", auto_heal=True)
-print(f"Trạng thái Lake: {report['status']} | Số tệp: {report['total_files']}")
+print(report["status"], report["total_files"])
 
-# 2. Lọc chất lượng dữ liệu với nhân SIMD bitmask
 clean, trash = br.filter.filter_matrix("data/sample.parquet", rules=[
-    "passenger_count > 0",
-    "trip_distance >= 0.1",
-    "fare_amount > 2.5",
+    "passenger_count >= 1",
+    "trip_distance > 0.0",
+    "fare_amount > 0.0",
 ])
 ```
+
+Xem thêm: [Quickstart](getting-started/quickstart.md) · [Lake Doctor](workflows/lake-doctor.md) · [Benchmarks](other/benchmarks.md)

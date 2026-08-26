@@ -4,9 +4,9 @@ description: Zero-allocation multi-chunk bitmask validation kernel and audit col
 icon: material/cpu-64-bit
 ---
 
-# Multi-Chunk SIMD Bitmask Kernel
+# Multi-Chunk Bitmask Kernel
 
-The dynamic quality filter lives in `src/engine/dynamic_filter.rs`. It evaluates N arbitrary rules over a full `RecordBatch` **without intermediate boolean arrays**, writing results into raw `u64` bitmasks in place.
+The dynamic quality filter lives in `src/engine/dynamic_filter.rs`. It evaluates N arbitrary rules over a full `RecordBatch` **without intermediate boolean arrays**, writing results into raw `u64` bitmasks in place. Loops are plain Rust over Arrow arrays; LLVM auto-vectorizes the hot paths (no hand-written SIMD intrinsics).
 
 ---
 

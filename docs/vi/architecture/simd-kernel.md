@@ -4,9 +4,9 @@ description: Nhân kiểm tra bitmask đa khối không cấp phát và cách m�
 icon: material/cpu-64-bit
 ---
 
-# Nhân SIMD Bitmask Đa Khối
+# Nhân Bitmask Đa Khối
 
-Bộ lọc chất lượng động nằm trong `src/engine/dynamic_filter.rs`. Nó đánh giá N quy tắc tùy ý trên cả `RecordBatch` **không tạo mảng boolean trung gian**, ghi kết quả thẳng vào bitmask `u64` tại chỗ.
+Bộ lọc chất lượng động nằm trong `src/engine/dynamic_filter.rs`. Nó đánh giá N quy tắc tùy ý trên cả `RecordBatch` **không tạo mảng boolean trung gian**, ghi kết quả thẳng vào bitmask `u64` tại chỗ. Vòng lặp là Rust thuần trên Arrow array, LLVM tự vector hóa (không có intrinsic SIMD viết tay).
 
 ---
 
