@@ -1815,8 +1815,8 @@
 <h2 id="3-ban-o-nhi-phan-br_mapipc-bac-si-data-lake">3. Bản đồ nhị phân (<code>.br_map.ipc</code>) &amp; Bác sĩ Data Lake</h2>
 <p>Thay vì quét đệ quy hàng ngàn tệp trên ổ đĩa ở mỗi truy vấn, <code>basaltic-red</code> duy trì tệp bản đồ <code>.br_map.ipc</code>:
 - Chứa đường dẫn tương đối, dung lượng, thời gian sửa đổi, số dòng và thống kê min/max từng cột.
-- Tải tức thì trong <strong>&lt;1 ms</strong> nhờ <code>memmap2</code>.
-- <code>br.lake.doctor</code> phát hiện sai lệch (drift) và tự động chữa lành danh mục tệp.</p>
+- Đọc warm qua <code>memmap2</code> (sub-mili-giây trong <code>demo.ipynb</code>; thực tế tùy phần cứng/hệ thống file).
+- <code>br.lake.doctor</code> phát hiện drift (thiếu/sửa/chưa index) và tự động chữa lành catalog.</p>
 
 
 

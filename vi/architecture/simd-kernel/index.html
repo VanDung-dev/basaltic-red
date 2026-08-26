@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#nhan-simd-bitmask-a-khoi" class="md-skip">
+        <a href="#nhan-bitmask-a-khoi" class="md-skip">
           Bỏ qua
         </a>
       
@@ -1790,8 +1790,8 @@
   
 
 
-<h1 id="nhan-simd-bitmask-a-khoi">Nhân SIMD Bitmask Đa Khối</h1>
-<p>Bộ lọc chất lượng động nằm trong <code>src/engine/dynamic_filter.rs</code>. Nó đánh giá N quy tắc tùy ý trên cả <code>RecordBatch</code> <strong>không tạo mảng boolean trung gian</strong>, ghi kết quả thẳng vào bitmask <code>u64</code> tại chỗ.</p>
+<h1 id="nhan-bitmask-a-khoi">Nhân Bitmask Đa Khối</h1>
+<p>Bộ lọc chất lượng động nằm trong <code>src/engine/dynamic_filter.rs</code>. Nó đánh giá N quy tắc tùy ý trên cả <code>RecordBatch</code> <strong>không tạo mảng boolean trung gian</strong>, ghi kết quả thẳng vào bitmask <code>u64</code> tại chỗ. Vòng lặp là Rust thuần trên Arrow array, LLVM tự vector hóa (không có intrinsic SIMD viết tay).</p>
 <hr />
 <h2 id="phan-tich-quy-tac">Phân tích quy tắc</h2>
 <p><code>FilterRule::parse()</code> tách mỗi chuỗi quy tắc tại toán tử đầu tiên tìm thấy (ưu tiên toán tử dài để <code>&gt;=</code> thắng <code>&gt;</code>):</p>

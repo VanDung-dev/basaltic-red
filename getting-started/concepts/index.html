@@ -1815,8 +1815,8 @@
 <h2 id="3-binary-lake-map-br_mapipc-lake-doctor">3. Binary Lake Map (<code>.br_map.ipc</code>) &amp; Lake Doctor</h2>
 <p>Rather than performing recursive filesystem walks across thousands of files on every query, <code>basaltic-red</code> maintains an Arrow IPC binary map (<code>.br_map.ipc</code>) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
-- Loaded in <strong>&lt;1 ms</strong> using <code>memmap2</code>.
-- <code>br.lake.doctor</code> detects data drift (unindexed, modified, deleted files) and incrementally heals the catalog.</p>
+- Warm reads via <code>memmap2</code> (sub-millisecond in <code>demo.ipynb</code>; actual time depends on hardware/filesystem).
+- <code>br.lake.doctor</code> detects drift (unindexed, modified, missing files) and incrementally heals the catalog.</p>
 
 
 

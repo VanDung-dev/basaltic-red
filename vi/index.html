@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Công cụ Data Lake Zero-Copy & Bộ lọc chất lượng dữ liệu SIMD hiệu năng cao viết bằng Rust & Apache Arrow">
+        <meta name="description" content="Engine Data Lake zero-copy và kiểm tra chất lượng dữ liệu bằng Rust + Apache Arrow">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -541,10 +541,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#iem-noi-bat" class="md-nav__link">
+  <a href="#chuc-nang-chinh" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Điểm nổi bật
+        Chức năng chính
       </span>
     </span>
   </a>
@@ -552,10 +552,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bang-so-sanh-hieu-nang" class="md-nav__link">
+  <a href="#ket-qua-o-trong-demo" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Bảng so sánh hiệu năng
+        Kết quả đo trong demo
       </span>
     </span>
   </a>
@@ -1744,10 +1744,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#iem-noi-bat" class="md-nav__link">
+  <a href="#chuc-nang-chinh" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Điểm nổi bật
+        Chức năng chính
       </span>
     </span>
   </a>
@@ -1755,10 +1755,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bang-so-sanh-hieu-nang" class="md-nav__link">
+  <a href="#ket-qua-o-trong-demo" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Bảng so sánh hiệu năng
+        Kết quả đo trong demo
       </span>
     </span>
   </a>
@@ -1809,87 +1809,80 @@
 
 <h1 id="basaltic-red">Basaltic-Red</h1>
 <p align="center">
-  <strong>Công cụ Data Lake Zero-Copy & Bộ lọc chất lượng dữ liệu SIMD hiệu năng cao viết bằng Rust & Apache Arrow</strong>
+  <strong>Engine Data Lake zero-copy và kiểm tra chất lượng dữ liệu bằng Rust + Apache Arrow (Python qua PyO3)</strong>
 </p>
 
 <hr />
 <h2 id="tong-quan">Tổng quan</h2>
-<p><strong><code>basaltic-red</code></strong> là công cụ xử lý Data Lake và kiểm toán chất lượng dữ liệu (Data Quality) tốc độ cao, được phát triển bằng Rust nguyên bản, tận dụng bộ nhớ dạng cột Apache Arrow và cung cấp liên kết Python (PyO3). Hệ thống mang lại tốc độ thực thi dưới 1 mili-giây cho các tập dữ liệu hàng triệu dòng, kết nối liền mạch với các công cụ phân tích hiện đại như DataFusion, Polars và DuckDB.</p>
-<pre class="mermaid"><code>sequenceDiagram
-    autonumber
-    participant F as Tệp thô (Parquet / IPC / CSV)
-    participant E as Lõi Rust Engine
-    participant M as Bản đồ nhị phân (.br_map.ipc)
-    participant K as Nhân lọc SIMD DQ
-    participant S as Luồng SQL DataFusion
-    participant P as DuckDB / Polars
-
-    F-&gt;&gt;E: mở tệp (handler_for / sniff magic-byte)
-    E-&gt;&gt;M: create_map · doctor · chữa lành drift
-    E-&gt;&gt;K: đánh giá quy tắc chất lượng từng batch
-    K--&gt;&gt;E: dòng sạch · dòng rác + audit_error_code
-    E--&gt;&gt;F: Clean Parquet · Trash Parquet
-    E-&gt;&gt;S: execute_sql_stream(query)
-    S--&gt;&gt;P: batch Arrow zero-copy</code></pre>
-<h2 id="iem-noi-bat">Điểm nổi bật</h2>
+<p><code>basaltic-red</code> là lõi Rust cho data lake dạng file, kèm lớp Python mỏng. Chức năng: catalog ánh xạ bộ nhớ (<code>.br_map.ipc</code>), cắt lát dòng/cột không cần đọc toàn bộ file, lọc chất lượng song song với mã audit theo dòng, và SQL qua DataFusion trên Arrow batch. Kết quả là <code>pyarrow.Table</code> / <code>RecordBatch</code> để dùng tiếp với Polars, DuckDB, pandas.</p>
+<p>Demo trong <a href="https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb"><code>demo.ipynb</code></a>: <strong>NYC TLC Yellow Taxi 2009–2025 — 204 file Parquet, 29.66 GB, 1,826,960,642 dòng × 20 cột</strong>.</p>
+<pre class="mermaid"><code>graph LR
+    A["File thô (204 Parquet / 29.66 GB)"] --&gt; B["Lõi Rust"]
+    B --&gt; C["Catalog (.br_map.ipc / memmap2)"]
+    B --&gt; D["Lọc song song (Rayon, 1.82B dòng)"]
+    B --&gt; E["SQL stream (DataFusion)"]
+    D --&gt; F["Clean (1.78B)"]
+    D --&gt; G["Trash (46.7M + mã audit)"]
+    E --&gt; H["DuckDB / Polars"]</code></pre>
+<h2 id="chuc-nang-chinh">Chức năng chính</h2>
 <ul>
-<li><strong>Nhân SIMD Bitmask Zero-Allocation</strong>: Đánh giá đồng thời &gt;64 quy tắc kiểm tra động bằng mảng bit đa khối <code>u64</code> đạt tốc độ <strong>&gt;200 triệu lượt kiểm tra/giây</strong>.</li>
-<li><strong>Bản đồ nhị phân Memory-Mapped (<code>.br_map.ipc</code>)</strong>: Truy xuất danh mục tệp chỉ trong <strong>&lt;0.5 ms</strong> nhờ kỹ thuật ánh xạ bộ nhớ <code>memmap2</code> (Zero-Syscall).</li>
-<li><strong>Bác sĩ Data Lake &amp; Tự phục hồi (Self-Healing)</strong>: Tự động chẩn đoán tệp chưa index, tệp thiếu, tệp bị sửa đổi và tự động đồng bộ tức thì.</li>
-<li><strong>Phân tích luồng Zero-Copy</strong>: Đẩy truy vấn DataFusion SQL truyền trực tiếp RecordBatch sang Polars và DuckDB mà không phải copy bộ nhớ RAM.</li>
-<li><strong>Bảo vệ CSV theo chuẩn OWASP</strong>: Tự động vô hiệu hóa các ký tự injection độc hại (<code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, <code>\t</code>, <code>\r</code>).</li>
-<li><strong>Nhận diện Magic Byte &amp; Tùy biến định dạng</strong>: Tự động nhận diện tệp không có đuôi mở rộng và hỗ trợ đăng ký định dạng phân cách tùy chỉnh.</li>
+<li><strong>Catalog (<code>.br_map.ipc</code>)</strong>: một file Arrow IPC ở gốc lake; đọc warm qua <code>memmap2</code> tránh quét thư mục. Doctor trả về <code>HEALTHY</code> / <code>DRIFT_DETECTED</code> / <code>HEALED</code>.</li>
+<li><strong>Cắt lát</strong>: <code>slice_rows</code> / <code>slice_cols</code> chỉ đọc phần được yêu cầu.</li>
+<li><strong>Lọc</strong>: rule động dạng <code>cột op giá_trị</code>, <code>op ∈ {&gt;=, &lt;=, ==, !=, &gt;, &lt;}</code>; dòng lỗi mang <code>audit_error_code</code> (bitmask <code>u64</code>, chia chunk khi &gt;64 rule) và <code>audit_violated_rules</code> khi cần.</li>
+<li><strong>SQL</strong>: DataFusion; <code>execute_sql_stream</code> trả về <code>PyBatchIterator</code>, <code>to_pyarrow()</code> bàn giao batch cho Polars/DuckDB không copy thêm.</li>
+<li><strong>Định dạng</strong>: đăng ký delimited tùy chỉnh qua <code>br.formats.register_delimited</code>; file không có đuôi được nhận diện bằng magic byte.</li>
 </ul>
 <hr />
-<h2 id="bang-so-sanh-hieu-nang">Bảng so sánh hiệu năng</h2>
+<h2 id="ket-qua-o-trong-demo">Kết quả đo trong demo</h2>
+<p>Một lần chạy <code>demo.ipynb</code> trên Apple Silicon / macOS. Tùy phần cứng — chỉ tham khảo.</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Tác vụ kiểm thử</th>
-<th style="text-align: left;">Hệ sinh thái thông thường</th>
-<th style="text-align: left;"><code>basaltic-red</code> (SIMD / Arrow)</th>
-<th style="text-align: left;">Tăng tốc</th>
+<th style="text-align: left;">Kịch bản</th>
+<th style="text-align: left;">Phạm vi</th>
+<th style="text-align: left;">Quan sát</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Kiểm tra sức khỏe Lake Doctor</strong></td>
-<td style="text-align: left;">~14.2 s (quét thư mục)</td>
-<td style="text-align: left;"><strong>0.48 ms</strong> (<code>.br_map.ipc</code>)</td>
-<td style="text-align: left;"><strong>&gt;29,000x</strong></td>
+<td style="text-align: left;">Catalog cold vs warm</td>
+<td style="text-align: left;">204 file</td>
+<td style="text-align: left;">Cold ~18.07 s → warm ~0.5 ms (trung bình 5 lần)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Lọc 70 quy tắc động (4.3M dòng)</strong></td>
-<td style="text-align: left;">~25.8 s (Pandas/Python)</td>
-<td style="text-align: left;"><strong>1.12 s</strong> (Multi-Chunk SIMD)</td>
-<td style="text-align: left;"><strong>&gt;23x</strong></td>
+<td style="text-align: left;">Quét khối lượng (chỉ metadata)</td>
+<td style="text-align: left;">1,826,960,642 dòng</td>
+<td style="text-align: left;">&lt; 1 s (~0.7 s)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Tổng hợp SQL Zero-Copy</strong></td>
-<td style="text-align: left;">0.85 s (PyArrow sang DF)</td>
-<td style="text-align: left;"><strong>0.107 s</strong> (DataFusion stream)</td>
-<td style="text-align: left;"><strong>~8x</strong></td>
+<td style="text-align: left;">Lọc toàn lake (5 rule)</td>
+<td style="text-align: left;">1,826,960,642 dòng</td>
+<td style="text-align: left;">~21 s (1,780,228,507 clean / 46,732,135 trash)</td>
+</tr>
+<tr>
+<td style="text-align: left;">SQL <code>GROUP BY</code> một file</td>
+<td style="text-align: left;">4,305,006 dòng</td>
+<td style="text-align: left;">~0.1 s</td>
 </tr>
 </tbody>
 </table>
+<p>Vòng lặp lọc là Rust thuần trên Arrow array, LLVM tự vector hóa. Không có intrinsic SIMD viết tay.</p>
 <hr />
 <h2 id="cai-at-nhanh">Cài đặt nhanh</h2>
-<p>Cài đặt thông qua UV hoặc pip:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"git+https://github.com/VanDung-dev/basaltic-red.git"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">"git+https://github.com/VanDung-dev/basaltic-red.git"</span>
 </span></code></pre></div>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># 1. Khởi tạo và kiểm tra sức khỏe Data Lake</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data/"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Trạng thái Lake: </span><span class="si">{</span><span class="n">report</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2"> | Số tệp: </span><span class="si">{</span><span class="n">report</span><span class="p">[</span><span class="s1">'total_files'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># 2. Lọc chất lượng dữ liệu với nhân SIMD bitmask</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">clean</span><span class="p">,</span> <span class="n">trash</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">filter_matrix</span><span class="p">(</span><span class="s2">"data/sample.parquet"</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="p">[</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="s2">"passenger_count &gt; 0"</span><span class="p">,</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="s2">"trip_distance &gt;= 0.1"</span><span class="p">,</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="s2">"fare_amount &gt; 2.5"</span><span class="p">,</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="p">])</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data/"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span> <span class="n">report</span><span class="p">[</span><span class="s2">"total_files"</span><span class="p">])</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">clean</span><span class="p">,</span> <span class="n">trash</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">filter_matrix</span><span class="p">(</span><span class="s2">"data/sample.parquet"</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="s2">"passenger_count &gt;= 1"</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="s2">"trip_distance &gt; 0.0"</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="s2">"fare_amount &gt; 0.0"</span><span class="p">,</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">])</span>
 </span></code></pre></div>
+<p>Xem thêm: <a href="getting-started/quickstart/">Quickstart</a> · <a href="workflows/lake-doctor/">Lake Doctor</a> · <a href="other/benchmarks/">Benchmarks</a></p>
 
 
 

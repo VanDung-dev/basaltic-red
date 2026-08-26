@@ -1770,7 +1770,7 @@
 
 <h1 id="huong-dan-chay-demo-nyc-taxi">Hướng dẫn chạy Demo NYC Taxi</h1>
 <h2 id="tong-quan-so-tay-demoipynb">Tổng quan sổ tay <code>demo.ipynb</code></h2>
-<p>Sổ tay <code>demo.ipynb</code> cung cấp quy trình phân tích hoàn chỉnh trên toàn bộ 12 tháng dữ liệu NYC Yellow Taxi 2025 (~4.3 triệu dòng/tháng):</p>
+<p>Sổ tay <code>demo.ipynb</code> chạy toàn bộ pipeline trên dữ liệu NYC Yellow Taxi 2009–2025 (204 file Parquet, 29.66 GB, 1,826,960,642 dòng — chỉnh <code>start_year</code>/<code>end_year</code> trong cell tải dữ liệu):</p>
 <ol>
 <li><strong>Step 0</strong>: Thiết lập môi trường, build Maturin, dọn dẹp workspace, cấu hình biến <code>target_year</code> tải dữ liệu.</li>
 <li><strong>Step 1</strong>: Khởi tạo Bác sĩ Data Lake &amp; trích xuất schema zero-copy.</li>

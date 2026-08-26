@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="High-Performance Zero-Copy Data Lake & SIMD Data Quality Engine in Rust & Apache Arrow">
+        <meta name="description" content="Zero-copy Data Lake and data-quality engine in Rust + Apache Arrow">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -541,10 +541,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-highlights" class="md-nav__link">
+  <a href="#what-it-does" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Key Highlights
+        What it does
       </span>
     </span>
   </a>
@@ -552,10 +552,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#performance-comparison" class="md-nav__link">
+  <a href="#demo-measurements" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Performance Comparison
+        Demo measurements
       </span>
     </span>
   </a>
@@ -566,7 +566,7 @@
   <a href="#getting-started" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Getting Started
+        Getting started
       </span>
     </span>
   </a>
@@ -1744,10 +1744,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-highlights" class="md-nav__link">
+  <a href="#what-it-does" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Key Highlights
+        What it does
       </span>
     </span>
   </a>
@@ -1755,10 +1755,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#performance-comparison" class="md-nav__link">
+  <a href="#demo-measurements" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Performance Comparison
+        Demo measurements
       </span>
     </span>
   </a>
@@ -1769,7 +1769,7 @@
   <a href="#getting-started" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Getting Started
+        Getting started
       </span>
     </span>
   </a>
@@ -1809,87 +1809,80 @@
 
 <h1 id="basaltic-red">Basaltic-Red</h1>
 <p align="center">
-  <strong>High-Performance Zero-Copy Data Lake & SIMD Data Quality Engine in Rust & Apache Arrow</strong>
+  <strong>Zero-copy Data Lake and data-quality engine in Rust + Apache Arrow (Python via PyO3)</strong>
 </p>
 
 <hr />
 <h2 id="overview">Overview</h2>
-<p><strong><code>basaltic-red</code></strong> is an ultra-fast, zero-copy Data Lake and Data Quality (DQ) processing engine written in native Rust with Apache Arrow columnar memory and PyO3 Python bindings. It delivers sub-millisecond execution speeds for large-scale datasets, seamlessly bridging high-throughput data engineering and interactive analytical query engines like DataFusion, Polars, and DuckDB.</p>
-<pre class="mermaid"><code>sequenceDiagram
-    autonumber
-    participant F as Raw Files (Parquet / IPC / CSV)
-    participant E as Rust Core Engine
-    participant M as Binary Lake Map (.br_map.ipc)
-    participant K as SIMD DQ Kernel
-    participant S as DataFusion SQL Stream
-    participant P as DuckDB / Polars
-
-    F-&gt;&gt;E: open file (handler_for / magic-byte sniff)
-    E-&gt;&gt;M: create_map · doctor · heal drift
-    E-&gt;&gt;K: evaluate quality rules per batch
-    K--&gt;&gt;E: clean rows · trash rows + audit_error_code
-    E--&gt;&gt;F: Clean Parquet · Trash Parquet
-    E-&gt;&gt;S: execute_sql_stream(query)
-    S--&gt;&gt;P: zero-copy Arrow batches</code></pre>
-<h2 id="key-highlights">Key Highlights</h2>
+<p><code>basaltic-red</code> is a Rust core for file-based data lakes with a thin Python layer. It provides: a memory-mapped catalog (<code>.br_map.ipc</code>), row/column slicing without full reads, parallel quality filtering with per-row audit codes, and DataFusion SQL over Arrow batches. Results are <code>pyarrow.Table</code> / <code>RecordBatch</code> for downstream use with Polars, DuckDB, pandas.</p>
+<p>Demo in <a href="https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb"><code>demo.ipynb</code></a>: <strong>NYC TLC Yellow Taxi 2009–2025 — 204 Parquet files, 29.66 GB, 1,826,960,642 rows × 20 columns</strong>.</p>
+<pre class="mermaid"><code>graph LR
+    A["Raw files (204 Parquet / 29.66 GB)"] --&gt; B["Rust core"]
+    B --&gt; C["Catalog (.br_map.ipc / memmap2)"]
+    B --&gt; D["Parallel filter (Rayon, 1.82B rows)"]
+    B --&gt; E["DataFusion SQL stream"]
+    D --&gt; F["Clean (1.78B)"]
+    D --&gt; G["Trash (46.7M + audit codes)"]
+    E --&gt; H["DuckDB / Polars"]</code></pre>
+<h2 id="what-it-does">What it does</h2>
 <ul>
-<li><strong>Zero-Allocation SIMD Bitmask Engine</strong>: High-speed dynamic rule evaluation supporting arbitrary &gt;64 validation rules with multi-chunk <code>u64</code> bitmasks at <strong>&gt;200M rule-checks/sec</strong>.</li>
-<li><strong>Memory-Mapped Binary Lake Map (<code>.br_map.ipc</code>)</strong>: Instant <code>&lt;0.5 ms</code> catalog inspection via <code>memmap2</code> zero-syscall loading.</li>
-<li><strong>Lake Doctor &amp; Self-Healing</strong>: Automated diagnosis of unindexed, missing, and modified files with sub-millisecond incremental healing.</li>
-<li><strong>Zero-Copy Stream Analytics</strong>: DataFusion SQL pushdown stream iterators that pass Arrow RecordBatches to Polars and DuckDB without memory copies.</li>
-<li><strong>OWASP CSV Guard</strong>: Defense-in-depth sanitization against formula injection (<code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, <code>\t</code>, <code>\r</code>).</li>
-<li><strong>Pluggable Custom Formats &amp; Byte Sniffing</strong>: Dynamic delimiter registration and header byte inspection for extension-less files.</li>
+<li><strong>Catalog (<code>.br_map.ipc</code>)</strong>: one Arrow IPC file at the lake root; warm reads via <code>memmap2</code> avoid a directory walk. Doctor reports <code>HEALTHY</code> / <code>DRIFT_DETECTED</code> / <code>HEALED</code>.</li>
+<li><strong>Slicing</strong>: <code>slice_rows</code> / <code>slice_cols</code> read only the requested rows/columns.</li>
+<li><strong>Filtering</strong>: dynamic rules (<code>col op value</code>, <code>op ∈ {&gt;=, &lt;=, ==, !=, &gt;, &lt;}</code>) evaluated per batch; trash rows carry <code>audit_error_code</code> (<code>u64</code> bitmask, chunked for &gt;64 rules) and <code>audit_violated_rules</code> when needed.</li>
+<li><strong>SQL</strong>: DataFusion session; <code>execute_sql_stream</code> returns a <code>PyBatchIterator</code> whose <code>to_pyarrow()</code> hands batches to Polars/DuckDB without an extra copy.</li>
+<li><strong>Formats</strong>: pluggable delimited formats via <code>br.formats.register_delimited</code>; extension-less files handled by magic-byte sniffing.</li>
 </ul>
 <hr />
-<h2 id="performance-comparison">Performance Comparison</h2>
+<h2 id="demo-measurements">Demo measurements</h2>
+<p>Single run of <code>demo.ipynb</code> on Apple Silicon / macOS. Hardware-dependent — indicative only.</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Benchmark Suite</th>
-<th style="text-align: left;">Standard Ecosystem</th>
-<th style="text-align: left;"><code>basaltic-red</code> (SIMD / Arrow)</th>
-<th style="text-align: left;">Speedup</th>
+<th style="text-align: left;">Scenario</th>
+<th style="text-align: left;">Scope</th>
+<th style="text-align: left;">Observed</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>Lake Doctor Health Check</strong></td>
-<td style="text-align: left;">~14.2 s (file walk)</td>
-<td style="text-align: left;"><strong>0.48 ms</strong> (<code>.br_map.ipc</code>)</td>
-<td style="text-align: left;"><strong>&gt;29,000x</strong></td>
+<td style="text-align: left;">Catalog cold vs warm</td>
+<td style="text-align: left;">204 files</td>
+<td style="text-align: left;">Cold build ~18.07 s → warm ~0.5 ms (avg 5 runs)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>70 Dynamic Rules Filter (4.3M rows)</strong></td>
-<td style="text-align: left;">~25.8 s (Pandas/Python)</td>
-<td style="text-align: left;"><strong>1.12 s</strong> (Multi-Chunk SIMD)</td>
-<td style="text-align: left;"><strong>&gt;23x</strong></td>
+<td style="text-align: left;">Volume scan (metadata only)</td>
+<td style="text-align: left;">1,826,960,642 rows</td>
+<td style="text-align: left;">&lt; 1 s (~0.7 s)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>Zero-Copy SQL Aggregation</strong></td>
-<td style="text-align: left;">0.85 s (PyArrow to DF)</td>
-<td style="text-align: left;"><strong>0.107 s</strong> (DataFusion stream)</td>
-<td style="text-align: left;"><strong>~8x</strong></td>
+<td style="text-align: left;">Full-lake filter (5 rules)</td>
+<td style="text-align: left;">1,826,960,642 rows</td>
+<td style="text-align: left;">~21 s (1,780,228,507 clean / 46,732,135 trash)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Single-file SQL <code>GROUP BY</code></td>
+<td style="text-align: left;">4,305,006 rows</td>
+<td style="text-align: left;">~0.1 s</td>
 </tr>
 </tbody>
 </table>
+<p>Filtering loops are plain Rust over Arrow arrays; LLVM auto-vectorizes them. No hand-written SIMD intrinsics.</p>
 <hr />
-<h2 id="getting-started">Getting Started</h2>
-<p>Install via UV or pip and start querying in seconds:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"git+https://github.com/VanDung-dev/basaltic-red.git"</span>
+<h2 id="getting-started">Getting started</h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">"git+https://github.com/VanDung-dev/basaltic-red.git"</span>
 </span></code></pre></div>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># 1. Initialize and health-check the Data Lake</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data/"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Lake Status: </span><span class="si">{</span><span class="n">report</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2"> | Files: </span><span class="si">{</span><span class="n">report</span><span class="p">[</span><span class="s1">'total_files'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># 2. Execute Data Quality Filtering with dynamic SIMD bitmask</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">clean</span><span class="p">,</span> <span class="n">trash</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">filter_matrix</span><span class="p">(</span><span class="s2">"data/sample.parquet"</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="p">[</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="s2">"passenger_count &gt; 0"</span><span class="p">,</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="s2">"trip_distance &gt;= 0.1"</span><span class="p">,</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="s2">"fare_amount &gt; 2.5"</span><span class="p">,</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="p">])</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data/"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span> <span class="n">report</span><span class="p">[</span><span class="s2">"total_files"</span><span class="p">])</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">clean</span><span class="p">,</span> <span class="n">trash</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">filter_matrix</span><span class="p">(</span><span class="s2">"data/sample.parquet"</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="s2">"passenger_count &gt;= 1"</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="s2">"trip_distance &gt; 0.0"</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="s2">"fare_amount &gt; 0.0"</span><span class="p">,</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">])</span>
 </span></code></pre></div>
+<p>Full walkthrough: <a href="getting-started/quickstart/">Quickstart</a> · <a href="workflows/lake-doctor/">Lake Doctor</a> · <a href="other/benchmarks/">Benchmarks</a></p>
 
 
 

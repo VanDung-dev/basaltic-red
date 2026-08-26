@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="In-depth microbenchmarks and end-to-end performance measurements">
+        <meta name="description" content="Measurements from demo.ipynb on the 17-year NYC TLC Yellow Taxi dataset">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -33,7 +33,7 @@
     
     
       
-        <title>Performance Benchmarks - Basaltic-Red Docs</title>
+        <title>Benchmarks - Basaltic-Red Docs</title>
       
     
     
@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#performance-benchmarks" class="md-skip">
+        <a href="#benchmarks" class="md-skip">
           Skip to content
         </a>
       
@@ -123,7 +123,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Performance Benchmarks
+              Benchmarks
             
           </span>
         </div>
@@ -1609,10 +1609,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-dynamic-simd-filter-throughput" class="md-nav__link">
+  <a href="#1-dataset-size" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Dynamic SIMD Filter Throughput
+        1. Dataset size
       </span>
     </span>
   </a>
@@ -1620,10 +1620,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-lake-doctor-health-check" class="md-nav__link">
+  <a href="#2-catalog-inspection-br_mapipc" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Lake Doctor Health Check
+        2. Catalog inspection (<code>.br_map.ipc</code>)
       </span>
     </span>
   </a>
@@ -1631,10 +1631,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-datafusion-sql-stream-pushdown" class="md-nav__link">
+  <a href="#3-full-lake-quality-filtering" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. DataFusion SQL Stream Pushdown
+        3. Full-lake quality filtering
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-single-file-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Single-file operations
       </span>
     </span>
   </a>
@@ -1727,10 +1738,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-dynamic-simd-filter-throughput" class="md-nav__link">
+  <a href="#1-dataset-size" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Dynamic SIMD Filter Throughput
+        1. Dataset size
       </span>
     </span>
   </a>
@@ -1738,10 +1749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-lake-doctor-health-check" class="md-nav__link">
+  <a href="#2-catalog-inspection-br_mapipc" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Lake Doctor Health Check
+        2. Catalog inspection (<code>.br_map.ipc</code>)
       </span>
     </span>
   </a>
@@ -1749,10 +1760,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-datafusion-sql-stream-pushdown" class="md-nav__link">
+  <a href="#3-full-lake-quality-filtering" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. DataFusion SQL Stream Pushdown
+        3. Full-lake quality filtering
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-single-file-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Single-file operations
       </span>
     </span>
   </a>
@@ -1790,68 +1812,86 @@
   
 
 
-<h1 id="performance-benchmarks">Performance Benchmarks</h1>
-<p>Detailed performance measurements of <code>basaltic-red</code> on NYC TLC Yellow Taxi 2025 data (~4.3M rows per file).</p>
+<h1 id="benchmarks">Benchmarks</h1>
+<p>Measurements from a single run of <a href="https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb"><code>demo.ipynb</code></a> on the 17-year NYC TLC Yellow Taxi dataset (2009–2025, 204 Parquet files, 29.66 GB, 1,826,960,642 rows). Apple Silicon / macOS, <code>uv run --no-sync maturin develop --release</code>. Results vary by hardware and filesystem cache — indicative only.</p>
 <hr />
-<h2 id="1-dynamic-simd-filter-throughput">1. Dynamic SIMD Filter Throughput</h2>
+<h2 id="1-dataset-size">1. Dataset size</h2>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Rules Count</th>
-<th style="text-align: left;">Rows Filtered</th>
-<th style="text-align: left;">Execution Time</th>
-<th style="text-align: left;">Throughput</th>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>4 rules</strong></td>
-<td style="text-align: left;">4,305,006 rows</td>
-<td style="text-align: left;"><strong>0.352 s</strong></td>
-<td style="text-align: left;"><strong>12.2M rows/s</strong></td>
+<td style="text-align: left;">Parquet files</td>
+<td style="text-align: left;">204 (2009–2025)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>20 rules</strong></td>
-<td style="text-align: left;">4,305,006 rows</td>
-<td style="text-align: left;"><strong>0.646 s</strong></td>
-<td style="text-align: left;"><strong>6.66M rows/s</strong> (133.3M rule-checks/s)</td>
+<td style="text-align: left;">Columns</td>
+<td style="text-align: left;">20</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>70 rules</strong></td>
-<td style="text-align: left;">4,305,006 rows</td>
-<td style="text-align: left;"><strong>1.125 s</strong></td>
-<td style="text-align: left;"><strong>3.82M rows/s</strong> (267.7M rule-checks/s)</td>
+<td style="text-align: left;">Rows</td>
+<td style="text-align: left;">1,826,960,642</td>
+</tr>
+<tr>
+<td style="text-align: left;">Cells</td>
+<td style="text-align: left;">36,539,212,840</td>
+</tr>
+<tr>
+<td style="text-align: left;">Disk size</td>
+<td style="text-align: left;">29.66 GB (30,371.6 MB)</td>
 </tr>
 </tbody>
 </table>
+<p>Counted via <code>pq.read_metadata</code> + <code>os.path.getsize</code> in the notebook; volume scan is metadata-only (no full data read).</p>
 <hr />
-<h2 id="2-lake-doctor-health-check">2. Lake Doctor Health Check</h2>
+<h2 id="2-catalog-inspection-br_mapipc">2. Catalog inspection (<code>.br_map.ipc</code>)</h2>
+<p><code>br.lake.doctor("data", auto_heal=True)</code> on first call walks the directory and builds <code>.br_map.ipc</code>; warm calls read it via <code>memmap2</code>.</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Data Files</th>
-<th style="text-align: left;">Filesystem Walk (Python)</th>
-<th style="text-align: left;"><code>basaltic-red</code> (<code>memmap2</code> <code>.br_map.ipc</code>)</th>
+<th style="text-align: left;">Mode</th>
+<th style="text-align: left;">Files</th>
+<th style="text-align: left;">Time (demo)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>12 files (700 MB)</strong></td>
-<td style="text-align: left;">~1.2 s</td>
-<td style="text-align: left;"><strong>0.48 ms</strong></td>
+<td style="text-align: left;">Cold (build)</td>
+<td style="text-align: left;">204</td>
+<td style="text-align: left;">~18,068 ms</td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>42 files (2.5 GB)</strong></td>
-<td style="text-align: left;">~4.8 s</td>
-<td style="text-align: left;"><strong>0.52 ms</strong></td>
+<td style="text-align: left;">Warm (mmap, avg 5 runs)</td>
+<td style="text-align: left;">204</td>
+<td style="text-align: left;">~0.5 ms</td>
 </tr>
 </tbody>
 </table>
+<p>Warm avoids the directory walk. The exact speedup depends on storage and whether the map is already built.</p>
 <hr />
-<h2 id="3-datafusion-sql-stream-pushdown">3. DataFusion SQL Stream Pushdown</h2>
+<h2 id="3-full-lake-quality-filtering">3. Full-lake quality filtering</h2>
+<p><code>br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[5 rules])</code> — Rayon parallel read + filter.</p>
+<p>Rules in demo: <code>passenger_count &gt;= 1</code>, <code>trip_distance &gt; 0.0</code>, <code>fare_amount &gt; 0.0</code>, <code>total_amount &gt; 0.0</code>, <code>total_amount &lt;= 1000.0</code>.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Total files : 204
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>Total rows  : 1,826,960,642
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>Clean       : 1,780,228,507
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>Trash       : 46,732,135
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>Wall time   : ~21.1 s (from ExecuteTime 19:48:57.175 → 19:49:18.296)
+</span></code></pre></div>
+<p>Trash rows carry <code>audit_error_code</code> (first 64 rules as <code>u64</code> bitmask) and, when rules &gt; 64, <code>audit_violated_rules</code> (<code>List&lt;UInt32&gt;</code>).</p>
+<p>Filtering is plain Rust loops over Arrow arrays (LLVM auto-vectorizes); not hand-written SIMD intrinsics.</p>
+<hr />
+<h2 id="4-single-file-operations">4. Single-file operations</h2>
+<p>One monthly batch (<code>yellow_tripdata_2025-12.parquet</code>, ~4,305,006 rows) — used for the SQL and slicing demos:</p>
 <ul>
-<li>Aggregation of 4,305,006 rows (<code>GROUP BY passenger_count</code>): <strong>0.107 seconds</strong>.</li>
+<li>Slicing: <code>br.read.slice_rows(..., offset=0, limit=100)</code> returns in milliseconds (no full read).</li>
+<li>SQL: <code>br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")</code> — aggregation over the single file completes in ~0.1 s in the demo; handoff to DuckDB via <code>duckdb.from_arrow(stream.to_pyarrow())</code> is an Arrow FFI transfer.</li>
 </ul>
+<p>No claims about pandas/Postgres baselines — comparison depends on query and hardware.</p>
 
 
 

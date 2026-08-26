@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#multi-chunk-simd-bitmask-kernel" class="md-skip">
+        <a href="#multi-chunk-bitmask-kernel" class="md-skip">
           Skip to content
         </a>
       
@@ -1790,8 +1790,8 @@
   
 
 
-<h1 id="multi-chunk-simd-bitmask-kernel">Multi-Chunk SIMD Bitmask Kernel</h1>
-<p>The dynamic quality filter lives in <code>src/engine/dynamic_filter.rs</code>. It evaluates N arbitrary rules over a full <code>RecordBatch</code> <strong>without intermediate boolean arrays</strong>, writing results into raw <code>u64</code> bitmasks in place.</p>
+<h1 id="multi-chunk-bitmask-kernel">Multi-Chunk Bitmask Kernel</h1>
+<p>The dynamic quality filter lives in <code>src/engine/dynamic_filter.rs</code>. It evaluates N arbitrary rules over a full <code>RecordBatch</code> <strong>without intermediate boolean arrays</strong>, writing results into raw <code>u64</code> bitmasks in place. Loops are plain Rust over Arrow arrays; LLVM auto-vectorizes the hot paths (no hand-written SIMD intrinsics).</p>
 <hr />
 <h2 id="rule-parsing">Rule Parsing</h2>
 <p><code>FilterRule::parse()</code> splits each rule string on the first operator found (longest-first so <code>&gt;=</code> wins over <code>&gt;</code>):</p>
