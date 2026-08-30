@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, UNIX_EPOCH};
 
 use arrow::array::{ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
@@ -58,6 +60,158 @@ pub struct DoctorReport {
     pub unindexed_files: Vec<String>,
     pub missing_files: Vec<String>,
     pub healed: bool,
+}
+
+/// Helper function to format bytes into human-readable string
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if bytes >= TB {
+        format!("{:.2} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Helper function to format speed in bytes/sec into human-readable string
+pub fn format_bytes_speed(bytes_per_sec: f64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    if bytes_per_sec >= GB {
+        format!("{:.2} GB/s", bytes_per_sec / GB)
+    } else if bytes_per_sec >= MB {
+        format!("{:.1} MB/s", bytes_per_sec / MB)
+    } else if bytes_per_sec >= KB {
+        format!("{:.1} KB/s", bytes_per_sec / KB)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
+/// Real-time Progress Bar & Telemetry HUD for Map Generation
+pub struct MapProgressTracker {
+    total_files: usize,
+    total_bytes: u64,
+    processed_files: AtomicUsize,
+    processed_bytes: AtomicU64,
+    start_time: Instant,
+    last_render_time: Mutex<Instant>,
+    show_progress: bool,
+}
+
+impl MapProgressTracker {
+    pub fn new(total_files: usize, total_bytes: u64, show_progress: bool) -> Self {
+        let now = Instant::now();
+        Self {
+            total_files,
+            total_bytes,
+            processed_files: AtomicUsize::new(0),
+            processed_bytes: AtomicU64::new(0),
+            start_time: now,
+            last_render_time: Mutex::new(now),
+            show_progress,
+        }
+    }
+
+    pub fn inc(&self, bytes: u64) {
+        let files = self.processed_files.fetch_add(1, Ordering::Relaxed) + 1;
+        let read_bytes = self.processed_bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+
+        if !self.show_progress {
+            return;
+        }
+
+        let now = Instant::now();
+        let mut last_render = self.last_render_time.lock().unwrap();
+        // Throttle rendering to at most once every 30ms or when 100% complete
+        if now.duration_since(*last_render).as_millis() >= 30 || files == self.total_files {
+            *last_render = now;
+            self.render(files, read_bytes, now);
+        }
+    }
+
+    fn render(&self, files: usize, read_bytes: u64, now: Instant) {
+        let elapsed = now.duration_since(self.start_time).as_secs_f64();
+        let elapsed_secs = elapsed as u64;
+        let elapsed_str = format!("{:02}:{:02}", elapsed_secs / 60, elapsed_secs % 60);
+
+        let speed = if elapsed > 0.001 {
+            (read_bytes as f64) / elapsed
+        } else {
+            0.0
+        };
+
+        let is_done = files == self.total_files;
+
+        let eta_str = if is_done {
+            "00:00".to_string()
+        } else if speed > 0.0 && self.total_bytes > read_bytes {
+            let rem_bytes = self.total_bytes - read_bytes;
+            let eta_secs = (rem_bytes as f64 / speed) as u64;
+            format!("{:02}:{:02}", eta_secs / 60, eta_secs % 60)
+        } else {
+            "00:00".to_string()
+        };
+
+        let pct = if self.total_bytes > 0 {
+            ((read_bytes as f64 / self.total_bytes as f64) * 100.0).min(100.0)
+        } else if self.total_files > 0 {
+            ((files as f64 / self.total_files as f64) * 100.0).min(100.0)
+        } else {
+            100.0
+        };
+
+        let bar_width = 26;
+        let filled_units = (pct / 100.0) * bar_width as f64;
+        let full_blocks = filled_units as usize;
+        let sub_idx = ((filled_units - full_blocks as f64) * 8.0) as usize;
+        let sub_chars = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+        let sub_char = if full_blocks < bar_width { sub_chars[sub_idx.min(7)] } else { "" };
+        let empty_blocks = bar_width.saturating_sub(full_blocks + if !sub_char.is_empty() { 1 } else { 0 });
+
+        let speed_str = format_bytes_speed(speed);
+        let read_str = format_bytes(read_bytes);
+        let total_str = format_bytes(self.total_bytes);
+
+        if is_done {
+            eprint!(
+                "\r\x1b[2K\x1b[1;38;2;34;197;94m✨ basaltic-red\x1b[0m \x1b[90m›\x1b[0m \x1b[38;2;34;197;94m{}\x1b[0m \x1b[1;32m100.0%\x1b[0m \x1b[90m│\x1b[0m \x1b[1;37m{}/{} files\x1b[0m \x1b[90m│\x1b[0m \x1b[37m{}\x1b[0m \x1b[90m│\x1b[0m \x1b[38;2;168;85;247m{}\x1b[0m \x1b[90m│\x1b[0m \x1b[38;2;34;197;94mDone in {}\x1b[0m\n",
+                "█".repeat(bar_width),
+                files,
+                self.total_files,
+                total_str,
+                speed_str,
+                elapsed_str
+            );
+        } else {
+            eprint!(
+                "\r\x1b[2K\x1b[1;38;2;239;68;68m⚡ basaltic-red\x1b[0m \x1b[90m›\x1b[0m \x1b[38;2;56;189;248m{}{}\x1b[38;2;71;85;105m{}\x1b[0m \x1b[1;37m{:>5.1}%\x1b[0m \x1b[90m│\x1b[0m \x1b[36m{}/{}\x1b[90m files\x1b[0m \x1b[90m│\x1b[0m \x1b[37m{}\x1b[90m/{}\x1b[0m \x1b[90m│\x1b[0m \x1b[38;2;168;85;247m{}\x1b[0m \x1b[90m│\x1b[0m \x1b[90mETA\x1b[0m \x1b[33m{}\x1b[0m \x1b[90m[{}]\x1b[0m",
+                "█".repeat(full_blocks),
+                sub_char,
+                "─".repeat(empty_blocks),
+                pct,
+                files,
+                self.total_files,
+                read_str,
+                total_str,
+                speed_str,
+                eta_str,
+                elapsed_str
+            );
+        }
+        let _ = io::stderr().flush();
+    }
 }
 
 impl LakeMap {
@@ -260,8 +414,13 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
     })
 }
 
-/// Build full LakeMap for a directory in parallel using Rayon
+/// Build full LakeMap for a directory in parallel using Rayon with live progress bar
 pub fn build_lake_map(dir_path: &Path) -> Result<LakeMap, BazanError> {
+    build_lake_map_with_progress(dir_path, true)
+}
+
+/// Build full LakeMap for a directory with configurable live progress bar
+pub fn build_lake_map_with_progress(dir_path: &Path, show_progress: bool) -> Result<LakeMap, BazanError> {
     if !dir_path.exists() || !dir_path.is_dir() {
         return Err(BazanError::Message(format!(
             "Directory does not exist: {:?}",
@@ -274,8 +433,8 @@ pub fn build_lake_map(dir_path: &Path) -> Result<LakeMap, BazanError> {
         return Ok(LakeMap::new(Vec::new()));
     }
 
-    // Filter out existing map file itself
-    let valid_files: Vec<PathBuf> = files
+    // Filter out existing map file itself and collect initial file sizes
+    let valid_files_with_size: Vec<(PathBuf, u64)> = files
         .into_iter()
         .filter(|p| {
             p.file_name()
@@ -283,11 +442,24 @@ pub fn build_lake_map(dir_path: &Path) -> Result<LakeMap, BazanError> {
                 .map(|s| !s.ends_with(".ipc") && !s.starts_with(".br_map"))
                 .unwrap_or(true)
         })
+        .map(|p| {
+            let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            (p, size)
+        })
         .collect();
 
-    let entries: Vec<LakeMapEntry> = valid_files
+    let total_files = valid_files_with_size.len();
+    let total_bytes: u64 = valid_files_with_size.iter().map(|(_, s)| *s).sum();
+
+    let tracker = Arc::new(MapProgressTracker::new(total_files, total_bytes, show_progress));
+
+    let entries: Vec<LakeMapEntry> = valid_files_with_size
         .par_iter()
-        .filter_map(|file| inspect_file_entry(dir_path, file).ok())
+        .filter_map(|(file, size)| {
+            let res = inspect_file_entry(dir_path, file);
+            tracker.inc(*size);
+            res.ok()
+        })
         .collect();
 
     Ok(LakeMap::new(entries))
@@ -412,15 +584,24 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
 
     if auto_heal && is_drifted {
         // Incremental re-index: inspect only modified & unindexed files
-        let files_to_reindex: Vec<PathBuf> = modified_files
+        let files_to_reindex: Vec<(PathBuf, u64)> = modified_files
             .iter()
             .chain(unindexed_files.iter())
-            .filter_map(|rel| disk_map.get(rel).map(|(p, _, _)| p.clone()))
+            .filter_map(|rel| {
+                disk_map.get(rel).map(|(p, size, _)| (p.clone(), *size))
+            })
             .collect();
+
+        let total_heal_bytes: u64 = files_to_reindex.iter().map(|(_, s)| *s).sum();
+        let tracker = Arc::new(MapProgressTracker::new(files_to_reindex.len(), total_heal_bytes, true));
 
         let new_entries: Vec<LakeMapEntry> = files_to_reindex
             .par_iter()
-            .filter_map(|p| inspect_file_entry(dir_path, p).ok())
+            .filter_map(|(p, size)| {
+                let res = inspect_file_entry(dir_path, p);
+                tracker.inc(*size);
+                res.ok()
+            })
             .collect();
 
         retained_entries.extend(new_entries);
@@ -452,9 +633,9 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
 
 impl MatrixEngine {
     /// Create or rebuild peer Arrow IPC LakeMap `.br_map.ipc` for `dir_path`
-    pub fn create_lake_map_native(&self, dir_path: &str) -> Result<String, BazanError> {
+    pub fn create_lake_map_native(&self, dir_path: &str, show_progress: bool) -> Result<String, BazanError> {
         let path = Path::new(dir_path);
-        let map = build_lake_map(path)?;
+        let map = build_lake_map_with_progress(path, show_progress)?;
         let out_file = resolve_map_path(path);
         save_lake_map_ipc(&map, &out_file)?;
         Ok(out_file.to_string_lossy().to_string())

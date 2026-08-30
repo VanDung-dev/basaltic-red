@@ -63,8 +63,9 @@ fn ingest(
 }
 
 #[pyfunction]
-fn create_map(py: Python<'_>, dir_path: &str) -> PyResult<String> {
-    default_engine().create_map(py, dir_path)
+#[pyo3(signature = (dir_path, show_progress=true))]
+fn create_map(py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<String> {
+    default_engine().create_map(py, dir_path, show_progress)
 }
 
 #[pyfunction]

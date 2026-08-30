@@ -111,9 +111,10 @@ impl MatrixEngine {
     }
 
     /// Create or rebuild an Arrow IPC Binary Map (.br_map.ipc) for a data directory
-    pub fn create_map(&self, py: Python<'_>, dir_path: &str) -> PyResult<String> {
+    #[pyo3(signature = (dir_path, show_progress=true))]
+    pub fn create_map(&self, py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<String> {
         let dir = dir_path.to_string();
-        let map_path = py.detach(|| self.create_lake_map_native(&dir));
+        let map_path = py.detach(|| self.create_lake_map_native(&dir, show_progress));
         match map_path {
             Ok(p) => Ok(p),
             Err(e) => Err(bazan_to_pyerr(e)),
