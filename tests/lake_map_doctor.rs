@@ -58,7 +58,7 @@ fn test_lake_map_creation_and_fast_load() {
     create_sample_parquet(&file2, 8_000, 50.0);
 
     let lake_root_str = lake_root.to_str().unwrap();
-    let map_path_str = engine.create_lake_map_native(lake_root_str).unwrap();
+    let map_path_str = engine.create_lake_map_native(lake_root_str, false).unwrap();
 
     let map_file = resolve_map_path(lake_root);
     assert!(map_file.exists());
@@ -97,7 +97,7 @@ fn test_doctor_drift_detection_and_auto_heal() {
     create_sample_parquet(&file2, 2_000, 20.0);
 
     let lake_root_str = lake_root.to_str().unwrap();
-    engine.create_lake_map_native(lake_root_str).unwrap();
+    engine.create_lake_map_native(lake_root_str, false).unwrap();
 
     // 1. Initial health check: should be HEALTHY
     let report = engine.doctor_lake_map_native(lake_root_str, false).unwrap();
