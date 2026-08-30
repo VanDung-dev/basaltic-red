@@ -439,3 +439,27 @@ def test_magic_sniff_file_without_extension_python(tmp_path):
     res = basaltic_red.sql.execute_sql(f"SELECT * FROM '{no_ext_file}' WHERE fare_amount > 0")
     assert res.num_rows == 4
 
+
+def test_create_map_with_progress(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lake_dir = tmp_path / "test_lake"
+    lake_dir.mkdir()
+
+    for i in range(5):
+        tbl = pa.Table.from_pydict({"id": [1, 2, 3], "val": [10.0, 20.0, 30.0]})
+        pq.write_table(tbl, lake_dir / f"part_{i}.parquet")
+
+    # Test create_map with progress bar enabled and disabled
+    map_path_1 = basaltic_red.lake.create_map(str(lake_dir), show_progress=True)
+    assert (lake_dir / ".br_map.ipc").exists()
+    assert map_path_1.endswith(".br_map.ipc")
+
+    # Test doctor
+    report = basaltic_red.lake.doctor(str(lake_dir), auto_heal=True)
+    assert report["status"] == "HEALTHY"
+    assert report["total_files"] == 5
+    assert report["healthy_count"] == 5
+
+
