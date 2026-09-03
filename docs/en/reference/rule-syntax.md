@@ -16,7 +16,7 @@ Dynamic rules are plain strings parsed by `FilterRule::parse` (`src/engine/dynam
 
 | Operator | Description | Supported column types |
 | :--- | :--- | :--- |
-| `>` | Greater than | Int8/16/32/64, UInt8/16/32/64, Float32/64 |
+| `>` | Greater than | numeric types (Int/UInt/Float) + `Utf8`, `LargeUtf8` (lexicographical) |
 | `>=` | Greater than or equal | same as `>` |
 | `<` | Less than | same as `>` |
 | `<=` | Less than or equal | same as `>` |
@@ -28,7 +28,7 @@ Parsing picks the **first** operator found, longest-first (`>=` before `>`), so 
 ## Values
 
 - Numeric rules parse the right-hand side to the column's element type (e.g. `"fare_amount >= 2.5"`, `"passenger_count > 0"`).
-- String comparisons may be quoted — both `'N'` and `"N"` have quotes trimmed: `"store_and_fwd_flag == 'N'"`.
+- String comparisons may be quoted, both `'N'` and `"N"` have quotes trimmed: `"store_and_fwd_flag == 'N'"`.
 
 ## Evaluation Semantics
 

@@ -33,8 +33,8 @@ sequenceDiagram
 ## 2. Multi-Chunk SIMD Bitmask Engine
 
 Traditional filtering evaluates rules row-by-row or creates intermediate boolean masks in memory. `basaltic-red` evaluates rules directly into bitwise memory buffers (`Vec<u64>`), updating bit flags in-place.
-- **Arbitrary rule counts**: Supports >64 rules seamlessly across multiple 64-bit chunks.
-- **Bitwise Audit Codes**: Every rejected record in the Trash table is tagged with `audit_error_code` — a `UInt64` bitmask whose bit *i* marks rule *i* as violated. With more than 64 rules an additional `audit_violated_rules` list column records every violated index.
+- **Arbitrary rule counts**: Supports >64 rules directly across multiple 64-bit chunks.
+- **Bitwise Audit Codes**: Every rejected record in the Trash table is tagged with `audit_error_code`, a `UInt64` bitmask whose bit *i* marks rule *i* as violated. With more than 64 rules an additional `audit_violated_rules` list column records every violated index.
 
 ---
 

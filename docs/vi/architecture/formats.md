@@ -6,7 +6,7 @@ icon: material/file-code
 
 # Registry Định dạng & Magic-Byte Sniffing
 
-Mọi truy cập tệp trong `basaltic-red` đều được phân giải về một `FormatHandler` — lớp trừu tượng pluggable trong `src/engine/formats/mod.rs`.
+Mọi truy cập tệp trong `basaltic-red` đều được phân giải về một `FormatHandler`, lớp trừu tượng pluggable trong `src/engine/formats/mod.rs`.
 
 ---
 
@@ -30,7 +30,7 @@ pub trait FormatHandler: Send + Sync {
 }
 ```
 
-Handler trả về `OpenedSource` kiểu lazy — một Arrow schema kèm iterator batch dạng streaming. Các định dạng theo dòng (CSV, JSONL, XLSX) chia khối qua template dùng chung tại `plugins/base_templates/row_chunker.rs`; các định dạng cột (Parquet, IPC) stream thuần túy.
+Handler trả về `OpenedSource` kiểu lazy, một Arrow schema kèm iterator batch dạng streaming. Các định dạng theo dòng (CSV, JSONL, XLSX) chia khối qua template dùng chung tại `plugins/base_templates/row_chunker.rs`; các định dạng cột (Parquet, IPC) stream thuần túy.
 
 ---
 
@@ -40,9 +40,9 @@ Bảng tĩnh `HANDLERS` ánh xạ extension về handler:
 
 | Tier | Extension | Nguồn handler |
 | :--- | :--- | :--- |
-| **1 — Core** | `parquet`, `pq`, `feather`, `arrow`, `ipc` | `formats/core/parquet.rs`, `formats/core/arrow_ipc.rs` |
-| **2 — Common** | `csv`, `tsv`, `psv`, `txt`, `json`, `jsonl`, `ndjson` | `formats/common/csv.rs`, `formats/common/json.rs` |
-| **3 — Pluggable adapters** | `xlsx`, `avro`, `orc`, `msgpack` | `formats/plugins/adapters/` |
+| **1, Core** | `parquet`, `pq`, `feather`, `arrow`, `ipc` | `formats/core/parquet.rs`, `formats/core/arrow_ipc.rs` |
+| **2, Common** | `csv`, `tsv`, `psv`, `txt`, `json`, `jsonl`, `ndjson` | `formats/common/csv.rs`, `formats/common/json.rs` |
+| **3, Pluggable adapters** | `xlsx`, `avro`, `orc`, `msgpack` | `formats/plugins/adapters/` |
 
 Các biến thể phân cách dùng chung một template (`plugins/base_templates/delimited.rs`), chỉ khác byte phân cách và cờ header.
 
@@ -52,8 +52,8 @@ Các biến thể phân cách dùng chung một template (`plugins/base_template
 
 `resolve_handler_for_file()` thử lần lượt:
 
-1. **Tra extension** (`handler_for`) — O(1), kiểm *registry động trước*, rồi đến bảng tĩnh. Extension chuẩn hóa về chữ thường.
-2. **Sniff magic-byte** (`sniff_format_from_file`) — đọc 512 byte đầu và soi qua `sniff_format_from_bytes`:
+1. **Tra extension** (`handler_for`), O(1), kiểm *registry động trước*, rồi đến bảng tĩnh. Extension chuẩn hóa về chữ thường.
+2. **Sniff magic-byte** (`sniff_format_from_file`), đọc 512 byte đầu và soi qua `sniff_format_from_bytes`:
 
 | Chữ ký header | Định dạng suy ra |
 | :--- | :--- |
@@ -62,7 +62,7 @@ Các biến thể phân cách dùng chung một template (`plugins/base_template
 | `PK\x03\x04` (Zip) | `xlsx` |
 | `Obj\x01` | `avro` |
 | `ORC` | `orc` |
-| `0x80–0x8F / 0xDE / 0xDF` (MessagePack map) | `msgpack` |
+| `0x80 đến 0x8F / 0xDE / 0xDF` (MessagePack map) | `msgpack` |
 | byte không phải space đầu tiên là `[` | `json` |
 | byte không phải space đầu tiên là `{` | `ndjson` |
 | dòng UTF-8 chứa `\t` / `\|` / `;` / `,` | `tsv` / `psv` / `txt` / `csv` |

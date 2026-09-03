@@ -14,7 +14,7 @@ The write-side modules of `src/engine/`: `ingest.rs`, `splitter.rs`, `formats/co
 
 Copies a source directory into a destination lake, preserving relative layout:
 
-- Row-based formats (`csv, tsv, psv, txt, json, jsonl, ndjson, msgpack, xlsx`) are **converted to Parquet** when normalization is on — either via `auto_normalize=True` or the `BR_INGEST_NORMALIZE=1` environment variable.
+- Row-based formats (`csv, tsv, psv, txt, json, jsonl, ndjson, msgpack, xlsx`) are **converted to Parquet** when normalization is on, either via `auto_normalize=True` or the `BR_INGEST_NORMALIZE=1` environment variable.
 - Everything else is copied byte-for-byte.
 
 Returns `(files_ingested, rows_ingested)`.
@@ -77,4 +77,4 @@ All streaming reads/writes share one budget from `src/engine/memory.rs`:
 | Total RAM cap | `BASALTIC_RED_MAX_RAM_GB` env var, default **2 GB** |
 | Safety factor | ×3.5 for transient mask/clean/trash buffers |
 
-Two process-wide runtimes are created lazily: a multi-threaded tokio runtime (`global_runtime()`, used by DataFusion streams) and a sized Rayon pool (`global_rayon_pool(threads)`). `recommend_batch_size(parallel_streams)` exposes the computed per-stream row count if you need to pass an explicit `batch_size`.
+Two process-wide runtimes are created lazily: a multi-threaded tokio runtime (`global_runtime()`, used by DataFusion streams) and a sized Rayon pool (`global_rayon_pool(threads)`). Internally, `budget_batch_rows(parallel_streams)` dynamically sizes per-stream buffers to stay within the total memory budget.

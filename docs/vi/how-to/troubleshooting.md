@@ -10,7 +10,7 @@ icon: material/wrench
 
 ### 1. Trạng thái Lake báo `DRIFT_DETECTED`
 - **Nguyên nhân**: Tệp được thêm/sửa/xóa mà chưa cập nhật danh mục.
-- **Xử lý**: Chạy `br.lake.doctor("data", auto_heal=True)` — các khóa `modified_files` / `unindexed_files` / `missing_files` trong báo cáo chỉ đích danh thứ gì đã lệch.
+- **Xử lý**: Chạy `br.lake.doctor("data", auto_heal=True)`, các khóa `modified_files` / `unindexed_files` / `missing_files` trong báo cáo chỉ đích danh thứ gì đã lệch.
 
 ### 2. `ValueError: Unsupported file format '.xyz'`
 - **Nguyên nhân**: Extension chưa đăng ký và sniff magic-byte thất bại.
@@ -22,7 +22,7 @@ icon: material/wrench
 - **Xử lý**: Xóa hoặc tạo lại tệp rỗng; chạy `br.lake.doctor` để tìm nó.
 
 ### 4. Quy tắc dường như bị bỏ qua (mọi dòng đều pass)
-- **Nguyên nhân**: Quy tắc trỏ tới cột không tồn tại, kiểu dữ liệu không hỗ trợ (ngày tháng, decimal…), hoặc giá trị không parse được theo kiểu cột — các quy tắc này bị bỏ qua im lặng theo [Cú pháp quy tắc](../reference/rule-syntax.md#ngu-nghia-anh-gia).
+- **Nguyên nhân**: Quy tắc trỏ tới cột không tồn tại, kiểu dữ liệu không hỗ trợ (ngày tháng, decimal…), hoặc giá trị không parse được theo kiểu cột, các quy tắc này bị bỏ qua im lặng theo [Cú pháp quy tắc](../reference/rule-syntax.md#ngu-nghia-anh-gia).
 - **Xử lý**: Kiểm tra tên cột qua `br.read.slice_rows(path, 0, 1).schema`.
 
 ### 5. SQL lỗi với tệp JSON

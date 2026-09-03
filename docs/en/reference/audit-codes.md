@@ -8,7 +8,7 @@ icon: material/alert-circle
 
 When dynamic rules run (`filter_matrix`), every Trash row records **which** rules it violated.
 
-## `audit_error_code` — `UInt64`, nullable
+## `audit_error_code`, `UInt64`, nullable
 
 Bit *i* is set when rule *i* (0-indexed) was violated:
 
@@ -20,7 +20,7 @@ Example: code `0b101` (=5) means rules 0 and 2 failed; rule 1 passed.
 
     The column stores chunk 0 of the bitmask. With more than 64 rules, violations of rule ≥ 64 are **not** reflected in this column.
 
-## `audit_violated_rules` — `List<UInt32>`, nullable
+## `audit_violated_rules`, `List<UInt32>`, nullable
 
 Added to the Trash schema only when **rules > 64**. Each row holds the full sorted list of violated rule indices across all chunks, e.g. `[0, 2, 71]`.
 
@@ -38,4 +38,4 @@ The code is computed as a vectorized weighted sum (`p*1 + f*2 + s*4`) and stored
 
 ## Clean Table Schema
 
-Unchanged — the Clean table always keeps the exact input schema with no extra columns.
+Unchanged, the Clean table always keeps the exact input schema with no extra columns.

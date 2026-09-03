@@ -8,7 +8,7 @@ icon: material/alert-circle-check
 
 Khi chạy quy tắc động (`filter_matrix`), mỗi dòng Trash ghi lại **quy tắc nào** khiến nó bị loại.
 
-## `audit_error_code` — `UInt64`, nullable
+## `audit_error_code`, `UInt64`, nullable
 
 Bit thứ *i* bật khi quy tắc *i* (đánh số từ 0) bị vi phạm:
 
@@ -20,7 +20,7 @@ Ví dụ: mã `0b101` (=5) nghĩa là quy tắc 0 và 2 fail; quy tắc 1 đạt
 
     Cột này lưu khối 0 của bitmask. Khi dùng hơn 64 quy tắc, vi phạm của quy tắc ≥ 64 **không** phản ánh ở cột này.
 
-## `audit_violated_rules` — `List<UInt32>`, nullable
+## `audit_violated_rules`, `List<UInt32>`, nullable
 
 Chỉ được thêm vào schema Trash khi **số quy tắc > 64**. Mỗi dòng chứa danh sách đầy đủ các chỉ số quy tắc vi phạm qua mọi khối, ví dụ `[0, 2, 71]`.
 
@@ -38,4 +38,4 @@ Mã được tính như tổng có trọng số vector hóa (`p*1 + f*2 + s*4`) 
 
 ## Schema bảng Clean
 
-Không đổi — bảng Clean luôn giữ nguyên schema gốc, không thêm cột.
+Không đổi, bảng Clean luôn giữ nguyên schema gốc, không thêm cột.

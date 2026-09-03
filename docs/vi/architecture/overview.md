@@ -16,7 +16,7 @@ Mỗi trang Thành phần đều ghi rõ file nguồn ngay trong nội dung. B�
 
 | Thành phần | Vị trí trong `src/` | Trách nhiệm | Tài liệu |
 | :--- | :--- | :--- | :--- |
-| Điểm vào module | `lib.rs` | Đăng ký submodule & class (`#[pymodule]`) | — |
+| Điểm vào module | `lib.rs` | Đăng ký submodule & class (`#[pymodule]`) |, |
 | Phân loại lỗi | `error.rs` | Các variant `BazanError` ánh xạ sang exception Python | [Lõi MatrixEngine](matrix-engine.md) |
 | Duyệt tệp | `utils.rs` | Bộ duyệt đệ quy, có ý thức phân vùng | [Đường ống Lọc](filtering-pipeline.md) |
 | Cờ lọc tĩnh | `filter.rs` | Cờ bit kiểm toán theo ngưỡng cố định | [Lõi MatrixEngine](matrix-engine.md#loc-tinh-vs-ong) |
@@ -30,7 +30,7 @@ Mỗi trang Thành phần đều ghi rõ file nguồn ngay trong nội dung. B�
 | Lake map | `engine/map.rs` | Danh mục `.br_map.ipc` + Lake Doctor | [Lake Map & Lake Doctor](lake-map.md) |
 | Đường ống ghi | `engine/ingest.rs`, `engine/splitter.rs`, `engine/formats/core/parquet.rs` | Ingest, chia tệp, ghi lake sạch/rác, bảng gold | [Đường ống Lakehouse](lakehouse-pipeline.md) |
 | Bộ nhớ & runtime | `engine/memory.rs` | Ngân sách RAM, runtime tokio/Rayon toàn cục | [Đường ống Lakehouse](lakehouse-pipeline.md#ngan-sach-bo-nho-runtime) |
-| Tiện ích khác | `engine/csv_guard.rs`, `engine/graph.rs`, `engine/recommend.rs` | CSV injection guard, sơ đồ ER Mermaid, gợi ý batch-size | — |
+| Tiện ích khác | `engine/csv_guard.rs`, `engine/graph.rs`, `engine/recommend.rs` | CSV injection guard, sơ đồ ER Mermaid, gợi ý batch-size |, |
 
 ---
 
@@ -54,10 +54,10 @@ sequenceDiagram
     API-->>PY: pyarrow.Table (zero-copy)
 ```
 
-1. **Biên Python (`pyapi/`)** — chuyển đổi tham số, ánh xạ [`BazanError`](matrix-engine.md#phan-loai-loi) sang `PyValueError` / `PyRuntimeError` / `PyIOError`, và nhả GIL quanh phần việc native qua `py.detach`.
-2. **Lõi engine (`engine/`)** — nắm toàn bộ logic: phân giải định dạng, đọc streaming, lọc, lập kế hoạch SQL.
-3. **Tầng định dạng (`formats/`)** — mọi truy cập tệp được phân giải về một `FormatHandler` (tra extension trước, sniff magic-byte sau).
-4. **Biên interop** — kết quả quay lại PyArrow qua interface zero-copy; xem [Tầng SQL DataFusion](datafusion.md).
+1. **Biên Python (`pyapi/`)**, chuyển đổi tham số, ánh xạ [`BazanError`](matrix-engine.md#phan-loai-loi) sang `PyValueError` / `PyRuntimeError` / `PyIOError`, và nhả GIL quanh phần việc native qua `py.detach`.
+2. **Lõi engine (`engine/`)**, nắm toàn bộ logic: phân giải định dạng, đọc streaming, lọc, lập kế hoạch SQL.
+3. **Tầng định dạng (`formats/`)**, mọi truy cập tệp được phân giải về một `FormatHandler` (tra extension trước, sniff magic-byte sau).
+4. **Biên interop**, kết quả quay lại PyArrow qua interface zero-copy; xem [Tầng SQL DataFusion](datafusion.md).
 
 ---
 
@@ -67,7 +67,7 @@ Toàn bộ lệnh namespaced dùng chung một engine cấp tiến trình do `de
 
 ```rust
 static DEFAULT_ENGINE: OnceLock<MatrixEngine> = OnceLock::new();
-// MatrixEngine::new(1, 9, 0.01, 100.0) — ngưỡng chất lượng mặc định
+// MatrixEngine::new(1, 9, 0.01, 100.0) (ngưỡng chất lượng mặc định)
 ```
 
 Điều này bảo đảm ngưỡng kiểm tra đồng nhất trên mọi `br.read.*`, `br.filter.*`, `br.lake.*`, ... Muốn ngưỡng riêng, khởi tạo trực tiếp `br.MatrixEngine(min_passenger, max_passenger, min_fare, max_speed_mph)`.
@@ -77,5 +77,5 @@ static DEFAULT_ENGINE: OnceLock<MatrixEngine> = OnceLock::new();
 ## Mô hình bộ nhớ
 
 - Đọc streaming bị chặn ở `BUDGET_BATCH_ROWS = 1 << 20` dòng mỗi batch mỗi luồng.
-- Với N luồng song song, mỗi batch tự co lại để tổng số dòng đang bay luôn nằm trong ngân sách — tổng RAM mặc định **2 GB**, chỉnh qua biến môi trường `BASALTIC_RED_MAX_RAM_GB`.
+- Với N luồng song song, mỗi batch tự co lại để tổng số dòng đang bay luôn nằm trong ngân sách, tổng RAM mặc định **2 GB**, chỉnh qua biến môi trường `BASALTIC_RED_MAX_RAM_GB`.
 - Chi tiết: [Đường ống Lakehouse](lakehouse-pipeline.md#ngan-sach-bo-nho-runtime) và `src/engine/memory.rs`.

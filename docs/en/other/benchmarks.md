@@ -6,7 +6,7 @@ icon: material/chart-line
 
 # Benchmarks
 
-Measurements from a single run of [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb) on the 17-year NYC TLC Yellow Taxi dataset (2009–2025, 204 Parquet files, 29.66 GB, 1,826,960,642 rows). Apple Silicon / macOS, `uv run --no-sync maturin develop --release`. Results vary by hardware and filesystem cache — indicative only.
+Measurements from a single run of [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb) on the 17-year NYC TLC Yellow Taxi dataset (2009 to 2025, 204 Parquet files, 29.66 GB, 1,826,960,642 rows). Apple Silicon / macOS, `uv run --no-sync maturin develop --release`. Results vary by hardware and filesystem cache, indicative only.
 
 ---
 
@@ -14,7 +14,7 @@ Measurements from a single run of [`demo.ipynb`](https://github.com/VanDung-dev/
 
 | Metric | Value |
 | :--- | :--- |
-| Parquet files | 204 (2009–2025) |
+| Parquet files | 204 (2009 to 2025) |
 | Columns | 20 |
 | Rows | 1,826,960,642 |
 | Cells | 36,539,212,840 |
@@ -39,7 +39,7 @@ Warm avoids the directory walk. The exact speedup depends on storage and whether
 
 ## 3. Full-lake quality filtering
 
-`br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[5 rules])` — Rayon parallel read + filter.
+`br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[5 rules])`, Rayon parallel read + filter.
 
 Rules in demo: `passenger_count >= 1`, `trip_distance > 0.0`, `fare_amount > 0.0`, `total_amount > 0.0`, `total_amount <= 1000.0`.
 
@@ -59,9 +59,9 @@ Filtering is plain Rust loops over Arrow arrays (LLVM auto-vectorizes); not hand
 
 ## 4. Single-file operations
 
-One monthly batch (`yellow_tripdata_2025-12.parquet`, ~4,305,006 rows) — used for the SQL and slicing demos:
+One monthly batch (`yellow_tripdata_2025-12.parquet`, ~4,305,006 rows), used for the SQL and slicing demos:
 
 - Slicing: `br.read.slice_rows(..., offset=0, limit=100)` returns in milliseconds (no full read).
-- SQL: `br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")` — aggregation over the single file completes in ~0.1 s in the demo; handoff to DuckDB via `duckdb.from_arrow(stream.to_pyarrow())` is an Arrow FFI transfer.
+- SQL: `br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")`, aggregation over the single file completes in ~0.1 s in the demo; handoff to DuckDB via `duckdb.from_arrow(stream.to_pyarrow())` is an Arrow FFI transfer.
 
-No claims about pandas/Postgres baselines — comparison depends on query and hardware.
+No claims about pandas/Postgres baselines, comparison depends on query and hardware.

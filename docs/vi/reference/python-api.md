@@ -23,15 +23,15 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 | :--- | :--- |
 | `slice_rows(file_path: str, offset: int, limit: int)` | `pyarrow.Table` |
 | `slice_cols(file_path: str, selected_cols: list[str], offset: int, limit: int)` | `pyarrow.Table` |
-| `preview_sample(file_path: str, limit_rows: int)` | `(pyarrow.Table, pyarrow.Table)` — tách clean/trash theo ngưỡng tĩnh trên batch đầu tiên |
+| `preview_sample(file_path: str, limit_rows: int)` | `(pyarrow.Table, pyarrow.Table)`, tách clean/trash theo ngưỡng tĩnh trên batch đầu tiên |
 
 ## `basaltic_red.filter`
 
 | Hàm | Trả về |
 | :--- | :--- |
-| `process_batch(batch: pyarrow.RecordBatch)` | `(RecordBatch, RecordBatch)` — clean/trash ngưỡng tĩnh cho một batch trong RAM |
+| `process_batch(batch: pyarrow.RecordBatch)` | `(RecordBatch, RecordBatch)`, clean/trash ngưỡng tĩnh cho một batch trong RAM |
 | `process_file(file_path: str, batch_size: int)` | `(total_rows, clean_rows, trash_rows)` |
-| `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)` — quy tắc động; Trash có thêm cột kiểm toán |
+| `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)`, quy tắc động; Trash có thêm cột kiểm toán |
 | `filter_files_parallel(path_pattern: str, rules: list[str], partition_filter: str \| None = None, num_threads: int \| None = None)` | `dict` với khóa `total_files`, `pruned_dirs`, `total_rows`, `clean_rows`, `trash_rows` |
 
 ## `basaltic_red.lake`
@@ -42,8 +42,8 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 | `split_file(file_path: str, max_rows_per_file: int, output_dir: str, format: str)` | số phần đã ghi |
 | `process_and_write_lake(input_dir: str, clean_output_dir: str, trash_output_dir: str, partition_filter: str \| None, batch_size: int)` | `(total_files, total_rows, clean_rows, trash_rows)` |
 | `generate_gold_table(input_dir: str, gold_output_dir: str, table_version: str, partition_filter: str \| None, batch_size: int)` | `(files_read, gold_rows, manifest_path)` |
-| `create_map(dir_path: str)` | đường dẫn tới `.br_map.ipc` vừa ghi (`str`) |
-| `doctor(dir_path: str, auto_heal: bool = False)` | dict — xem [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
+| `create_map(dir_path: str, show_progress: bool = True)` | đường dẫn tới `.br_map.ipc` vừa ghi (`str`) |
+| `doctor(dir_path: str, auto_heal: bool = False)` | dict, xem [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
 
 ## `basaltic_red.sql`
 
@@ -54,7 +54,7 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 
 ### `PyBatchIterator`
 
-- có thể duyệt — trả về từng `RecordBatch` PyArrow
+- có thể duyệt, trả về từng `RecordBatch` PyArrow
 - `to_pyarrow()` → `pyarrow.Table` đầy đủ
 - `repr()` → `PyBatchIterator(batches=N, rows=M)`
 
@@ -77,7 +77,7 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 | Hàm | Trả về |
 | :--- | :--- |
 | `register_delimited(ext: str, delimiter: str, has_header: bool = True)` | đăng ký handler phân cách tùy chỉnh (dùng byte đầu của `delimiter`) |
-| `unregister_format(ext: str)` | `bool` — có gỡ được handler động hay không |
+| `unregister_format(ext: str)` | `bool`, có gỡ được handler động hay không |
 | `list_formats()` | `list[str]` các extension hỗ trợ, đã sắp xếp |
 
 ---

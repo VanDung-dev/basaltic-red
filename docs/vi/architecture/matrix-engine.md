@@ -28,13 +28,13 @@ br.read.slice_rows(...)
 # Ngưỡng tùy chỉnh cho mục đích nâng cao
 engine = br.MatrixEngine(
     min_passenger=0,
-    max_passenger=20,     # raises ValueError nếu min > max
+    max_passenger=20,
     min_fare=-5.0,
     max_speed_mph=200.0,
 )
 ```
 
-`br.MatrixEngine(...)` nhận tham số theo vị trí hoặc từ khóa. Instance dùng chung được tạo một lần mỗi tiến trình qua `OnceLock`, nên ngưỡng không bao giờ lệch nhau giữa các lệnh con.
+`br.MatrixEngine(...)` nhận tham số theo vị trí hoặc từ khóa. Các ngưỡng này dùng để thiết lập tiêu chuẩn lọc tĩnh (static validation). Instance dùng chung được tạo một lần mỗi tiến trình qua `OnceLock`, nên ngưỡng không bao giờ lệch nhau giữa các lệnh con.
 
 ---
 
@@ -54,7 +54,7 @@ Cả hai phương thức slice đều phân giải handler qua [registry định
 
 ## Phân loại lỗi
 
-Toàn bộ lỗi engine đi qua một enum duy nhất — `BazanError` trong `src/error.rs` — được ánh xạ sang Python bởi một hàm duy nhất (`src/pyapi/mod.rs`):
+Toàn bộ lỗi engine đi qua một enum duy nhất, `BazanError` trong `src/error.rs`, được ánh xạ sang Python bởi một hàm duy nhất (`src/pyapi/mod.rs`):
 
 | Variant Rust | Exception Python | Nguyên nhân thường gặp |
 | :--- | :--- | :--- |
@@ -68,5 +68,5 @@ Lỗi cú pháp quy tắc phát sinh trước khi thực thi được trả về
 
 ## Lọc Tĩnh vs Động
 
-- **Đường tắt tĩnh** (`src/filter.rs` + `engine/filter.rs`): ba cờ bit cố định — khoảng passenger, mức giá tối thiểu, bất thường distance/fare — đánh giá bằng Arrow compute kernel trên cả cột (vector hóa hoàn toàn). Dùng cho `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`. Không tốn chi phí parse quy tắc; kỳ vọng các cột kiểu taxi NYC (`passenger_count`, `fare_amount`, `trip_distance`) và bỏ qua im lặng khi thiếu cột.
+- **Đường tắt tĩnh** (`src/filter.rs` + `engine/filter.rs`): ba cờ bit cố định, khoảng passenger, mức giá tối thiểu, bất thường distance/fare, đánh giá bằng Arrow compute kernel trên cả cột (vector hóa hoàn toàn). Dùng cho `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`. Không tốn chi phí parse quy tắc; kỳ vọng các cột kiểu taxi NYC (`passenger_count`, `fare_amount`, `trip_distance`) và bỏ qua im lặng khi thiếu cột.
 - **Nhân động** (`engine/dynamic_filter.rs`): quy tắc người dùng tùy ý parsed từ chuỗi trên mọi kiểu cột được hỗ trợ. Xem [Nhân SIMD Bitmask](simd-kernel.md).

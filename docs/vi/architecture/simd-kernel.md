@@ -18,7 +18,7 @@ Bộ lọc chất lượng động nằm trong `src/engine/dynamic_filter.rs`. N
 "<column> <op> <value>"   op ∈ { >=, <=, ==, !=, >, < }
 ```
 
-- Giá trị có thể bọc trong ngoặc `'` hoặc `"` — ngoặc được cắt trước khi parse.
+- Giá trị có thể bọc trong ngoặc `'` hoặc `"`, ngoặc được cắt trước khi parse.
 - Quy tắc số parse vế phải theo kiểu phần tử của cột.
 - Cột chuỗi (`Utf8`, `LargeUtf8`) so sánh theo thứ tự từ điển.
 
@@ -36,10 +36,10 @@ for (rule_idx, rule) in rules.iter().enumerate() {
 
 Đặc tính:
 
-- **Không cấp phát trong vòng lặp trong** — mask được cấp phát một lần mỗi batch (`Vec<Vec<u64>>`).
-- **Mở rộng đa khối** — `num_chunks = ceil(rules / 64)`; 1 hay 500+ quy tắc đều hoạt động như nhau.
-- **Xử lý NULL** — ô null luôn fail quy tắc (dòng rơi vào Trash).
-- **Cột lạ hoặc kiểu dữ liệu không hỗ trợ** — quy tắc bị bỏ qua im lặng với batch đó (không đánh dấu dòng nào).
+- **Không cấp phát trong vòng lặp trong**, mask được cấp phát một lần mỗi batch (`Vec<Vec<u64>>`).
+- **Mở rộng đa khối**, `num_chunks = ceil(rules / 64)`; 1 hay 500+ quy tắc đều hoạt động như nhau.
+- **Xử lý NULL**, ô null luôn fail quy tắc (dòng rơi vào Trash).
+- **Cột lạ hoặc kiểu dữ liệu không hỗ trợ**, quy tắc bị bỏ qua im lặng với batch đó (không đánh dấu dòng nào).
 
 Kiểu cột hỗ trợ: `Int8/16/32/64`, `UInt8/16/32/64`, `Float32/64`, `Utf8`, `LargeUtf8`.
 
@@ -51,8 +51,8 @@ Sau khi đánh giá, các dòng được tách bằng `filter_record_batch` và 
 
 | Cột | Kiểu | Xuất hiện khi |
 | :--- | :--- | :--- |
-| `audit_error_code` | `UInt64` | luôn luôn — bitmask của các quy tắc vi phạm **0–63** (khối đầu tiên) |
-| `audit_violated_rules` | `List<UInt32>` | chỉ khi **số quy tắc > 64** — danh sách mọi chỉ số quy tắc bị vi phạm |
+| `audit_error_code` | `UInt64` | luôn luôn, bitmask của các quy tắc vi phạm **0 đến 63** (khối đầu tiên) |
+| `audit_violated_rules` | `List<UInt32>` | chỉ khi **số quy tắc > 64**, danh sách mọi chỉ số quy tắc bị vi phạm |
 
 Giải mã `audit_error_code`: bit *i* bật ⇔ quy tắc *i* vi phạm, ví dụ mã `0b101` nghĩa là quy tắc 0 và 2 fail. Với bộ quy tắc vượt 64, hãy đọc `audit_violated_rules` thay vì dựa vào một `UInt64` duy nhất.
 

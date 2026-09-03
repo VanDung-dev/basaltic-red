@@ -21,7 +21,7 @@ stream = br.sql.execute_sql_stream("SELECT * FROM 'data/analytics'")       # PyB
 
 Trước khi lập kế hoạch, engine đăng ký đích `FROM` thành bảng tên `br_target`. Có hai đường:
 
-1. **ListingTable thuần túy** — với extension DataFusion tự đọc được:
+1. **ListingTable thuần túy**, với extension DataFusion tự đọc được:
 
     | Extension | Định dạng DataFusion |
     | :--- | :--- |
@@ -32,7 +32,7 @@ Trước khi lập kế hoạch, engine đăng ký đích `FROM` thành bảng t
 
     Một *thư mục* đồng nhất extension đăng ký thành một ListingTable duy nhất, mở khóa predicate & projection pushdown trên toàn bộ tệp.
 
-2. **MemTable dự phòng** — cho định dạng không có reader DataFusion (`xlsx`, `avro`, `orc`, `msgpack`, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (`[...]`). Tệp được đọc qua [registry định dạng](formats.md), nạp vào MemTable rồi truy vấn trong RAM.
+2. **MemTable dự phòng**, cho định dạng không có reader DataFusion (`xlsx`, `avro`, `orc`, `msgpack`, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (`[...]`). Tệp được đọc qua [registry định dạng](formats.md), nạp vào MemTable rồi truy vấn trong RAM.
 
 !!! note "JSON mảng ở tầng ngoài"
 
@@ -45,14 +45,14 @@ Trước khi lập kế hoạch, engine đăng ký đích `FROM` thành bảng t
 | Lệnh | Kết quả | Mức tiêu thụ RAM |
 | :--- | :--- | :--- |
 | `execute_sql(query)` | `pyarrow.Table` | Thu thập toàn bộ |
-| `execute_sql_stream(query)` | `PyBatchIterator` | Lazy — batch sinh theo nhu cầu |
+| `execute_sql_stream(query)` | `PyBatchIterator` | Lazy, batch sinh theo nhu cầu |
 
 ### PyBatchIterator (`src/pyapi/iterator.rs`)
 
 Hai nguồn nội bộ phía sau một class:
 
-- **Lazy** — một `SendableRecordBatchStream` đang sống; mỗi `next()` kéo một batch từ runtime tokio (`memory::global_runtime()`).
-- **Eager** — `Vec<RecordBatch>` thu thập sẵn (dùng khi phải fallback MemTable).
+- **Lazy**, một `SendableRecordBatchStream` đang sống; mỗi `next()` kéo một batch từ runtime tokio (`memory::global_runtime()`).
+- **Eager**, `Vec<RecordBatch>` thu thập sẵn (dùng khi phải fallback MemTable).
 
 API phía Python:
 
@@ -60,7 +60,7 @@ API phía Python:
 - `stream.to_pyarrow()` → PyArrow Table đầy đủ
 - `repr(stream)` → `PyBatchIterator(batches=N, rows=M)` (biết ngay với nguồn eager; điền dần khi tiêu thụ với nguồn lazy)
 
-Kết quả nạp thẳng vào Polars / DuckDB không copy — xem [Tích hợp Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
+Kết quả nạp thẳng vào Polars / DuckDB không copy, xem [Tích hợp Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
 
 ---
 

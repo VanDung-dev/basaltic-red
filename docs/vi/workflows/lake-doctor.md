@@ -16,10 +16,10 @@ sequenceDiagram
     participant P as Pipeline dữ liệu
     participant D as Lake Doctor
 
-    P->>D: kiểm tra đầu vào — doctor("data", auto_heal=True)
+    P->>D: kiểm tra đầu vào: doctor("data", auto_heal=True)
     D-->>P: chuẩn HEALTHY · bản đồ sẵn sàng
     P->>P: ingest · cắt lát · lọc SIMD · SQL
-    P->>D: kiểm tra đầu ra — doctor("data", auto_heal=True)
+    P->>D: kiểm tra đầu ra: doctor("data", auto_heal=True)
     D-->>P: toàn vẹn 100% · không để lại trạng thái rác
 ```
 

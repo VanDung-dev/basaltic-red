@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Cài đặt trong `src/engine/map.rs`. Lake Map thay thế việc duyệt đệ quy hệ thống tệp bằng một tệp Arrow IPC đã biên dịch sẵn — `.br_map.ipc` — đặt tại gốc hồ dữ liệu.
+Cài đặt trong `src/engine/map.rs`. Lake Map thay thế việc duyệt đệ quy hệ thống tệp bằng một tệp Arrow IPC đã biên dịch sẵn, `.br_map.ipc`, đặt tại gốc hồ dữ liệu.
 
 ---
 

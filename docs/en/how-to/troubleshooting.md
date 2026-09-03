@@ -10,7 +10,7 @@ icon: material/wrench
 
 ### 1. Lake Status reports `DRIFT_DETECTED`
 - **Cause**: Files were added, modified, or deleted without updating the catalog.
-- **Fix**: Run `br.lake.doctor("data", auto_heal=True)` — the report's `modified_files` / `unindexed_files` / `missing_files` keys tell you exactly what drifted.
+- **Fix**: Run `br.lake.doctor("data", auto_heal=True)`, the report's `modified_files` / `unindexed_files` / `missing_files` keys tell you exactly what drifted.
 
 ### 2. `ValueError: Unsupported file format '.xyz'`
 - **Cause**: The extension is not registered and magic-byte sniffing failed.
@@ -22,7 +22,7 @@ icon: material/wrench
 - **Fix**: Remove or re-generate the empty file; run `br.lake.doctor` to find it.
 
 ### 4. Rule seems ignored (all rows pass)
-- **Cause**: The rule references a column that doesn't exist, an unsupported dtype (dates, decimals…), or a value that can't be parsed into the column type — such rules are silently skipped per [Rule Syntax](../reference/rule-syntax.md#evaluation-semantics).
+- **Cause**: The rule references a column that doesn't exist, an unsupported dtype (dates, decimals…), or a value that can't be parsed into the column type, such rules are silently skipped per [Rule Syntax](../reference/rule-syntax.md#evaluation-semantics).
 - **Fix**: Verify column names via `br.read.slice_rows(path, 0, 1).schema`.
 
 ### 5. SQL fails on JSON files

@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map replaces recursive filesystem walks with a single pre-compiled Arrow IPC file — `.br_map.ipc` — stored at the root of the data lake.
+Implemented in `src/engine/map.rs`. The Lake Map replaces recursive filesystem walks with a single pre-compiled Arrow IPC file, `.br_map.ipc`, stored at the root of the data lake.
 
 ---
 

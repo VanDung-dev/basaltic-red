@@ -34,7 +34,7 @@ sequenceDiagram
 
 Thay vì tạo các mảng boolean trung gian gây tốn RAM, `basaltic-red` cập nhật trực tiếp cờ bit trên bộ nhớ liên tục `Vec<u64>`:
 - **Không giới hạn số quy tắc**: Hỗ trợ >64 quy tắc mượt mà qua nhiều khối 64-bit.
-- **Mã lỗi Bitwise (Audit Error Code)**: Mỗi dòng bị loại trong bảng Trash được gắn kèm `audit_error_code` — bitmask `UInt64` trong đó bit thứ *i* báo hiệu quy tắc *i* bị vi phạm. Khi dùng hơn 64 quy tắc, cột danh sách `audit_violated_rules` bổ sung sẽ ghi lại toàn bộ chỉ số vi phạm.
+- **Mã lỗi Bitwise (Audit Error Code)**: Mỗi dòng bị loại trong bảng Trash được gắn kèm `audit_error_code`, bitmask `UInt64` trong đó bit thứ *i* báo hiệu quy tắc *i* bị vi phạm. Khi dùng hơn 64 quy tắc, cột danh sách `audit_violated_rules` bổ sung sẽ ghi lại toàn bộ chỉ số vi phạm.
 
 ---
 

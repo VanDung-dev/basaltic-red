@@ -23,15 +23,15 @@ Signatures below match `src/pyapi/*.rs`. All functions return PyArrow objects (`
 | :--- | :--- |
 | `slice_rows(file_path: str, offset: int, limit: int)` | `pyarrow.Table` |
 | `slice_cols(file_path: str, selected_cols: list[str], offset: int, limit: int)` | `pyarrow.Table` |
-| `preview_sample(file_path: str, limit_rows: int)` | `(pyarrow.Table, pyarrow.Table)` — static-threshold clean/trash split of the first batch |
+| `preview_sample(file_path: str, limit_rows: int)` | `(pyarrow.Table, pyarrow.Table)`, static-threshold clean/trash split of the first batch |
 
 ## `basaltic_red.filter`
 
 | Function | Returns |
 | :--- | :--- |
-| `process_batch(batch: pyarrow.RecordBatch)` | `(RecordBatch, RecordBatch)` — static-threshold clean/trash of one in-memory batch |
+| `process_batch(batch: pyarrow.RecordBatch)` | `(RecordBatch, RecordBatch)`, static-threshold clean/trash of one in-memory batch |
 | `process_file(file_path: str, batch_size: int)` | `(total_rows, clean_rows, trash_rows)` |
-| `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)` — dynamic rules; Trash gains audit columns |
+| `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)`, dynamic rules; Trash gains audit columns |
 | `filter_files_parallel(path_pattern: str, rules: list[str], partition_filter: str \| None = None, num_threads: int \| None = None)` | `dict` with keys `total_files`, `pruned_dirs`, `total_rows`, `clean_rows`, `trash_rows` |
 
 ## `basaltic_red.lake`
@@ -42,8 +42,8 @@ Signatures below match `src/pyapi/*.rs`. All functions return PyArrow objects (`
 | `split_file(file_path: str, max_rows_per_file: int, output_dir: str, format: str)` | number of parts written |
 | `process_and_write_lake(input_dir: str, clean_output_dir: str, trash_output_dir: str, partition_filter: str \| None, batch_size: int)` | `(total_files, total_rows, clean_rows, trash_rows)` |
 | `generate_gold_table(input_dir: str, gold_output_dir: str, table_version: str, partition_filter: str \| None, batch_size: int)` | `(files_read, gold_rows, manifest_path)` |
-| `create_map(dir_path: str)` | path to the written `.br_map.ipc` (`str`) |
-| `doctor(dir_path: str, auto_heal: bool = False)` | dict — see [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
+| `create_map(dir_path: str, show_progress: bool = True)` | path to the written `.br_map.ipc` (`str`) |
+| `doctor(dir_path: str, auto_heal: bool = False)` | dict, see [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
 
 ## `basaltic_red.sql`
 
@@ -54,7 +54,7 @@ Signatures below match `src/pyapi/*.rs`. All functions return PyArrow objects (`
 
 ### `PyBatchIterator`
 
-- iterable — yields PyArrow `RecordBatch` objects
+- iterable, yields PyArrow `RecordBatch` objects
 - `to_pyarrow()` → complete `pyarrow.Table`
 - `repr()` → `PyBatchIterator(batches=N, rows=M)`
 
@@ -77,7 +77,7 @@ The `FROM '<path>'` target may be a file or directory. See [DataFusion SQL Layer
 | Function | Returns |
 | :--- | :--- |
 | `register_delimited(ext: str, delimiter: str, has_header: bool = True)` | registers a custom delimited handler (first byte of `delimiter` is used) |
-| `unregister_format(ext: str)` | `bool` — whether a dynamic handler was removed |
+| `unregister_format(ext: str)` | `bool`, whether a dynamic handler was removed |
 | `list_formats()` | sorted `list[str]` of supported extensions |
 
 ---

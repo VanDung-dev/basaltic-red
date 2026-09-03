@@ -8,7 +8,7 @@ icon: material/notebook
 
 ## Tổng quan sổ tay `demo.ipynb`
 
-Sổ tay `demo.ipynb` chạy toàn bộ pipeline trên dữ liệu NYC Yellow Taxi 2009–2025 (204 file Parquet, 29.66 GB, 1,826,960,642 dòng — chỉnh `start_year`/`end_year` trong cell tải dữ liệu):
+Sổ tay `demo.ipynb` chạy toàn bộ pipeline trên dữ liệu NYC Yellow Taxi 2009 đến 2025 (204 file Parquet, 29.66 GB, 1,826,960,642 dòng, chỉnh `start_year`/`end_year` trong cell tải dữ liệu):
 
 1. **Step 0**: Thiết lập môi trường, build Maturin, dọn dẹp workspace, cấu hình biến `target_year` tải dữ liệu.
 2. **Step 1**: Khởi tạo Bác sĩ Data Lake & trích xuất schema zero-copy.

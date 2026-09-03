@@ -16,10 +16,10 @@ sequenceDiagram
     participant P as Data Pipeline
     participant D as Lake Doctor
 
-    P->>D: entry check — doctor("data", auto_heal=True)
+    P->>D: entry check: doctor("data", auto_heal=True)
     D-->>P: HEALTHY baseline · catalog ready
     P->>P: ingest · slicing · SIMD filters · SQL
-    P->>D: exit check — doctor("data", auto_heal=True)
+    P->>D: exit check: doctor("data", auto_heal=True)
     D-->>P: 100% integrity · zero orphaned state
 ```
 

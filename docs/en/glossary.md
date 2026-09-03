@@ -1,6 +1,6 @@
 ---
 title: Glossary
-description: Quick-reference map of terms, source locations, and vocabulary — not narrative documentation
+description: Quick-reference map of terms, source locations, and vocabulary, not narrative documentation
 icon: material/book-alphabet
 ---
 
@@ -28,7 +28,7 @@ Quick lookup only. For explanations, follow the linked component pages.
 | SQL layer | `src/engine/sql.rs` | DataFusion session, ListingTable vs MemTable, `.br_cache` |
 | `PyBatchIterator` | `src/pyapi/iterator.rs` | Eager/Lazy batch source, `to_pyarrow()` |
 | Format trait | `src/engine/formats/mod.rs` | `FormatHandler`, registries, magic-byte sniffer |
-| Tier 1–3 handlers | `formats/core/`, `common/`, `plugins/adapters/` | Parquet/Feather · CSV & JSON families · XLSX/Avro/ORC/MsgPack |
+| Tier 1 to 3 handlers | `formats/core/`, `common/`, `plugins/adapters/` | Parquet/Feather · CSV & JSON families · XLSX/Avro/ORC/MsgPack |
 | Row chunking | `formats/plugins/base_templates/row_chunker.rs` | Shared row→batch conversion template |
 | Lake Map | `src/engine/map.rs` | `LakeMap`, `.br_map.ipc` IO, `doctor_lake_map` |
 | Memory budget | `src/engine/memory.rs` | RAM cap, batch sizing, tokio/Rayon runtimes |
@@ -40,11 +40,11 @@ Quick lookup only. For explanations, follow the linked component pages.
 
 | Term | Definition |
 | :--- | :--- |
-| RecordBatch | Arrow columnar chunk — unit of streaming everywhere |
+| RecordBatch | Arrow columnar chunk, unit of streaming everywhere |
 | `OpenedSource` | Schema + lazy batch iterator returned by a handler |
 | Clean / Trash | Rows passing all rules vs violating ≥1 rule |
 | Bitmask chunk | 64 rules per `u64`; rule *i* → bit `i % 64` of chunk `i / 64` |
-| `audit_error_code` | `UInt64` bitmask of violated rules 0–63 on Trash rows |
+| `audit_error_code` | `UInt64` bitmask of violated rules 0 to 63 on Trash rows |
 | `audit_violated_rules` | `List<UInt32>` of all violated indices (rules > 64 only) |
 | `.br_map.ipc` | Arrow IPC catalog at lake root (5 columns, see spec) |
 | Doctor status | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |

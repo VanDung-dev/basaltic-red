@@ -8,7 +8,7 @@ icon: material/notebook
 
 ## Overview of `demo.ipynb`
 
-The `demo.ipynb` notebook runs the full pipeline on the NYC Yellow Taxi 2009–2025 dataset (204 Parquet files, 29.66 GB, 1,826,960,642 rows — configurable `start_year`/`end_year` in the downloader cell):
+The `demo.ipynb` notebook runs the full pipeline on the NYC Yellow Taxi 2009 to 2025 dataset (204 Parquet files, 29.66 GB, 1,826,960,642 rows, configurable `start_year`/`end_year` in the downloader cell):
 
 1. **Step 0**: Environment setup, Maturing build, workspace cleanup, configurable `target_year` downloader.
 2. **Step 1**: Lake Doctor initialization & zero-copy schema extraction.

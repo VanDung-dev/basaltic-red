@@ -1,6 +1,6 @@
 ---
 title: Filtering Pipeline
-description: From rule strings to clean/trash batches — single-file matrix filter and Rayon multi-file parallel filter
+description: From rule strings to clean/trash batches, single-file matrix filter and Rayon multi-file parallel filter
 icon: material/filter-variant
 ---
 
@@ -8,8 +8,8 @@ icon: material/filter-variant
 
 Two entry points share the same [bitmask kernel](simd-kernel.md):
 
-- `filter_matrix(file_path, rules)` — one file, returns `(clean_table, trash_table)`.
-- `filter_files_parallel(path_pattern, rules)` — many files via Rayon, returns a summary dict.
+- `filter_matrix(file_path, rules)`, one file, returns `(clean_table, trash_table)`.
+- `filter_files_parallel(path_pattern, rules)`, many files via Rayon, returns a summary dict.
 
 ---
 
@@ -39,10 +39,10 @@ Filtering runs batch-by-batch so peak memory stays at [batch budget](#memory-beh
 
 ## Multi-File Parallel Filter (`engine/parallel_filter.rs`)
 
-1. **Target collection** — `collect_target_files()` accepts a single file path, a directory (walked recursively), or a glob pattern (`*`, `?`, `[...]`). Directories are walked with partition awareness.
-2. **Partition pruning** — for Hive-style layouts (`year=2026/month=08/...`), `parse_path_partitions()` extracts key/value pairs from each path and `matches_partition_rules()` drops whole files before opening them. Pass an explicit filter like `"year=2026/month=08"` or rules on partition columns.
-3. **Rayon execution** — surviving files are filtered across the global Rayon pool; optional `num_threads` overrides pool width.
-4. **Summary** — counts are reduced into a dict:
+1. **Target collection**, `collect_target_files()` accepts a single file path, a directory (walked recursively), or a glob pattern (`*`, `?`, `[...]`). Directories are walked with partition awareness.
+2. **Partition pruning**, for Hive-style layouts (`year=2026/month=08/...`), `parse_path_partitions()` extracts key/value pairs from each path and `matches_partition_rules()` drops whole files before opening them. Pass an explicit filter like `"year=2026/month=08"` or rules on partition columns.
+3. **Rayon execution**, surviving files are filtered across the global Rayon pool; optional `num_threads` overrides pool width.
+4. **Summary**, counts are reduced into a dict:
 
 ```python
 summary = br.filter.filter_files_parallel(
@@ -60,7 +60,7 @@ summary = br.filter.filter_files_parallel(
 
 !!! note "Parallel mode writes no output"
 
-    `filter_files_parallel` is a *counting* pass — it reports how many rows would survive. To materialize clean/trash Parquet outputs per directory, use [`br.lake.process_and_write_lake`](lakehouse-pipeline.md).
+    `filter_files_parallel` is a *counting* pass, it reports how many rows would survive. To materialize clean/trash Parquet outputs per directory, use [`br.lake.process_and_write_lake`](lakehouse-pipeline.md).
 
 ---
 

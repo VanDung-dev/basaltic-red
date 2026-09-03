@@ -73,12 +73,10 @@ Run a quick Python command to verify that the PyO3 bindings and Rust SIMD engine
 ```python
 import basaltic_red as br
 
-print("Basaltic-Red Version:", br.__version__)
 print("Available Modules:", [m for m in dir(br) if not m.startswith("_")])
 ```
 
 Output:
 ```text
-Basaltic-Red Version: 0.1.0
 Available Modules: ['MatrixEngine', 'PyBatchIterator', 'dictionary', 'filter', 'formats', 'graph', 'lake', 'read', 'sql']
 ```

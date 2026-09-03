@@ -6,7 +6,7 @@ icon: material/file-code
 
 # Format Registry & Magic-Byte Sniffing
 
-Every file access in `basaltic-red` resolves to a `FormatHandler` — the pluggable abstraction in `src/engine/formats/mod.rs`.
+Every file access in `basaltic-red` resolves to a `FormatHandler`, the pluggable abstraction in `src/engine/formats/mod.rs`.
 
 ---
 
@@ -30,7 +30,7 @@ pub trait FormatHandler: Send + Sync {
 }
 ```
 
-Handlers return a lazy `OpenedSource` — an Arrow schema plus a streaming batch iterator. Row-based formats (CSV, JSONL, XLSX) chunk their rows through shared templates in `plugins/base_templates/row_chunker.rs`; columnar formats (Parquet, IPC) stream natively.
+Handlers return a lazy `OpenedSource`, an Arrow schema plus a streaming batch iterator. Row-based formats (CSV, JSONL, XLSX) chunk their rows through shared templates in `plugins/base_templates/row_chunker.rs`; columnar formats (Parquet, IPC) stream natively.
 
 ---
 
@@ -40,9 +40,9 @@ Static table `HANDLERS` maps extensions to handlers:
 
 | Tier | Extensions | Handler source |
 | :--- | :--- | :--- |
-| **1 — Core** | `parquet`, `pq`, `feather`, `arrow`, `ipc` | `formats/core/parquet.rs`, `formats/core/arrow_ipc.rs` |
-| **2 — Common** | `csv`, `tsv`, `psv`, `txt`, `json`, `jsonl`, `ndjson` | `formats/common/csv.rs`, `formats/common/json.rs` |
-| **3 — Pluggable adapters** | `xlsx`, `avro`, `orc`, `msgpack` | `formats/plugins/adapters/` |
+| **1, Core** | `parquet`, `pq`, `feather`, `arrow`, `ipc` | `formats/core/parquet.rs`, `formats/core/arrow_ipc.rs` |
+| **2, Common** | `csv`, `tsv`, `psv`, `txt`, `json`, `jsonl`, `ndjson` | `formats/common/csv.rs`, `formats/common/json.rs` |
+| **3, Pluggable adapters** | `xlsx`, `avro`, `orc`, `msgpack` | `formats/plugins/adapters/` |
 
 Delimited variants share one template (`plugins/base_templates/delimited.rs`) differing only in delimiter byte and header flag.
 
@@ -52,8 +52,8 @@ Delimited variants share one template (`plugins/base_templates/delimited.rs`) di
 
 `resolve_handler_for_file()` tries, in order:
 
-1. **Extension lookup** (`handler_for`) — O(1), checks the *dynamic registry first*, then the static table. Extension case is normalized to lowercase.
-2. **Magic-byte sniffing** (`sniff_format_from_file`) — reads the first 512 bytes and inspects them via `sniff_format_from_bytes`:
+1. **Extension lookup** (`handler_for`), O(1), checks the *dynamic registry first*, then the static table. Extension case is normalized to lowercase.
+2. **Magic-byte sniffing** (`sniff_format_from_file`), reads the first 512 bytes and inspects them via `sniff_format_from_bytes`:
 
 | Header signature | Resolved format |
 | :--- | :--- |
@@ -62,7 +62,7 @@ Delimited variants share one template (`plugins/base_templates/delimited.rs`) di
 | `PK\x03\x04` (Zip) | `xlsx` |
 | `Obj\x01` | `avro` |
 | `ORC` | `orc` |
-| `0x80–0x8F / 0xDE / 0xDF` (MessagePack map) | `msgpack` |
+| `0x80 to 0x8F / 0xDE / 0xDF` (MessagePack map) | `msgpack` |
 | first non-space byte `[` | `json` |
 | first non-space byte `{` | `ndjson` |
 | UTF-8 text line containing `\t` / `\|` / `;` / `,` | `tsv` / `psv` / `txt` / `csv` |

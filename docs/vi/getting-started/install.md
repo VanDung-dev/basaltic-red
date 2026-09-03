@@ -69,12 +69,10 @@ Vì `basaltic-red` được cấu hình chuẩn build backend PEP 517 với Matu
 ```python
 import basaltic_red as br
 
-print("Phiên bản Basaltic-Red:", br.__version__)
 print("Các module khả dụng:", [m for m in dir(br) if not m.startswith("_")])
 ```
 
 Kết quả:
 ```text
-Phiên bản Basaltic-Red: 0.1.0
 Các module khả dụng: ['MatrixEngine', 'PyBatchIterator', 'dictionary', 'filter', 'formats', 'graph', 'lake', 'read', 'sql']
 ```

@@ -28,13 +28,13 @@ br.read.slice_rows(...)
 # Custom thresholds for advanced use
 engine = br.MatrixEngine(
     min_passenger=0,
-    max_passenger=20,     # raises ValueError if min > max
+    max_passenger=20,
     min_fare=-5.0,
     max_speed_mph=200.0,
 )
 ```
 
-`br.MatrixEngine(...)` accepts the same arguments positionally or by keyword. The shared instance is created once per process via a `OnceLock`, so thresholds never drift between sub-commands.
+`br.MatrixEngine(...)` accepts the same arguments positionally or by keyword. Thresholds determine static validation filtering criteria. The shared instance is created once per process via a `OnceLock`, so thresholds never drift between sub-commands.
 
 ---
 
@@ -54,7 +54,7 @@ Both slice methods resolve the handler through the [format registry](formats.md)
 
 ## Error Taxonomy
 
-All engine failures flow through one enum — `BazanError` in `src/error.rs` — mapped to Python by a single function (`src/pyapi/mod.rs`):
+All engine failures flow through one enum, `BazanError` in `src/error.rs`, mapped to Python by a single function (`src/pyapi/mod.rs`):
 
 | Rust variant | Python exception | Typical cause |
 | :--- | :--- | :--- |
@@ -68,5 +68,5 @@ Rule-syntax problems raised before execution are surfaced as `ValueError` direct
 
 ## Static vs Dynamic Filtering
 
-- **Static fast path** (`src/filter.rs` + `engine/filter.rs`): three fixed bit flags — passenger range, minimum fare, distance/fare anomaly — evaluated with Arrow compute kernels over whole columns (fully vectorized). Used by `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`. No rule parsing overhead; expects NYC-taxi-style columns (`passenger_count`, `fare_amount`, `trip_distance`) and ignores rows silently when a column is absent.
+- **Static fast path** (`src/filter.rs` + `engine/filter.rs`): three fixed bit flags, passenger range, minimum fare, distance/fare anomaly, evaluated with Arrow compute kernels over whole columns (fully vectorized). Used by `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`. No rule parsing overhead; expects NYC-taxi-style columns (`passenger_count`, `fare_amount`, `trip_distance`) and ignores rows silently when a column is absent.
 - **Dynamic kernel** (`engine/dynamic_filter.rs`): arbitrary user rules parsed from strings against any supported column type. See [SIMD Bitmask Kernel](simd-kernel.md).

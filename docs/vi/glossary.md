@@ -1,6 +1,6 @@
 ---
 title: Bảng thuật ngữ
-description: Đối chiếu nhanh thuật ngữ, vị trí mã nguồn và từ vựng — không phải tài liệu diễn giải
+description: Đối chiếu nhanh thuật ngữ, vị trí mã nguồn và từ vựng, không phải tài liệu diễn giải
 icon: material/book-alphabet
 ---
 
@@ -28,7 +28,7 @@ Chỉ dùng để tra nhanh. Muốn giải thích chi tiết, theo link sang tra
 | Tầng SQL | `src/engine/sql.rs` | Phiên DataFusion, ListingTable vs MemTable, `.br_cache` |
 | `PyBatchIterator` | `src/pyapi/iterator.rs` | Nguồn batch Eager/Lazy, `to_pyarrow()` |
 | Trait định dạng | `src/engine/formats/mod.rs` | `FormatHandler`, registry, bộ sniff magic-byte |
-| Handler tầng 1–3 | `formats/core/`, `common/`, `plugins/adapters/` | Parquet/Feather · họ CSV & JSON · XLSX/Avro/ORC/MsgPack |
+| Handler tầng 1 đến 3 | `formats/core/`, `common/`, `plugins/adapters/` | Parquet/Feather · họ CSV & JSON · XLSX/Avro/ORC/MsgPack |
 | Row chunking | `formats/plugins/base_templates/row_chunker.rs` | Template chuyển dòng → batch dùng chung |
 | Lake Map | `src/engine/map.rs` | `LakeMap`, IO `.br_map.ipc`, `doctor_lake_map` |
 | Ngân sách bộ nhớ | `src/engine/memory.rs` | Trần RAM, tính batch, runtime tokio/Rayon |
@@ -40,11 +40,11 @@ Chỉ dùng để tra nhanh. Muốn giải thích chi tiết, theo link sang tra
 
 | Thuật ngữ | Định nghĩa |
 | :--- | :--- |
-| RecordBatch | Chunk cột Arrow — đơn vị streaming ở mọi nơi |
+| RecordBatch | Chunk cột Arrow, đơn vị streaming ở mọi nơi |
 | `OpenedSource` | Schema + iterator batch lazy do handler trả về |
 | Clean / Trash | Dòng đạt mọi quy tắc vs vi phạm ≥1 quy tắc |
 | Khối bitmask | 64 quy tắc mỗi `u64`; quy tắc *i* → bit `i % 64` của khối `i / 64` |
-| `audit_error_code` | Bitmask `UInt64` các quy tắc 0–63 bị vi phạm trên dòng Trash |
+| `audit_error_code` | Bitmask `UInt64` các quy tắc 0 đến 63 bị vi phạm trên dòng Trash |
 | `audit_violated_rules` | `List<UInt32>` toàn bộ chỉ số vi phạm (chỉ khi >64 quy tắc) |
 | `.br_map.ipc` | Danh mục Arrow IPC tại gốc lake (5 cột, xem đặc tả) |
 | Trạng thái Doctor | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |

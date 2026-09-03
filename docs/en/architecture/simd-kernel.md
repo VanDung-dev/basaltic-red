@@ -18,7 +18,7 @@ The dynamic quality filter lives in `src/engine/dynamic_filter.rs`. It evaluates
 "<column> <op> <value>"   op ∈ { >=, <=, ==, !=, >, < }
 ```
 
-- Values may be quoted (`'` or `"`) — quotes are trimmed before parsing.
+- Values may be quoted (`'` or `"`), quotes are trimmed before parsing.
 - Numeric comparisons parse the right-hand side to the column's element type.
 - String columns (`Utf8`, `LargeUtf8`) compare lexicographically.
 
@@ -36,10 +36,10 @@ for (rule_idx, rule) in rules.iter().enumerate() {
 
 Properties:
 
-- **Zero allocation in the inner loop** — masks are preallocated once per batch (`Vec<Vec<u64>>`).
-- **Multi-chunk scaling** — `num_chunks = ceil(rules / 64)`; 1 or 500+ rules work identically.
-- **NULL handling** — null cells always fail the rule (row goes to Trash).
-- **Unknown column or unsupported dtype** — the rule is silently skipped for that batch (no rows flagged by it).
+- **Zero allocation in the inner loop**, masks are preallocated once per batch (`Vec<Vec<u64>>`).
+- **Multi-chunk scaling**, `num_chunks = ceil(rules / 64)`; 1 or 500+ rules work identically.
+- **NULL handling**, null cells always fail the rule (row goes to Trash).
+- **Unknown column or unsupported dtype**, the rule is silently skipped for that batch (no rows flagged by it).
 
 Supported column types: `Int8/16/32/64`, `UInt8/16/32/64`, `Float32/64`, `Utf8`, `LargeUtf8`.
 
@@ -51,8 +51,8 @@ After evaluation, rows are split with `filter_record_batch` and the Trash batch 
 
 | Column | Type | Present when |
 | :--- | :--- | :--- |
-| `audit_error_code` | `UInt64` | always — bitmask of violated rules **0–63** (first chunk) |
-| `audit_violated_rules` | `List<UInt32>` | only when **rules > 64** — list of all violated rule indices |
+| `audit_error_code` | `UInt64` | always, bitmask of violated rules **0 to 63** (first chunk) |
+| `audit_violated_rules` | `List<UInt32>` | only when **rules > 64**, list of all violated rule indices |
 
 Decoding `audit_error_code`: bit *i* set ⇔ rule *i* was violated, e.g. code `0b101` means rules 0 and 2 failed. For rule sets beyond 64 rules, read `audit_violated_rules` instead of relying on the single `UInt64`.
 

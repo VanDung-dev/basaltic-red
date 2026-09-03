@@ -14,7 +14,7 @@ Các module phía ghi của `src/engine/`: `ingest.rs`, `splitter.rs`, `formats/
 
 Sao chép thư mục nguồn vào đích lake, giữ nguyên bố cục tương đối:
 
-- Các định dạng theo dòng (`csv, tsv, psv, txt, json, jsonl, ndjson, msgpack, xlsx`) được **chuyển đổi sang Parquet** khi bật chuẩn hóa — qua `auto_normalize=True` hoặc biến môi trường `BR_INGEST_NORMALIZE=1`.
+- Các định dạng theo dòng (`csv, tsv, psv, txt, json, jsonl, ndjson, msgpack, xlsx`) được **chuyển đổi sang Parquet** khi bật chuẩn hóa, qua `auto_normalize=True` hoặc biến môi trường `BR_INGEST_NORMALIZE=1`.
 - Còn lại được sao chép nguyên byte.
 
 Trả về `(files_ingested, rows_ingested)`.
@@ -77,4 +77,4 @@ Mọi luồng đọc/ghi streaming dùng chung một ngân sách từ `src/engin
 | Trần RAM tổng | biến môi trường `BASALTIC_RED_MAX_RAM_GB`, mặc định **2 GB** |
 | Hệ số an toàn | ×3.5 cho buffer tạm mask/clean/trash |
 
-Hai runtime cấp tiến trình được tạo lười: runtime tokio đa luồng (`global_runtime()`, dùng cho luồng DataFusion) và pool Rayon có kích thước (`global_rayon_pool(threads)`). `recommend_batch_size(parallel_streams)` trả về số dòng mỗi luồng đã tính nếu bạn cần truyền `batch_size` tường minh.
+Hai runtime cấp tiến trình được tạo lười: runtime tokio đa luồng (`global_runtime()`, dùng cho luồng DataFusion) và pool Rayon có kích thước (`global_rayon_pool(threads)`). Về mặt nội bộ, `budget_batch_rows(parallel_streams)` tự động tính toán kích thước buffer cho từng stream nhằm luôn bám sát tổng ngân sách bộ nhớ quy định.
