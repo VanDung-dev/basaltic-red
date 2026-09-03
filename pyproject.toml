@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Core: the extension returns pyarrow Table/RecordBatch — this is the
     # only hard runtime dependency.
-    "pyarrow>=25.0.0",
+    "pyarrow==25.0.1",
 ]
 
 # Install a group with:  uv sync --extra <group>   (--all-extras for everything)
@@ -38,7 +38,7 @@ dev = [
     "maturin>=1.14.0",  # uv run maturin develop
 ]
 doc = [
-    "zensical>=0.0.43",
+    "zensical>=0.0.58",
 ]
 
 [tool.maturin]
