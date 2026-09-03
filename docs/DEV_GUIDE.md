@@ -32,7 +32,7 @@ Rebuild with `maturin develop --release` after every `src/` change before runnin
 | Suite | Command | Notes |
 | :--- | :--- | :--- |
 | Rust integration | `cargo test --all-targets` | Fixtures under `tests/*.rs` (formats, lake map, read_unified, parallel_filter…) |
-| Python API | `uv run pytest tests/python/ -v` | `test_engine.py` is the executable API contract — keep docs examples in sync with it |
+| Python API | `uv run pytest tests/python/ -v` | `test_engine.py` is the executable API contract, keep docs examples in sync with it |
 | Lint | `cargo clippy -- -D warnings` && `cargo check` | Must pass clean |
 
 ## Benchmark
@@ -46,13 +46,13 @@ Numbers quoted in docs belong in `en/other/benchmarks.md`; regenerate before upd
 ## Docs
 
 ```bash
-uv run zensical build                  # EN → site/
-uv run zensical build -f mkdocs.vi.yml # VI → site/vi/
+uv run zensical build                    # EN → site/
+uv run zensical build -f zensical.vi.toml # VI → site/vi/
 ```
 
 - Both builds must finish with **No issues found**.
 - `en/` first, then mirror to `vi/` in the same commit (identical nav, counts, dates).
-- VI heading anchors: diacritics stripped, `đ` dropped — check rendered HTML IDs when deep-linking.
+- VI heading anchors: diacritics stripped, `đ` dropped, check rendered HTML IDs when deep-linking.
 
 ## Changelog
 
@@ -60,7 +60,7 @@ Follow [`.agents/rules/01-changelog-rules.md`](../.agents/rules/01-changelog-rul
 
 1. Regenerate `commit.txt`: `git log --reverse --pretty='%h|%ad|%s' --date=short > commit.txt`
 2. Keep only changes still reflected in `src/` (+ `Cargo.toml`); classify Improvements vs Fix.
-3. Two admonitions under `## Unreleased` — `??? note "Improvements (N)"`, `??? warning "Fix (M)"` — dates nested newest-first, bullets labeled by component (`**Engine**:`, `**PyAPI**:`, …).
+3. Two admonitions under `## Unreleased`, `??? note "Improvements (N)"`, `??? warning "Fix (M)"`, dates nested newest-first, bullets labeled by component (`**Engine**:`, `**PyAPI**:`, …).
 4. Mirror EN → VI; title counts must equal actual bullet counts.
 
 ## Release Checklist

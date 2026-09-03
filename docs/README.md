@@ -1,10 +1,10 @@
-# docs/ — Documentation Workspace
+# docs/, Documentation Workspace
 
 This folder hosts the bilingual user documentation sites plus repository-level engineering references.
 
 ```
 docs/
-├── en/                    # English site source (mkdocs.yml → docs_dir)
+├── en/                    # English site source (zensical.toml → docs_dir)
 │   ├── architecture/      # Component deep-dives (one page per src/ module group)
 │   ├── getting-started/   # Install, quickstart, concepts
 │   ├── workflows/         # Task-oriented guides
@@ -12,7 +12,7 @@ docs/
 │   ├── reference/         # API / specs (python-api, rule-syntax, lake-map-spec, audit-codes)
 │   ├── glossary.md        # Term → source-file quick map
 │   └── other/             # Benchmarks, changelog
-├── vi/                    # Vietnamese mirror — identical nav & structure
+├── vi/                    # Vietnamese mirror, identical nav & structure
 ├── README.md              # This file
 ├── ARCHITECTURE.md        # System design summary
 ├── CODEBASE_REFERENCE.md  # File-by-file map of src/
@@ -22,11 +22,11 @@ docs/
 ## Build the Sites
 
 ```bash
-uv run zensical build                  # EN → site/
-uv run zensical build -f mkdocs.vi.yml # VI → site/vi/
+uv run zensical build                    # EN → site/
+uv run zensical build -f zensical.vi.toml # VI → site/vi/
 ```
 
-Both builds must pass with **no warnings** (`--strict`-clean). Anchors are slugified with diacritics stripped and `đ` dropped — verify VI anchors against rendered HTML when linking to headings.
+Both builds must pass with **no warnings** (`--strict`-clean). Anchors are slugified with diacritics stripped and `đ` dropped, verify VI anchors against rendered HTML when linking to headings.
 
 ## Editing Rules
 

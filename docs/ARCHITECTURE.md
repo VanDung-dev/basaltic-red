@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-System design summary for `basaltic-red` — a Rust compute core compiled as a Python extension (PyO3 + Maturin, `cdylib`). Full component pages live in [`en/architecture/`](en/architecture/); this file is the condensed map.
+System design summary for `basaltic-red`, a Rust compute core compiled as a Python extension (PyO3 + Maturin, `cdylib`). Full component pages live in [`en/architecture/`](en/architecture/); this file is the condensed map.
 
 ## Layers
 
@@ -60,7 +60,7 @@ classDiagram
     }
 
     class StaticRefHandler {
-        <<Tier 1–3 built-ins>>
+        <<Tier 1-3 built-ins>>
         wraps &'static dyn FormatHandler
     }
     class DelimitedFormatHandler {
@@ -85,7 +85,7 @@ Resolution order: **dynamic registry** (`register_format`) → static table → 
 ## Key Invariants
 
 1. Clean output always preserves the input schema exactly; only Trash gains audit columns.
-2. Filtering never mutates data — it decides membership only.
+2. Filtering never mutates data, it decides membership only.
 3. Unknown columns / unsupported dtypes make a dynamic rule a no-op (never an error mid-stream).
 4. Every file access resolves through a `FormatHandler`; there is no format-specific branch outside `formats/`.
 5. Python-facing results are always PyArrow objects crossing via the zero-copy interface.
