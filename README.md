@@ -6,26 +6,45 @@
 [![Arrow](https://img.shields.io/badge/Arrow--rs-58.4.0-red.svg)](https://crates.io/crates/arrow)
 [![DataFusion](https://img.shields.io/badge/DataFusion-54.1.0-purple.svg)](https://crates.io/crates/datafusion)
 
-> **Zero-copy Data Lake and data-quality engine in Rust + Apache Arrow (Python via PyO3)**
+> Data lake acceleration and data-quality toolkit in Rust and Apache Arrow with Python bindings via PyO3.
 
-`basaltic-red` provides a Rust core for working with file-based data lakes: a memory-mapped catalog (`.br_map.ipc`), row/column slicing without full file reads, parallel data-quality filtering with per-row audit codes, and DataFusion SQL over Arrow batches. Python is a thin PyO3 layer; results are returned as `pyarrow.Table` / `RecordBatch` for use with Polars, DuckDB, pandas, etc.
+`basaltic-red` is not a database. It has no background daemon, network socket, or proprietary storage format. It is a companion toolkit designed to work with existing query engines like DuckDB, Polars, PyArrow, pandas, and DataFusion.
 
-Demo dataset in [`demo.ipynb`](demo.ipynb): **NYC TLC Yellow Taxi 2009–2025, 204 Parquet files, 29.66 GB, 1,826,960,642 rows × 20 columns** (verified by `pq.read_metadata` in the notebook).
+Utilities for file-based data lakes:
+* Memory-mapped lake catalog (`.br_map.ipc`): loads metadata in under 0.5 ms via OS `mmap`, with automated drift detection (`br.lake.doctor`) and a terminal progress bar.
+* Zero-copy slicing (`br.read`): reads row ranges and column projections without loading entire multi-gigabyte files into RAM.
+* Parallel data-quality filtering (`br.filter`): multi-threaded dynamic rule validation with per-row `u64` audit bitmasks that separate clean from invalid rows.
+* Embedded SQL execution (`br.sql`): runs in-memory DataFusion SQL queries over directories and hands RecordBatches to DuckDB or Polars without copying data.
+* Custom format registration & sniffing (`br.formats`): detects file types via magic bytes and enables user-defined delimiters without recompiling.
+
+Demo dataset in [`demo.ipynb`](demo.ipynb): NYC TLC Yellow Taxi 2009 to 2025, containing 204 Parquet files, 29.66 GB, and 1,826,960,642 rows by 20 columns.
 
 ---
 
-## What the demo measures
+## Comparison with traditional databases
 
-Numbers below are from a single run of `demo.ipynb` on commodity hardware (Apple Silicon, macOS). They vary by machine, filesystem cache and dataset layout — treat them as indicative, not guarantees.
+| Feature | Basaltic-Red | Databases (ClickHouse, PostgreSQL) |
+| :--- | :--- | :--- |
+| Architecture | In-process Python extension (Rust cdylib) | Standalone server daemon process |
+| Storage format | Open files (Parquet, Arrow IPC, CSV, JSON, Avro, ORC) | Internal table storage and WAL files |
+| Network and ports | In-process via Arrow C Data Interface | TCP sockets and wire protocols |
+| Role in ecosystem | Pre-processing, cataloging, quality auditing, slicing | Persistent storage and query serving |
+| Interoperability | Direct zero-copy handoff to DuckDB, Polars, PyArrow | Client drivers and network serialization |
+
+---
+
+## Observed measurements
+
+Numbers below are from a run of `demo.ipynb` on an Apple Silicon Mac. Results vary by hardware, filesystem cache, and data layout.
 
 | Scenario | Scope | Observed in demo |
 | :--- | :--- | :--- |
-| **Catalog inspection (cold vs warm)** | 204 files | Cold scan + map build ~18.07 s → warm `memmap2` read ~0.5 ms (avg over 5 runs). Orders of magnitude faster because warm path avoids a directory walk. |
-| **Volume scan (metadata only)** | 1,826,960,642 rows (36.5B cells) | Metadata crawl (row counts + file sizes) completes in under a second; reported as ~0.7 s in the notebook. |
-| **Full-lake quality filter** | 1,826,960,642 rows, 5 rules | ~21 s end-to-end via Rayon parallel read + filter (`filter_files_parallel`). Summary: 1,780,228,507 clean / 46,732,135 trash on those 5 rules. |
-| **Single-file SQL aggregation** | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` completes in ~0.1 s; zero-copy handoff to DuckDB/Polars via `to_pyarrow()`. |
+| Catalog inspection (cold vs warm) | 204 files | Cold scan and map build took ~18.07 s; warm `memmap2` read took ~0.5 ms (average over 5 runs). Warm path avoids traversing the directory tree. |
+| Volume scan (metadata only) | 1,826,960,642 rows (36.5B cells) | Metadata read of row counts and file sizes completed in ~0.7 s. |
+| Full-lake quality filter | 1,826,960,642 rows, 5 rules | Took ~21 s using Rayon parallel read and filter (`filter_files_parallel`), yielding 1,780,228,507 clean rows and 46,732,135 invalid rows. |
+| Single-file SQL aggregation | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` took ~0.1 s, followed by zero-copy handoff to DuckDB or Polars. |
 
-> Filtering uses plain Rust loops over Arrow arrays that LLVM auto-vectorizes; the "SIMD" label in older docs means auto-vectorized, not hand-written intrinsics. Audit codes are `u64` bitmasks per row (bit *i* = rule *i* violated, chunked for >64 rules).
+Filtering uses plain Rust loops over Arrow arrays that LLVM auto-vectorizes. Audit codes are `u64` bitmasks per row (bit *i* corresponds to rule *i* failure, chunked when rules exceed 64).
 
 ---
 
@@ -61,24 +80,25 @@ import basaltic_red as br
 import polars as pl
 import duckdb
 
-# 1. Diagnose / create the catalog. First call builds .br_map.ipc; later calls are mmap'd.
+# 1. Build or diagnose the catalog
+map_path = br.lake.create_map("data", show_progress=True)
 report = br.lake.doctor("data", auto_heal=True)
-print(report["status"], report["total_files"])  # HEALTHY / HEALED / DRIFT_DETECTED
+print(report["status"], report["total_files"])
 
 # 2. Slice rows without reading the whole file
 table = br.read.slice_rows("data/yellow_tripdata_2025-12.parquet", offset=0, limit=100)
 df = pl.from_arrow(table)
 
-# 3. Filter with dynamic rules. Returns (clean, trash) Arrow tables; trash has audit_error_code.
+# 3. Parallel filter with dynamic rules (returns summary statistics)
 summary = br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[
     "passenger_count >= 1",
     "trip_distance > 0.0",
     "fare_amount > 0.0",
     "total_amount > 0.0",
 ])
-print(summary)  # {total_files, total_rows, clean_rows, trash_rows}
+print(summary)
 
-# 4. SQL over files via DataFusion, then hand off to DuckDB/Polars
+# 4. Run SQL via DataFusion, then hand off to DuckDB or Polars
 stream = br.sql.execute_sql_stream(
     "SELECT passenger_count, AVG(fare_amount) FROM 'data/yellow_tripdata_2025-12.parquet' GROUP BY passenger_count"
 )
@@ -86,7 +106,7 @@ duck_rel = duckdb.from_arrow(stream.to_pyarrow())
 print(duck_rel.df())
 ```
 
-See `demo.ipynb` sections 0–6 for the full pipeline: download → doctor → schema → preview → filter → SQL → lake-map drift simulation → final audit.
+See `demo.ipynb` sections 0 to 6 for the full pipeline: download, doctor, schema, preview, filter, SQL, lake-map drift simulation, and final audit.
 
 ---
 
@@ -95,9 +115,9 @@ See `demo.ipynb` sections 0–6 for the full pipeline: download → doctor → s
 | Group | Operation | Call |
 | :--- | :--- | :--- |
 | `lake` | Diagnose / heal catalog | `br.lake.doctor("data", auto_heal=True)` |
-| `lake` | Build catalog | `br.lake.create_map("data")` |
+| `lake` | Build catalog | `br.lake.create_map("data", show_progress=True)` |
 | `read` | Row slice | `br.read.slice_rows("file.parquet", offset=0, limit=100)` |
-| `read` | Column projection | `br.read.slice_cols("file.parquet", columns=["fare_amount", "trip_distance"])` |
+| `read` | Column projection | `br.read.slice_cols("file.parquet", selected_cols=["fare_amount", "trip_distance"], offset=0, limit=100)` |
 | `filter` | In-memory filter (one file) | `clean, trash = br.filter.filter_matrix("file.parquet", rules=[...])` |
 | `filter` | Parallel filter (many files) | `br.filter.filter_files_parallel("data/*.parquet", rules=[...])` |
 | `sql` | DataFusion stream | `br.sql.execute_sql_stream("SELECT * FROM 'file.parquet'")` |
@@ -110,4 +130,4 @@ Full reference: `docs/en/reference/python-api.md`. Rules syntax: `docs/en/refere
 
 ## License
 
-Distributed under the **[MIT License](LICENSE)**.
+Distributed under the [MIT License](LICENSE).
