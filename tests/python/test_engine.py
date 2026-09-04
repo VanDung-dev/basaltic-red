@@ -463,3 +463,48 @@ def test_create_map_with_progress(tmp_path):
     assert report["healthy_count"] == 5
 
 
+def test_sql_with_string_literal_before_from(tmp_path):
+    p = _write_format(tmp_path, "parquet")
+    # Verifies string literal 'active' before FROM clause is not parsed as file path
+    res = basaltic_red.sql.execute_sql(
+        f"SELECT 'active' AS status, passenger_count FROM '{p}' WHERE passenger_count > 0"
+    )
+    assert res.num_rows > 0
+    assert "status" in res.column_names
+    assert res["status"][0].as_py() == "active"
+
+
+def test_path_sandboxing_violation(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    data_dir = tmp_path / "allowed_data"
+    data_dir.mkdir()
+    p = _write_format(data_dir, "parquet")
+
+    monkeypatch.setenv("BASALTIC_RED_DATA_ROOT", str(data_dir))
+
+    # Allowed path inside sandbox succeeds
+    res = basaltic_red.sql.execute_sql(f"SELECT * FROM '{p}'")
+    assert res.num_rows > 0
+
+    # Path outside sandbox is rejected
+    outside_file = tmp_path / "outside.parquet"
+    pq.write_table(pa.Table.from_pydict({"x": [1]}), outside_file)
+
+    with pytest.raises(Exception) as exc_info:
+        basaltic_red.sql.execute_sql(f"SELECT * FROM '{outside_file}'")
+    assert "Path traversal denied" in str(exc_info.value)
+
+
+def test_lake_map_atomic_write_and_doctor(tmp_path):
+    from pathlib import Path
+    lake_dir = tmp_path / "atomic_lake"
+    lake_dir.mkdir()
+    _write_format(lake_dir, "parquet")
+
+    map_path = basaltic_red.lake.create_map(str(lake_dir))
+    assert Path(map_path).exists()
+
+    report = basaltic_red.lake.doctor(str(lake_dir), auto_heal=True)
+    assert report["status"] == "HEALTHY"
