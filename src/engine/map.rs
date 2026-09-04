@@ -466,23 +466,56 @@ pub fn build_lake_map_with_progress(dir_path: &Path, show_progress: bool) -> Res
 }
 
 /// Save LakeMap to Arrow IPC binary format (`.br_map.ipc`)
+/// Uses atomic write-to-temp-and-rename to prevent corrupting open mmaps (avoiding SIGBUS)
 pub fn save_lake_map_ipc(map: &LakeMap, output_path: &Path) -> Result<(), BazanError> {
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    let output_path = crate::utils::validate_safe_path(output_path)?;
+    let output_path = output_path.as_path();
+
+    let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
 
     let batch = map.to_record_batch()?;
-    let file = File::create(output_path)?;
-    let mut writer = FileWriter::try_new(file, &batch.schema())?;
-    writer.write(&batch)?;
-    writer.finish()?;
+
+    // Write to a unique temporary file in the same directory for atomic rename
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_file_name = format!(
+        ".{}.tmp.{}_{}",
+        output_path.file_name().and_then(|s| s.to_str()).unwrap_or("br_map"),
+        pid,
+        nanos
+    );
+    let tmp_path = parent.join(tmp_file_name);
+
+    let write_res = (|| -> Result<(), BazanError> {
+        let file = File::create(&tmp_path)?;
+        let mut writer = FileWriter::try_new(file, &batch.schema())?;
+        writer.write(&batch)?;
+        writer.finish()?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_res {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    // Atomic rename replaces directory entry without truncating active mmaps
+    if let Err(e) = fs::rename(&tmp_path, output_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(BazanError::Io(e));
+    }
 
     Ok(())
 }
 
 /// Load LakeMap from an Arrow IPC binary file using memory-mapped zero-copy I/O in < 0.05ms
 pub fn load_lake_map_ipc(input_path: &Path) -> Result<LakeMap, BazanError> {
-    let file = File::open(input_path)?;
+    let input_path = crate::utils::validate_safe_path(input_path)?;
+    let file = File::open(&input_path)?;
     // Use OS memory-mapping for instant, zero-syscall virtual memory access
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
     let cursor = std::io::Cursor::new(mmap);
