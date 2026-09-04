@@ -1,7 +1,12 @@
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow::compute::concat_batches;
+use regex::Regex;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+static TABLE_PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:from|join)\s+'([^']+)'").expect("Invalid table path regex")
+});
 
 use datafusion::datasource::MemTable;
 use datafusion::datasource::file_format::{
@@ -179,16 +184,27 @@ impl MatrixEngine {
         let ctx = SessionContext::new();
         let mut modified_query = query_str.to_string();
 
-        // Automatically detect path enclosed in single quotes `'path/file'`
-        if let Some(start_idx) = query_str.find('\'') {
-            if let Some(end_rel) = query_str[start_idx + 1..].find('\'') {
-                let path_str = &query_str[start_idx + 1..start_idx + 1 + end_rel];
-                let path_obj = Path::new(path_str);
+        // Extract path enclosed in single quotes following FROM or JOIN
+        let detected_path = if let Some(caps) = TABLE_PATH_REGEX.captures(query_str) {
+            caps.get(1).map(|m| m.as_str().to_string())
+        } else if let Some(start_idx) = query_str.find('\'') {
+            query_str[start_idx + 1..]
+                .find('\'')
+                .map(|end_rel| query_str[start_idx + 1..start_idx + 1 + end_rel].to_string())
+        } else {
+            None
+        };
 
-                if path_obj.exists() {
-                    let table_name = "br_target";
-                    let mut df_batches: Vec<RecordBatch> = Vec::new();
-                    let primary_registered_name = table_name.to_string();
+        if let Some(path_str) = detected_path {
+            let path_str = path_str.as_str();
+            let path_obj = Path::new(path_str);
+            let safe_path = crate::utils::validate_safe_path(path_obj)?;
+            let path_obj = safe_path.as_path();
+
+            if path_obj.exists() {
+                let table_name = "br_target";
+                let mut df_batches: Vec<RecordBatch> = Vec::new();
+                let primary_registered_name = table_name.to_string();
 
                     let mut register_source =
                         |handler: std::sync::Arc<dyn crate::engine::formats::FormatHandler>,
@@ -320,14 +336,14 @@ impl MatrixEngine {
                         let mem_table = MemTable::try_new(schema, vec![df_batches])?;
                         ctx.register_table(table_name, Arc::new(mem_table))?;
                     }
+
                     // Replace original `'path'` with registered virtual table name
-                    let token_with_alias = format!("'{}' {}", path_str, primary_registered_name);
-                    if modified_query.contains(&token_with_alias) {
-                        modified_query = modified_query.replace(&token_with_alias, &primary_registered_name);
-                    } else {
-                        let target_token = format!("'{}'", path_str);
-                        modified_query = modified_query.replace(&target_token, &primary_registered_name);
-                    }
+                let token_with_alias = format!("'{}' {}", path_str, primary_registered_name);
+                if modified_query.contains(&token_with_alias) {
+                    modified_query = modified_query.replace(&token_with_alias, &primary_registered_name);
+                } else {
+                    let target_token = format!("'{}'", path_str);
+                    modified_query = modified_query.replace(&target_token, &primary_registered_name);
                 }
             }
         }
