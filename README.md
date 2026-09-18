@@ -11,8 +11,8 @@
 `basaltic-red` is not a database. It has no background daemon, network socket, or proprietary storage format. It is a companion toolkit designed to work with existing query engines like DuckDB, Polars, PyArrow, pandas, and DataFusion.
 
 Utilities for file-based data lakes:
-* Memory-mapped lake catalog (`.br_map.ipc`): loads metadata in under 0.5 ms via OS `mmap`, with automated drift detection (`br.lake.doctor`) and a terminal progress bar.
-* Zero-copy slicing (`br.read`): reads row ranges and column projections without loading entire multi-gigabyte files into RAM.
+* Memory-mapped lake catalog (`.br_map.ipc`): loads catalog metadata in under 0.5 ms via OS `mmap`, with automated drift detection (`br.lake.doctor`) and a terminal progress bar. It is not a row/byte index.
+* Streaming slicing (`br.read`): reads row ranges and column projections without loading entire multi-gigabyte files into RAM; row offsets are reached by streaming batches.
 * Parallel data-quality filtering (`br.filter`): multi-threaded dynamic rule validation with per-row `u64` audit bitmasks that separate clean from invalid rows.
 * Embedded SQL execution (`br.sql`): runs in-memory DataFusion SQL queries over directories and hands RecordBatches to DuckDB or Polars without copying data.
 * Custom format registration & sniffing (`br.formats`): detects file types via magic bytes and enables user-defined delimiters without recompiling.
@@ -39,7 +39,7 @@ Numbers below are from a run of `demo.ipynb` on an Apple Silicon Mac. Results va
 
 | Scenario | Scope | Observed in demo |
 | :--- | :--- | :--- |
-| Catalog inspection (cold vs warm) | 204 files | Cold scan and map build took ~18.07 s; warm `memmap2` read took ~0.5 ms (average over 5 runs). Warm path avoids traversing the directory tree. |
+| Catalog inspection (cold vs warm) | 204 files | Cold scan and map build took ~18.07 s; warm catalog load took ~0.5 ms (average over 5 runs). A full `doctor` call still checks current file metadata. |
 | Volume scan (metadata only) | 1,826,960,642 rows (36.5B cells) | Metadata read of row counts and file sizes completed in ~0.7 s. |
 | Full-lake quality filter | 1,826,960,642 rows, 5 rules | Took ~21 s using Rayon parallel read and filter (`filter_files_parallel`), yielding 1,780,228,507 clean rows and 46,732,135 invalid rows. |
 | Single-file SQL aggregation | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` took ~0.1 s, followed by zero-copy handoff to DuckDB or Polars. |
