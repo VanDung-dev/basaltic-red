@@ -177,8 +177,13 @@ impl MapProgressTracker {
         let full_blocks = filled_units as usize;
         let sub_idx = ((filled_units - full_blocks as f64) * 8.0) as usize;
         let sub_chars = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
-        let sub_char = if full_blocks < bar_width { sub_chars[sub_idx.min(7)] } else { "" };
-        let empty_blocks = bar_width.saturating_sub(full_blocks + if !sub_char.is_empty() { 1 } else { 0 });
+        let sub_char = if full_blocks < bar_width {
+            sub_chars[sub_idx.min(7)]
+        } else {
+            ""
+        };
+        let empty_blocks =
+            bar_width.saturating_sub(full_blocks + if !sub_char.is_empty() { 1 } else { 0 });
 
         let speed_str = format_bytes_speed(speed);
         let read_str = format_bytes(read_bytes);
@@ -318,7 +323,10 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
 
     let file_str = file_path.to_str().unwrap_or("");
     let handler = resolve_handler_for_file(file_str).ok_or_else(|| {
-        BazanError::Message(format!("Unsupported format for map inspection: {}", file_str))
+        BazanError::Message(format!(
+            "Unsupported format for map inspection: {}",
+            file_str
+        ))
     })?;
 
     let source = handler.open(file_str, 64 * 1024)?;
@@ -330,8 +338,7 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         let batch_rows = batch.num_rows();
         total_rows += batch_rows;
 
-        // Extract sample min/max from first non-empty batch for fast pruning
-        if col_stats.is_empty() && batch_rows > 0 {
+        if batch_rows > 0 {
             for field in batch.schema().fields() {
                 let name = field.name().clone();
                 let col = batch.column_by_name(&name);
@@ -344,33 +351,35 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
                                     arrow::compute::kernels::aggregate::min(arr),
                                     arrow::compute::kernels::aggregate::max(arr),
                                 ) {
-                                    col_stats.insert(
-                                        name,
-                                        ColumnMinMax {
-                                            min: Some(min as f64),
-                                            max: Some(max as f64),
-                                            min_str: None,
-                                            max_str: None,
-                                        },
-                                    );
+                                    let current = col_stats.entry(name).or_insert(ColumnMinMax {
+                                        min: None,
+                                        max: None,
+                                        min_str: None,
+                                        max_str: None,
+                                    });
+                                    current.min =
+                                        Some(current.min.map_or(min as f64, |v| v.min(min as f64)));
+                                    current.max =
+                                        Some(current.max.map_or(max as f64, |v| v.max(max as f64)));
                                 }
                             }
                         }
                         DataType::Float64 => {
-                            if let Some(arr) = col.as_any().downcast_ref::<arrow::array::Float64Array>() {
+                            if let Some(arr) =
+                                col.as_any().downcast_ref::<arrow::array::Float64Array>()
+                            {
                                 if let (Some(min), Some(max)) = (
                                     arrow::compute::kernels::aggregate::min(arr),
                                     arrow::compute::kernels::aggregate::max(arr),
                                 ) {
-                                    col_stats.insert(
-                                        name,
-                                        ColumnMinMax {
-                                            min: Some(min),
-                                            max: Some(max),
-                                            min_str: None,
-                                            max_str: None,
-                                        },
-                                    );
+                                    let current = col_stats.entry(name).or_insert(ColumnMinMax {
+                                        min: None,
+                                        max: None,
+                                        min_str: None,
+                                        max_str: None,
+                                    });
+                                    current.min = Some(current.min.map_or(min, |v| v.min(min)));
+                                    current.max = Some(current.max.map_or(max, |v| v.max(max)));
                                 }
                             }
                         }
@@ -380,15 +389,18 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
                                     arrow::compute::kernels::aggregate::min_string(arr),
                                     arrow::compute::kernels::aggregate::max_string(arr),
                                 ) {
-                                    col_stats.insert(
-                                        name,
-                                        ColumnMinMax {
-                                            min: None,
-                                            max: None,
-                                            min_str: Some(min.to_string()),
-                                            max_str: Some(max.to_string()),
-                                        },
-                                    );
+                                    let current = col_stats.entry(name).or_insert(ColumnMinMax {
+                                        min: None,
+                                        max: None,
+                                        min_str: None,
+                                        max_str: None,
+                                    });
+                                    if current.min_str.as_ref().is_none_or(|v| min < v.as_str()) {
+                                        current.min_str = Some(min.to_string());
+                                    }
+                                    if current.max_str.as_ref().is_none_or(|v| max > v.as_str()) {
+                                        current.max_str = Some(max.to_string());
+                                    }
                                 }
                             }
                         }
@@ -420,7 +432,10 @@ pub fn build_lake_map(dir_path: &Path) -> Result<LakeMap, BazanError> {
 }
 
 /// Build full LakeMap for a directory with configurable live progress bar
-pub fn build_lake_map_with_progress(dir_path: &Path, show_progress: bool) -> Result<LakeMap, BazanError> {
+pub fn build_lake_map_with_progress(
+    dir_path: &Path,
+    show_progress: bool,
+) -> Result<LakeMap, BazanError> {
     if !dir_path.exists() || !dir_path.is_dir() {
         return Err(BazanError::Message(format!(
             "Directory does not exist: {:?}",
@@ -451,18 +466,22 @@ pub fn build_lake_map_with_progress(dir_path: &Path, show_progress: bool) -> Res
     let total_files = valid_files_with_size.len();
     let total_bytes: u64 = valid_files_with_size.iter().map(|(_, s)| *s).sum();
 
-    let tracker = Arc::new(MapProgressTracker::new(total_files, total_bytes, show_progress));
+    let tracker = Arc::new(MapProgressTracker::new(
+        total_files,
+        total_bytes,
+        show_progress,
+    ));
 
-    let entries: Vec<LakeMapEntry> = valid_files_with_size
+    let entries: Result<Vec<LakeMapEntry>, BazanError> = valid_files_with_size
         .par_iter()
-        .filter_map(|(file, size)| {
+        .map(|(file, size)| {
             let res = inspect_file_entry(dir_path, file);
             tracker.inc(*size);
-            res.ok()
+            res
         })
         .collect();
 
-    Ok(LakeMap::new(entries))
+    Ok(LakeMap::new(entries?))
 }
 
 /// Save LakeMap to Arrow IPC binary format (`.br_map.ipc`)
@@ -484,7 +503,10 @@ pub fn save_lake_map_ipc(map: &LakeMap, output_path: &Path) -> Result<(), BazanE
         .unwrap_or(0);
     let tmp_file_name = format!(
         ".{}.tmp.{}_{}",
-        output_path.file_name().and_then(|s| s.to_str()).unwrap_or("br_map"),
+        output_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("br_map"),
         pid,
         nanos
     );
@@ -543,7 +565,7 @@ pub fn resolve_map_path(dir_path: &Path) -> PathBuf {
 pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport, BazanError> {
     let map_file = resolve_map_path(dir_path);
     let mut existing_map = if map_file.exists() {
-        load_lake_map_ipc(&map_file).ok()
+        Some(load_lake_map_ipc(&map_file)?)
     } else {
         None
     };
@@ -620,24 +642,26 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
         let files_to_reindex: Vec<(PathBuf, u64)> = modified_files
             .iter()
             .chain(unindexed_files.iter())
-            .filter_map(|rel| {
-                disk_map.get(rel).map(|(p, size, _)| (p.clone(), *size))
-            })
+            .filter_map(|rel| disk_map.get(rel).map(|(p, size, _)| (p.clone(), *size)))
             .collect();
 
         let total_heal_bytes: u64 = files_to_reindex.iter().map(|(_, s)| *s).sum();
-        let tracker = Arc::new(MapProgressTracker::new(files_to_reindex.len(), total_heal_bytes, true));
+        let tracker = Arc::new(MapProgressTracker::new(
+            files_to_reindex.len(),
+            total_heal_bytes,
+            true,
+        ));
 
-        let new_entries: Vec<LakeMapEntry> = files_to_reindex
+        let new_entries: Result<Vec<LakeMapEntry>, BazanError> = files_to_reindex
             .par_iter()
-            .filter_map(|(p, size)| {
+            .map(|(p, size)| {
                 let res = inspect_file_entry(dir_path, p);
                 tracker.inc(*size);
-                res.ok()
+                res
             })
             .collect();
 
-        retained_entries.extend(new_entries);
+        retained_entries.extend(new_entries?);
         retained_entries.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
 
         let healed_map = LakeMap::new(retained_entries);
@@ -666,7 +690,11 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
 
 impl MatrixEngine {
     /// Create or rebuild peer Arrow IPC LakeMap `.br_map.ipc` for `dir_path`
-    pub fn create_lake_map_native(&self, dir_path: &str, show_progress: bool) -> Result<String, BazanError> {
+    pub fn create_lake_map_native(
+        &self,
+        dir_path: &str,
+        show_progress: bool,
+    ) -> Result<String, BazanError> {
         let path = Path::new(dir_path);
         let map = build_lake_map_with_progress(path, show_progress)?;
         let out_file = resolve_map_path(path);

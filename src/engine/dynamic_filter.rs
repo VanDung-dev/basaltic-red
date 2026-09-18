@@ -46,6 +46,12 @@ impl FilterRule {
                     .trim_matches('\'')
                     .trim_matches('"')
                     .to_string();
+                if col_name.is_empty() || val_str.is_empty() {
+                    return Err(BazanError::Message(format!(
+                        "Invalid rule expression: '{}'. Column and value are required",
+                        expr
+                    )));
+                }
                 return Ok(FilterRule {
                     col_name,
                     op,
@@ -64,34 +70,40 @@ impl FilterRule {
 macro_rules! eval_primitive_rule {
     ($arr_type:ty, $target_type:ty, $col:expr, $rule:expr, $total_rows:expr, $bit:expr, $target_chunk:expr, $clean_bits:expr) => {
         if let Some(arr) = $col.as_any().downcast_ref::<$arr_type>() {
-            if let Ok(target) = $rule.val_str.parse::<$target_type>() {
-                let values = arr.values();
-                let nulls = arr.nulls();
-                // Bind the comparison to a named result instead of `!(a > b)`:
-                // NaN fails every ordering comparison, so `!passed` correctly
-                // routes NaN rows to Trash alongside nulls.
-                let passed = |i: usize| match $rule.op {
-                    Operator::Gt => values[i] > target,
-                    Operator::Gte => values[i] >= target,
-                    Operator::Lt => values[i] < target,
-                    Operator::Lte => values[i] <= target,
-                    Operator::Eq => values[i] == target,
-                    Operator::Neq => values[i] != target,
-                };
-                if let Some(null_buf) = nulls {
-                    for i in 0..$total_rows {
-                        if null_buf.is_null(i) || !passed(i) {
-                            $target_chunk[i] |= $bit;
-                            $clean_bits[i] = false;
-                        }
+            let target = $rule.val_str.parse::<$target_type>().map_err(|_| {
+                BazanError::Message(format!(
+                    "Invalid numeric value '{}' in rule '{}': expected {}",
+                    $rule.val_str,
+                    $rule.col_name,
+                    stringify!($target_type)
+                ))
+            })?;
+            let values = arr.values();
+            let nulls = arr.nulls();
+            // Bind the comparison to a named result instead of `!(a > b)`:
+            // NaN fails every ordering comparison, so `!passed` correctly
+            // routes NaN rows to Trash alongside nulls.
+            let passed = |i: usize| match $rule.op {
+                Operator::Gt => values[i] > target,
+                Operator::Gte => values[i] >= target,
+                Operator::Lt => values[i] < target,
+                Operator::Lte => values[i] <= target,
+                Operator::Eq => values[i] == target,
+                Operator::Neq => values[i] != target,
+            };
+            if let Some(null_buf) = nulls {
+                for i in 0..$total_rows {
+                    if null_buf.is_null(i) || !passed(i) {
+                        $target_chunk[i] |= $bit;
+                        $clean_bits[i] = false;
                     }
-                } else {
-                    // Fast path without null checks (100% LLVM auto-vectorizable)
-                    for i in 0..$total_rows {
-                        if !passed(i) {
-                            $target_chunk[i] |= $bit;
-                            $clean_bits[i] = false;
-                        }
+                }
+            } else {
+                // Fast path without null checks (100% LLVM auto-vectorizable)
+                for i in 0..$total_rows {
+                    if !passed(i) {
+                        $target_chunk[i] |= $bit;
+                        $clean_bits[i] = false;
                     }
                 }
             }
@@ -202,40 +214,146 @@ impl MatrixEngine {
             if let Some(col) = resolve_column(batch, &rule.col_name) {
                 match col.data_type() {
                     DataType::Int64 => {
-                        eval_primitive_rule!(Int64Array, i64, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Int64Array,
+                            i64,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Int32 => {
-                        eval_primitive_rule!(Int32Array, i32, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Int32Array,
+                            i32,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Int16 => {
-                        eval_primitive_rule!(Int16Array, i16, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Int16Array,
+                            i16,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Int8 => {
-                        eval_primitive_rule!(Int8Array, i8, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Int8Array,
+                            i8,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::UInt64 => {
-                        eval_primitive_rule!(UInt64Array, u64, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            UInt64Array,
+                            u64,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::UInt32 => {
-                        eval_primitive_rule!(UInt32Array, u32, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            UInt32Array,
+                            u32,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::UInt16 => {
-                        eval_primitive_rule!(UInt16Array, u16, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            UInt16Array,
+                            u16,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::UInt8 => {
-                        eval_primitive_rule!(UInt8Array, u8, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            UInt8Array,
+                            u8,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Float64 => {
-                        eval_primitive_rule!(Float64Array, f64, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Float64Array,
+                            f64,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Float32 => {
-                        eval_primitive_rule!(Float32Array, f32, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_primitive_rule!(
+                            Float32Array,
+                            f32,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::Utf8 => {
-                        eval_string_rule!(StringArray, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_string_rule!(
+                            StringArray,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     DataType::LargeUtf8 => {
-                        eval_string_rule!(LargeStringArray, col, rule, total_rows, bit, target_chunk, clean_bits);
+                        eval_string_rule!(
+                            LargeStringArray,
+                            col,
+                            rule,
+                            total_rows,
+                            bit,
+                            target_chunk,
+                            clean_bits
+                        );
                     }
                     _ => {}
                 }
@@ -249,7 +367,8 @@ impl MatrixEngine {
         let trash_filtered_base = filter_record_batch(batch, &trash_bool)?;
 
         // Primary audit_error_code column (first 64 rules chunk) for 100% backward compatibility
-        let mut trash_error_c0_builder = arrow::array::UInt64Builder::with_capacity(trash_filtered_base.num_rows());
+        let mut trash_error_c0_builder =
+            arrow::array::UInt64Builder::with_capacity(trash_filtered_base.num_rows());
         for (i, &is_clean) in clean_bits.iter().enumerate() {
             if !is_clean {
                 trash_error_c0_builder.append_value(error_chunks_raw[0][i]);
