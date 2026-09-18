@@ -19,7 +19,7 @@ The dynamic quality filter lives in `src/engine/dynamic_filter.rs`. It evaluates
 ```
 
 - Values may be quoted (`'` or `"`), quotes are trimmed before parsing.
-- Numeric comparisons parse the right-hand side to the column's element type.
+- Numeric comparisons parse the right-hand side to the column's element type; an invalid numeric value returns an error instead of silently passing every row.
 - String columns (`Utf8`, `LargeUtf8`) compare lexicographically.
 
 ## Evaluation Loop

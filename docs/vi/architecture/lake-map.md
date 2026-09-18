@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Cài đặt trong `src/engine/map.rs`. Lake Map thay thế việc duyệt đệ quy hệ thống tệp bằng một tệp Arrow IPC đã biên dịch sẵn, `.br_map.ipc`, đặt tại gốc hồ dữ liệu.
+Cài đặt trong `src/engine/map.rs`. Lake Map lưu một catalog Arrow IPC đã biên dịch sẵn, `.br_map.ipc`, tại gốc hồ dữ liệu. Catalog tránh phải dựng lại số dòng và thống kê; Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
 
 ---
 
@@ -30,7 +30,7 @@ stateDiagram-v2
     Healed --> Healthy: danh mục đồng bộ trở lại
 ```
 
-- `build_lake_map()` duyệt thư mục (qua `discover_data_files`), đọc schema/số dòng và thống kê min/max từng cột.
+- `build_lake_map()` duyệt thư mục (qua `discover_data_files`), đọc schema/số dòng và thống kê min/max toàn file cho các cột số/chuỗi được hỗ trợ.
 - `save_lake_map_ipc()` serialize bản đồ; `load_lake_map_ipc()` đọc ngược qua memory map.
 
 ## Schema trên đĩa
@@ -61,7 +61,7 @@ Struct tổng hợp cũng mang theo `total_files`, `total_rows`, `total_bytes`.
 | `missing_files` | Entry trong danh mục nhưng tệp không còn trên đĩa |
 | `healed` | Có chạy chữa lành hay không |
 
-**Chữa lành** dựng lại danh sách entry từ những gì còn tồn tại (bỏ `missing_files`, làm mới thống kê cho entry modified/unindexed) rồi ghi lại `.br_map.ipc`. Status chuyển thành `"HEALED"`. Không có `auto_heal=True` thì báo cáo thuần túy chẩn đoán.
+**Chữa lành** dựng lại danh sách entry từ những gì còn tồn tại (bỏ `missing_files`, làm mới thống kê cho entry modified/unindexed) rồi ghi lại `.br_map.ipc`. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành `"HEALED"`. Không có `auto_heal=True` thì báo cáo thuần túy chẩn đoán.
 
 ```python
 import basaltic_red as br

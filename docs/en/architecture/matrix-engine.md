@@ -13,7 +13,7 @@ pub struct MatrixEngine {
     pub min_passenger: i64,   // default 1
     pub max_passenger: i64,   // default 9
     pub min_fare: f64,        // default 0.01
-    pub max_speed_mph: f64,   // default 100.0
+    pub max_speed_mph: f64,   // default 100.0; used when taxi timestamps exist
 }
 ```
 
@@ -44,7 +44,7 @@ Implemented in `src/engine/slice.rs`; exposed through [`br.read.*`](../reference
 
 | Method | Behavior |
 | :--- | :--- |
-| `slice_rows(file_path, offset, limit)` | Reads one row range as a PyArrow Table. For Parquet it uses the row-group reader; for IPC/Feather it memory-maps via `memmap2`. |
+| `slice_rows(file_path, offset, limit)` | Reads one row range as a PyArrow Table by streaming and skipping batches before `offset`. IPC/Feather sources use `memmap2` where supported. |
 | `slice_cols(file_path, selected_cols, offset, limit)` | Same, with column projection pushed into the reader (Parquet reads only the required column chunks). |
 | `preview_sample(file_path, limit_rows)` | Opens the first batch only and runs the **static** threshold filter; returns `(clean_table, trash_table)`. |
 
@@ -68,5 +68,5 @@ Rule-syntax problems raised before execution are surfaced as `ValueError` direct
 
 ## Static vs Dynamic Filtering
 
-- **Static fast path** (`src/filter.rs` + `engine/filter.rs`): three fixed bit flags, passenger range, minimum fare, distance/fare anomaly, evaluated with Arrow compute kernels over whole columns (fully vectorized). Used by `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`. No rule parsing overhead; expects NYC-taxi-style columns (`passenger_count`, `fare_amount`, `trip_distance`) and ignores rows silently when a column is absent.
+- **Static fast path** (`src/filter.rs` + `engine/filter.rs`): three fixed bit flags, passenger range, minimum fare, and speed/distance-fare anomaly. Passenger counts support the `Int64` and `Float64` forms present in the TLC data. When pickup/dropoff timestamps exist, speed is computed from distance and duration; other schemas retain the legacy distance/fare fallback. Used by `process_batch` / `process_file` / `process_and_write_lake` / `preview_sample`.
 - **Dynamic kernel** (`engine/dynamic_filter.rs`): arbitrary user rules parsed from strings against any supported column type. See [SIMD Bitmask Kernel](simd-kernel.md).

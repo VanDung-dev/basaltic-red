@@ -26,14 +26,14 @@ Counted via `pq.read_metadata` + `os.path.getsize` in the notebook; volume scan 
 
 ## 2. Catalog inspection (`.br_map.ipc`)
 
-`br.lake.doctor("data", auto_heal=True)` on first call walks the directory and builds `.br_map.ipc`; warm calls read it via `memmap2`.
+`br.lake.create_map("data")` walks the directory and builds `.br_map.ipc`; loading the saved catalog uses `memmap2`. A full `doctor` call still walks the current file metadata to detect drift.
 
 | Mode | Files | Time (demo) |
 | :--- | :--- | :--- |
 | Cold (build) | 204 | ~18,068 ms |
 | Warm (mmap, avg 5 runs) | 204 | ~0.5 ms |
 
-Warm avoids the directory walk. The exact speedup depends on storage and whether the map is already built.
+The ~0.5 ms figure measures catalog loading, not reading the underlying data or validating every file. The exact speedup depends on storage and whether the map is already built.
 
 ---
 

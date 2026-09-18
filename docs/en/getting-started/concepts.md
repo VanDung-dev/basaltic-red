@@ -40,7 +40,7 @@ Traditional filtering evaluates rules row-by-row or creates intermediate boolean
 
 ## 3. Binary Lake Map (`.br_map.ipc`) & Lake Doctor
 
-Rather than performing recursive filesystem walks across thousands of files on every query, `basaltic-red` maintains an Arrow IPC binary map (`.br_map.ipc`) inside the lake directory:
+Rather than rebuilding row counts and statistics from scratch, `basaltic-red` maintains an Arrow IPC binary catalog (`.br_map.ipc`) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
-- Warm reads via `memmap2` (sub-millisecond in `demo.ipynb`; actual time depends on hardware/filesystem).
+- Warm catalog loads via `memmap2` (sub-millisecond in `demo.ipynb`; actual time depends on hardware/filesystem). Full doctor checks still inspect current file metadata.
 - `br.lake.doctor` detects drift (unindexed, modified, missing files) and incrementally heals the catalog.

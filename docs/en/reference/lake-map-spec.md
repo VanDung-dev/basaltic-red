@@ -6,7 +6,7 @@ icon: material/map
 
 # Lake Map Specification
 
-The Lake Map is serialized as an **Apache Arrow IPC file** named `.br_map.ipc` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and read back memory-mapped (<1 ms) by `doctor_lake_map`.
+The Lake Map is serialized as an **Apache Arrow IPC file** named `.br_map.ipc` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and can be loaded memory-mapped in sub-millisecond time. `doctor_lake_map` additionally walks current file metadata to detect drift.
 
 ## RecordBatch Schema (single row per data file)
 

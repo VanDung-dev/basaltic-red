@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map replaces recursive filesystem walks with a single pre-compiled Arrow IPC file, `.br_map.ipc`, stored at the root of the data lake.
+Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC catalog, `.br_map.ipc`, at the root of the data lake. It avoids rebuilding row counts and statistics; Lake Doctor still checks current file metadata on disk to detect drift.
 
 ---
 
@@ -30,7 +30,7 @@ stateDiagram-v2
     Healed --> Healthy: catalog in sync again
 ```
 
-- `build_lake_map()` walks the directory (via `discover_data_files`), reads each file's schema/row count and per-column min/max stats.
+- `build_lake_map()` walks the directory (via `discover_data_files`), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.
 - `save_lake_map_ipc()` serializes the map; `load_lake_map_ipc()` reads it back through a memory map.
 
 ## On-Disk Schema
@@ -61,7 +61,7 @@ The aggregate struct also carries `total_files`, `total_rows`, `total_bytes`.
 | `missing_files` | Indexed files no longer on disk |
 | `healed` | Whether healing ran |
 
-**Healing** rebuilds the entry list from what still exists (dropping `missing_files`, refreshing stats for modified/unindexed entries) and rewrites `.br_map.ipc`. Status becomes `"HEALED"`. Without `auto_heal=True` the report is purely diagnostic.
+**Healing** rebuilds the entry list from what still exists (dropping `missing_files`, refreshing stats for modified/unindexed entries) and rewrites `.br_map.ipc`. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes `"HEALED"`. Without `auto_heal=True` the report is purely diagnostic.
 
 ```python
 import basaltic_red as br
