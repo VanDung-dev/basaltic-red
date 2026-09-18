@@ -1818,7 +1818,7 @@
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">min_passenger</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w">   </span><span class="c1">// mặc định 1</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_passenger</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w">   </span><span class="c1">// mặc định 9</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">min_fare</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">        </span><span class="c1">// mặc định 0.01</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_speed_mph</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">   </span><span class="c1">// mặc định 100.0</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_speed_mph</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">   </span><span class="c1">// mặc định 100.0; dùng khi có timestamp taxi</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
 </span></code></pre></div>
 <h2 id="khoi-tao">Khởi tạo</h2>
@@ -1849,7 +1849,7 @@
 <tbody>
 <tr>
 <td style="text-align: left;"><code>slice_rows(file_path, offset, limit)</code></td>
-<td style="text-align: left;">Đọc một khoảng dòng trả về PyArrow Table. Với Parquet dùng row-group reader; với IPC/Feather dùng memory-map qua <code>memmap2</code>.</td>
+<td style="text-align: left;">Đọc một khoảng dòng trả về PyArrow Table bằng cách stream và bỏ qua các batch trước offset. Với IPC/Feather dùng memory-map qua <code>memmap2</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
@@ -1895,7 +1895,7 @@
 <hr />
 <h2 id="loc-tinh-vs-ong">Lọc Tĩnh vs Động</h2>
 <ul>
-<li><strong>Đường tắt tĩnh</strong> (<code>src/filter.rs</code> + <code>engine/filter.rs</code>): ba cờ bit cố định, khoảng passenger, mức giá tối thiểu, bất thường distance/fare, đánh giá bằng Arrow compute kernel trên cả cột (vector hóa hoàn toàn). Dùng cho <code>process_batch</code> / <code>process_file</code> / <code>process_and_write_lake</code> / <code>preview_sample</code>. Không tốn chi phí parse quy tắc; kỳ vọng các cột kiểu taxi NYC (<code>passenger_count</code>, <code>fare_amount</code>, <code>trip_distance</code>) và bỏ qua im lặng khi thiếu cột.</li>
+<li><strong>Đường tắt tĩnh</strong> (<code>src/filter.rs</code> + <code>engine/filter.rs</code>): ba cờ bit cố định, khoảng passenger, mức giá tối thiểu và bất thường tốc độ/distance-fare. Passenger hỗ trợ cả dạng <code>Int64</code> và <code>Float64</code> có trong dữ liệu TLC. Khi có timestamp pickup/dropoff, tốc độ được tính từ khoảng cách và thời lượng; schema khác dùng fallback distance/fare cũ. Dùng cho <code>process_batch</code> / <code>process_file</code> / <code>process_and_write_lake</code> / <code>preview_sample</code>.</li>
 <li><strong>Nhân động</strong> (<code>engine/dynamic_filter.rs</code>): quy tắc người dùng tùy ý parsed từ chuỗi trên mọi kiểu cột được hỗ trợ. Xem <a href="../simd-kernel/">Nhân SIMD Bitmask</a>.</li>
 </ul>
 

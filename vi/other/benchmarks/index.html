@@ -1849,7 +1849,7 @@
 <p>Đếm bằng <code>pq.read_metadata</code> + <code>os.path.getsize</code> trong notebook; quét khối lượng chỉ đọc metadata, không đọc toàn bộ dữ liệu.</p>
 <hr />
 <h2 id="2-kiem-tra-catalog-br_mapipc">2. Kiểm tra catalog (<code>.br_map.ipc</code>)</h2>
-<p><code>br.lake.doctor("data", auto_heal=True)</code> lần đầu quét thư mục và tạo <code>.br_map.ipc</code>; lần sau đọc qua <code>memmap2</code>.</p>
+<p><code>br.lake.create_map("data")</code> lần đầu quét thư mục và tạo <code>.br_map.ipc</code>; load catalog đã lưu dùng <code>memmap2</code>. Một lần <code>doctor</code> đầy đủ vẫn kiểm tra metadata của các file hiện tại.</p>
 <table>
 <thead>
 <tr>
@@ -1871,7 +1871,7 @@
 </tr>
 </tbody>
 </table>
-<p>Warm tránh quét thư mục. Mức tăng tốc phụ thuộc storage và việc map đã tồn tại hay chưa.</p>
+<p>Mốc ~0.5 ms chỉ đo việc load catalog, không đo đọc dữ liệu hay kiểm tra mọi file. Mức tăng tốc phụ thuộc storage và việc map đã tồn tại hay chưa.</p>
 <hr />
 <h2 id="3-loc-chat-luong-toan-lake">3. Lọc chất lượng toàn lake</h2>
 <p><code>br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[5 rule])</code>, đọc song song + lọc Rayon.</p>

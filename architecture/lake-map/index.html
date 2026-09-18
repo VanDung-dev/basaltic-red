@@ -1791,7 +1791,7 @@
 
 
 <h1 id="binary-lake-map-lake-doctor">Binary Lake Map &amp; Lake Doctor</h1>
-<p>Implemented in <code>src/engine/map.rs</code>. The Lake Map replaces recursive filesystem walks with a single pre-compiled Arrow IPC file, <code>.br_map.ipc</code>, stored at the root of the data lake.</p>
+<p>Implemented in <code>src/engine/map.rs</code>. The Lake Map stores a pre-compiled Arrow IPC catalog, <code>.br_map.ipc</code>, at the root of the data lake. It avoids rebuilding row counts and statistics; Lake Doctor still checks current file metadata on disk to detect drift.</p>
 <hr />
 <h2 id="catalog-lifecycle">Catalog Lifecycle</h2>
 <pre class="mermaid"><code>stateDiagram-v2
@@ -1810,7 +1810,7 @@
     Drift --&gt; Healed: doctor(auto_heal=True)
     Healed --&gt; Healthy: catalog in sync again</code></pre>
 <ul>
-<li><code>build_lake_map()</code> walks the directory (via <code>discover_data_files</code>), reads each file's schema/row count and per-column min/max stats.</li>
+<li><code>build_lake_map()</code> walks the directory (via <code>discover_data_files</code>), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.</li>
 <li><code>save_lake_map_ipc()</code> serializes the map; <code>load_lake_map_ipc()</code> reads it back through a memory map.</li>
 </ul>
 <h2 id="on-disk-schema">On-Disk Schema</h2>
@@ -1892,7 +1892,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Healing</strong> rebuilds the entry list from what still exists (dropping <code>missing_files</code>, refreshing stats for modified/unindexed entries) and rewrites <code>.br_map.ipc</code>. Status becomes <code>"HEALED"</code>. Without <code>auto_heal=True</code> the report is purely diagnostic.</p>
+<p><strong>Healing</strong> rebuilds the entry list from what still exists (dropping <code>missing_files</code>, refreshing stats for modified/unindexed entries) and rewrites <code>.br_map.ipc</code>. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes <code>"HEALED"</code>. Without <code>auto_heal=True</code> the report is purely diagnostic.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>

@@ -1818,7 +1818,7 @@
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">min_passenger</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w">   </span><span class="c1">// default 1</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_passenger</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">,</span><span class="w">   </span><span class="c1">// default 9</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">min_fare</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">        </span><span class="c1">// default 0.01</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_speed_mph</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">   </span><span class="c1">// default 100.0</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">pub</span><span class="w"> </span><span class="n">max_speed_mph</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">,</span><span class="w">   </span><span class="c1">// default 100.0; used when taxi timestamps exist</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
 </span></code></pre></div>
 <h2 id="construction">Construction</h2>
@@ -1849,7 +1849,7 @@
 <tbody>
 <tr>
 <td style="text-align: left;"><code>slice_rows(file_path, offset, limit)</code></td>
-<td style="text-align: left;">Reads one row range as a PyArrow Table. For Parquet it uses the row-group reader; for IPC/Feather it memory-maps via <code>memmap2</code>.</td>
+<td style="text-align: left;">Reads one row range as a PyArrow Table by streaming and skipping batches before <code>offset</code>. IPC/Feather sources use <code>memmap2</code> where supported.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
@@ -1895,7 +1895,7 @@
 <hr />
 <h2 id="static-vs-dynamic-filtering">Static vs Dynamic Filtering</h2>
 <ul>
-<li><strong>Static fast path</strong> (<code>src/filter.rs</code> + <code>engine/filter.rs</code>): three fixed bit flags, passenger range, minimum fare, distance/fare anomaly, evaluated with Arrow compute kernels over whole columns (fully vectorized). Used by <code>process_batch</code> / <code>process_file</code> / <code>process_and_write_lake</code> / <code>preview_sample</code>. No rule parsing overhead; expects NYC-taxi-style columns (<code>passenger_count</code>, <code>fare_amount</code>, <code>trip_distance</code>) and ignores rows silently when a column is absent.</li>
+<li><strong>Static fast path</strong> (<code>src/filter.rs</code> + <code>engine/filter.rs</code>): three fixed bit flags, passenger range, minimum fare, and speed/distance-fare anomaly. Passenger counts support the <code>Int64</code> and <code>Float64</code> forms present in the TLC data. When pickup/dropoff timestamps exist, speed is computed from distance and duration; other schemas retain the legacy distance/fare fallback. Used by <code>process_batch</code> / <code>process_file</code> / <code>process_and_write_lake</code> / <code>preview_sample</code>.</li>
 <li><strong>Dynamic kernel</strong> (<code>engine/dynamic_filter.rs</code>): arbitrary user rules parsed from strings against any supported column type. See <a href="../simd-kernel/">SIMD Bitmask Kernel</a>.</li>
 </ul>
 

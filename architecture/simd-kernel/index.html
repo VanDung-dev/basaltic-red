@@ -1799,7 +1799,7 @@
 </span></code></pre></div>
 <ul>
 <li>Values may be quoted (<code>'</code> or <code>"</code>), quotes are trimmed before parsing.</li>
-<li>Numeric comparisons parse the right-hand side to the column's element type.</li>
+<li>Numeric comparisons parse the right-hand side to the column's element type; an invalid numeric value returns an error instead of silently passing every row.</li>
 <li>String columns (<code>Utf8</code>, <code>LargeUtf8</code>) compare lexicographically.</li>
 </ul>
 <h2 id="evaluation-loop">Evaluation Loop</h2>

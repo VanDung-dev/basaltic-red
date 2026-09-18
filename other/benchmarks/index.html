@@ -1849,7 +1849,7 @@
 <p>Counted via <code>pq.read_metadata</code> + <code>os.path.getsize</code> in the notebook; volume scan is metadata-only (no full data read).</p>
 <hr />
 <h2 id="2-catalog-inspection-br_mapipc">2. Catalog inspection (<code>.br_map.ipc</code>)</h2>
-<p><code>br.lake.doctor("data", auto_heal=True)</code> on first call walks the directory and builds <code>.br_map.ipc</code>; warm calls read it via <code>memmap2</code>.</p>
+<p><code>br.lake.create_map("data")</code> walks the directory and builds <code>.br_map.ipc</code>; loading the saved catalog uses <code>memmap2</code>. A full <code>doctor</code> call still walks the current file metadata to detect drift.</p>
 <table>
 <thead>
 <tr>
@@ -1871,7 +1871,7 @@
 </tr>
 </tbody>
 </table>
-<p>Warm avoids the directory walk. The exact speedup depends on storage and whether the map is already built.</p>
+<p>The ~0.5 ms figure measures catalog loading, not reading the underlying data or validating every file. The exact speedup depends on storage and whether the map is already built.</p>
 <hr />
 <h2 id="3-full-lake-quality-filtering">3. Full-lake quality filtering</h2>
 <p><code>br.filter.filter_files_parallel("data/yellow_tripdata_*.parquet", rules=[5 rules])</code>, Rayon parallel read + filter.</p>

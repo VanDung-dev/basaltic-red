@@ -1791,7 +1791,7 @@
 
 
 <h1 id="lake-map-specification">Lake Map Specification</h1>
-<p>The Lake Map is serialized as an <strong>Apache Arrow IPC file</strong> named <code>.br_map.ipc</code> at the root of the data lake (<code>resolve_map_path()</code> in <code>src/engine/map.rs</code>). It is written by <code>br.lake.create_map()</code> and read back memory-mapped (&lt;1 ms) by <code>doctor_lake_map</code>.</p>
+<p>The Lake Map is serialized as an <strong>Apache Arrow IPC file</strong> named <code>.br_map.ipc</code> at the root of the data lake (<code>resolve_map_path()</code> in <code>src/engine/map.rs</code>). It is written by <code>br.lake.create_map()</code> and can be loaded memory-mapped in sub-millisecond time. <code>doctor_lake_map</code> additionally walks current file metadata to detect drift.</p>
 <h2 id="recordbatch-schema-single-row-per-data-file">RecordBatch Schema (single row per data file)</h2>
 <table>
 <thead>
