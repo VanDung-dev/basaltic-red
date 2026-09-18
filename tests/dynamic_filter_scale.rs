@@ -1,4 +1,6 @@
-use arrow::array::{Array, Float64Array, Int64Array, ListArray, RecordBatch, StringArray, UInt32Array, UInt64Array};
+use arrow::array::{
+    Array, Float64Array, Int64Array, ListArray, RecordBatch, StringArray, UInt32Array, UInt64Array,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
 
@@ -121,9 +123,11 @@ fn test_dynamic_filter_over_64_rules_no_collision() {
 
 #[test]
 fn test_dynamic_filter_massive_rules_scaling() {
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("f_num", DataType::Float64, false),
-    ]));
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "f_num",
+        DataType::Float64,
+        false,
+    )]));
 
     let num_arr = Arc::new(Float64Array::from(vec![500.0, -1.0]));
     let batch = RecordBatch::try_new(schema, vec![num_arr]).unwrap();
@@ -175,6 +179,32 @@ fn test_filter_batch_on_parquet_mini_with_70_rules() {
     for batch_res in source.batches {
         let batch = batch_res.unwrap();
         let (clean, trash) = engine.filter_batch_dynamic(&batch, &rules).unwrap();
-        println!("Clean rows: {}, Trash rows: {}", clean.num_rows(), trash.num_rows());
+        println!(
+            "Clean rows: {}, Trash rows: {}",
+            clean.num_rows(),
+            trash.num_rows()
+        );
     }
+}
+
+#[test]
+fn test_dynamic_filter_rejects_invalid_numeric_values() {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "fare_amount",
+        DataType::Float64,
+        false,
+    )]));
+    let batch =
+        RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(vec![10.0, 20.0]))]).unwrap();
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let rule = FilterRule::parse("fare_amount >= not-a-number").unwrap();
+
+    let error = engine.filter_batch_dynamic(&batch, &[rule]).unwrap_err();
+    assert!(error.to_string().contains("Invalid numeric value"));
+}
+
+#[test]
+fn test_rule_parser_rejects_empty_operands() {
+    assert!(FilterRule::parse(" >= 1").is_err());
+    assert!(FilterRule::parse("fare_amount >=").is_err());
 }

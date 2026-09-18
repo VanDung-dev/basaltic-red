@@ -1,7 +1,9 @@
 use ::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use ::parquet::arrow::ArrowWriter;
-use arrow::array::{Float64Array, Int64Array, RecordBatch, UInt64Array};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    Float64Array, Int64Array, RecordBatch, TimestampMicrosecondArray, UInt64Array,
+};
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use std::fs::File;
 use std::sync::Arc;
 
@@ -52,6 +54,108 @@ fn test_core_simd_matrix_filter_with_audit_codes() {
     assert_eq!(err_arr.value(0), ERR_INVALID_FARE);
     // Row 2 (passenger 0) -> ERR_INVALID_PASSENGER (0x01)
     assert_eq!(err_arr.value(1), ERR_INVALID_PASSENGER);
+}
+
+#[test]
+fn test_static_filter_validates_float64_passenger_counts() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("passenger_count", DataType::Float64, false),
+        Field::new("fare_amount", DataType::Float64, false),
+        Field::new("trip_distance", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 10.0])),
+            Arc::new(Float64Array::from(vec![10.0, 10.0, 10.0])),
+            Arc::new(Float64Array::from(vec![1.0, 1.0, 1.0])),
+        ],
+    )
+    .unwrap();
+
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let (clean, trash) = engine.filter_batch_native(&batch, 3);
+
+    assert_eq!(clean.num_rows(), 1);
+    assert_eq!(trash.num_rows(), 2);
+    let errors = trash
+        .column_by_name("audit_error_code")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    assert_eq!(
+        errors.values(),
+        &[ERR_INVALID_PASSENGER, ERR_INVALID_PASSENGER]
+    );
+}
+
+#[test]
+fn test_static_filter_routes_null_passengers_to_trash() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("passenger_count", DataType::Float64, true),
+        Field::new("fare_amount", DataType::Float64, false),
+        Field::new("trip_distance", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Float64Array::from(vec![Some(1.0), None])),
+            Arc::new(Float64Array::from(vec![10.0, 10.0])),
+            Arc::new(Float64Array::from(vec![1.0, 1.0])),
+        ],
+    )
+    .unwrap();
+
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let (clean, trash) = engine.filter_batch_native(&batch, 2);
+
+    assert_eq!(clean.num_rows() + trash.num_rows(), 2);
+    assert_eq!(clean.num_rows(), 1);
+    assert_eq!(trash.num_rows(), 1);
+}
+
+#[test]
+fn test_static_filter_applies_max_speed_with_timestamps() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("passenger_count", DataType::Int64, false),
+        Field::new("fare_amount", DataType::Float64, false),
+        Field::new("trip_distance", DataType::Float64, false),
+        Field::new(
+            "tpep_pickup_datetime",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            false,
+        ),
+        Field::new(
+            "tpep_dropoff_datetime",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            false,
+        ),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int64Array::from(vec![1, 1])),
+            Arc::new(Float64Array::from(vec![10.0, 10.0])),
+            Arc::new(Float64Array::from(vec![1.0, 1.0])),
+            Arc::new(TimestampMicrosecondArray::from(vec![0, 0])),
+            Arc::new(TimestampMicrosecondArray::from(vec![3_600_000_000, 60_000_000])),
+        ],
+    )
+    .unwrap();
+
+    let engine = MatrixEngine::new(1, 9, 0.01, 10.0);
+    let (clean, trash) = engine.filter_batch_native(&batch, 2);
+
+    assert_eq!(clean.num_rows(), 1);
+    assert_eq!(trash.num_rows(), 1);
+    let errors = trash
+        .column_by_name("audit_error_code")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    assert_eq!(errors.value(0), basaltic_red::filter::ERR_INVALID_SPEED);
 }
 
 #[test]

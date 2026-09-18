@@ -25,7 +25,9 @@ fn create_sample_parquet(path: &std::path::Path, rows: usize, fare_base: f64) {
     let passengers: Vec<i64> = (0..rows).map(|i| (i % 6 + 1) as i64).collect();
     let fares: Vec<f64> = (0..rows).map(|i| fare_base + (i % 20) as f64).collect();
     let distances: Vec<f64> = (0..rows).map(|i| 1.5 + (i % 10) as f64).collect();
-    let vendors: Vec<&str> = (0..rows).map(|i| if i % 2 == 0 { "VTS" } else { "CMT" }).collect();
+    let vendors: Vec<&str> = (0..rows)
+        .map(|i| if i % 2 == 0 { "VTS" } else { "CMT" })
+        .collect();
 
     let batch = RecordBatch::try_new(
         schema.clone(),
@@ -42,6 +44,31 @@ fn create_sample_parquet(path: &std::path::Path, rows: usize, fare_base: f64) {
     let props = WriterProperties::builder().build();
     let mut writer = ArrowWriter::try_new(file, schema, Some(props)).unwrap();
     writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
+fn create_multi_batch_stats_parquet(path: &std::path::Path) {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "fare_amount",
+        DataType::Float64,
+        false,
+    )]));
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), None).unwrap();
+    writer
+        .write(
+            &RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(Float64Array::from(vec![100.0]))],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    writer
+        .write(
+            &RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(vec![1.0]))]).unwrap(),
+        )
+        .unwrap();
     writer.close().unwrap();
 }
 
@@ -144,4 +171,33 @@ fn test_doctor_drift_detection_and_auto_heal() {
     let map = load_lake_map_ipc(&resolve_map_path(lake_root)).unwrap();
     assert_eq!(map.total_files, 2);
     assert_eq!(map.total_rows, 4_500); // 1,500 + 3,000
+}
+
+#[test]
+fn test_lake_map_stats_cover_all_batches() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("multi_batch.parquet");
+    create_multi_batch_stats_parquet(&file);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let stats: serde_json::Value = serde_json::from_str(&map.entries[0].stats_json).unwrap();
+
+    assert_eq!(stats["columns"]["fare_amount"]["min"].as_f64(), Some(1.0));
+    assert_eq!(stats["columns"]["fare_amount"]["max"].as_f64(), Some(100.0));
+}
+
+#[test]
+fn test_doctor_rejects_corrupt_map() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    std::fs::write(resolve_map_path(temp_dir.path()), b"not an Arrow IPC file").unwrap();
+
+    let error = engine
+        .doctor_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap_err();
+    assert!(!error.to_string().is_empty());
 }
