@@ -453,8 +453,8 @@ def test_create_map_with_progress(tmp_path):
 
     # Test create_map with progress bar enabled and disabled
     map_path_1 = basaltic_red.lake.create_map(str(lake_dir), show_progress=True)
-    assert (lake_dir / ".br_map.ipc").exists()
-    assert map_path_1.endswith(".br_map.ipc")
+    assert (lake_dir / ".br_map.bazan").exists()
+    assert map_path_1.endswith(".br_map.bazan")
 
     # Test doctor
     report = basaltic_red.lake.doctor(str(lake_dir), auto_heal=True)

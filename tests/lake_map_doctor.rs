@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use arrow::array::{Array, Float64Array, Int64Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
+use arrow_ipc::writer::FileWriter;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
@@ -124,6 +125,12 @@ fn test_lake_map_creation_and_fast_load() {
     assert_eq!(map.total_files, 2);
     assert_eq!(map.total_rows, 13_000);
     assert!(map.total_bytes > 0);
+    let metadata = map.to_record_batch().unwrap().schema().metadata().clone();
+    assert_eq!(
+        metadata.get("bazan.kind").map(String::as_str),
+        Some("lake_map")
+    );
+    assert_eq!(metadata.get("bazan.version").map(String::as_str), Some("1"));
 
     // Verify relative paths are stored without hardcoded root
     for entry in &map.entries {
@@ -131,6 +138,62 @@ fn test_lake_map_creation_and_fast_load() {
         assert!(entry.rel_path.contains("part-00"));
         assert!(entry.stats_json.contains("fare_amount"));
     }
+}
+
+#[test]
+fn test_lake_map_indexes_arrow_ipc_data() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_path = temp_dir.path().join("data.ipc");
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(Int64Array::from(vec![1, 2, 3]))],
+    )
+    .unwrap();
+    let file = File::create(&data_path).unwrap();
+    let mut writer = FileWriter::try_new(file, &schema).unwrap();
+    writer.write(&batch).unwrap();
+    writer.finish().unwrap();
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    assert_eq!(map.total_files, 1);
+    assert_eq!(map.entries[0].rel_path, "data.ipc");
+    assert_eq!(map.total_rows, 3);
+}
+
+#[test]
+fn test_legacy_map_filename_is_not_loaded() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("data.parquet");
+    create_sample_parquet(&file, 3, 10.0);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+    let current_map = resolve_map_path(temp_dir.path());
+    let legacy_map = temp_dir.path().join(".br_map.ipc");
+    std::fs::rename(&current_map, &legacy_map).unwrap();
+
+    let error = engine
+        .locate_lake_row_native(temp_dir.path().to_str().unwrap(), 2)
+        .unwrap_err();
+    assert!(!error.to_string().is_empty());
+
+    let report = engine
+        .doctor_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+    assert_eq!(report.status, "DRIFT_DETECTED");
+    assert_eq!(report.unindexed_files, vec!["data.parquet"]);
 }
 
 #[test]
