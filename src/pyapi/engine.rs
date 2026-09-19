@@ -110,7 +110,7 @@ impl MatrixEngine {
         }
     }
 
-    /// Create or rebuild an Arrow IPC Binary Map (.br_map.ipc) for a data directory
+    /// Create or rebuild a Bazaltic Red lake map (.br_map.bazan) for a data directory
     #[pyo3(signature = (dir_path, show_progress=true))]
     pub fn create_map(&self, py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<String> {
         let dir = dir_path.to_string();

@@ -20,7 +20,8 @@ use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use crate::utils::discover_data_files;
 
-pub const DEFAULT_MAP_FILENAME: &str = ".br_map.ipc";
+pub const DEFAULT_MAP_FILENAME: &str = ".br_map.bazan";
+pub const LEGACY_MAP_FILENAME: &str = ".br_map.ipc";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnMinMax {
@@ -287,15 +288,23 @@ impl LakeMap {
 
     /// Convert LakeMap into an Arrow RecordBatch for Zero-Copy IPC serialization
     pub fn to_record_batch(&self) -> Result<RecordBatch, BazanError> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("rel_path", DataType::Utf8, false),
-            Field::new("size_bytes", DataType::UInt64, false),
-            Field::new("mtime_ms", DataType::Int64, false),
-            Field::new("total_rows", DataType::UInt64, false),
-            Field::new("stats_json", DataType::Utf8, false),
-            Field::new("first_global_row", DataType::UInt64, false),
-            Field::new("row_groups_json", DataType::Utf8, false),
-        ]));
+        let schema = Arc::new(Schema::new_with_metadata(
+            vec![
+                Field::new("rel_path", DataType::Utf8, false),
+                Field::new("size_bytes", DataType::UInt64, false),
+                Field::new("mtime_ms", DataType::Int64, false),
+                Field::new("total_rows", DataType::UInt64, false),
+                Field::new("stats_json", DataType::Utf8, false),
+                Field::new("first_global_row", DataType::UInt64, false),
+                Field::new("row_groups_json", DataType::Utf8, false),
+            ],
+            HashMap::from([
+                ("bazan.kind".to_string(), "lake_map".to_string()),
+                ("bazan.version".to_string(), "1".to_string()),
+                ("bazan.payload".to_string(), "arrow_ipc".to_string()),
+                ("bazan.map_schema".to_string(), "2".to_string()),
+            ]),
+        ));
 
         let rel_paths: Vec<&str> = self.entries.iter().map(|e| e.rel_path.as_str()).collect();
         let sizes: Vec<u64> = self.entries.iter().map(|e| e.size_bytes).collect();
@@ -666,12 +675,7 @@ pub fn build_lake_map_with_progress(
     // Filter out existing map file itself and collect initial file sizes
     let valid_files_with_size: Vec<(PathBuf, u64)> = files
         .into_iter()
-        .filter(|p| {
-            p.file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| !s.ends_with(".ipc") && !s.starts_with(".br_map"))
-                .unwrap_or(true)
-        })
+        .filter(|p| !is_map_sidecar(p))
         .map(|p| {
             let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
             (p, size)
@@ -699,7 +703,7 @@ pub fn build_lake_map_with_progress(
     Ok(LakeMap::new(entries?))
 }
 
-/// Save LakeMap to Arrow IPC binary format (`.br_map.ipc`)
+/// Save LakeMap to Arrow IPC payload format (`.br_map.bazan`).
 /// Uses atomic write-to-temp-and-rename to prevent corrupting open mmaps (avoiding SIGBUS)
 pub fn save_lake_map_ipc(map: &LakeMap, output_path: &Path) -> Result<(), BazanError> {
     let output_path = crate::utils::validate_safe_path(output_path)?;
@@ -771,9 +775,16 @@ pub fn load_lake_map_ipc(input_path: &Path) -> Result<LakeMap, BazanError> {
     LakeMap::from_record_batch(&unified_batch)
 }
 
-/// Resolve map path: either explicit or default peer file `dir/.br_map.ipc`
+/// Resolve the current map path used for writes: `dir/.br_map.bazan`.
 pub fn resolve_map_path(dir_path: &Path) -> PathBuf {
     dir_path.join(DEFAULT_MAP_FILENAME)
+}
+
+fn is_map_sidecar(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some(DEFAULT_MAP_FILENAME | LEGACY_MAP_FILENAME)
+    )
 }
 
 /// Resolve a file-local row range to the Parquet row groups that contain it.
@@ -860,7 +871,7 @@ pub fn resolve_parquet_range(
 /// Diagnose data lake map consistency and optionally auto-heal incremental drifts
 pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport, BazanError> {
     let map_file = resolve_map_path(dir_path);
-    let mut existing_map = if map_file.exists() {
+    let mut existing_map = if map_file.is_file() {
         Some(load_lake_map_ipc(&map_file)?)
     } else {
         None
@@ -869,12 +880,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
     let files_on_disk = discover_data_files(dir_path, None)?;
     let valid_disk_files: Vec<PathBuf> = files_on_disk
         .into_iter()
-        .filter(|p| {
-            p.file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| !s.ends_with(".ipc") && !s.starts_with(".br_map"))
-                .unwrap_or(true)
-        })
+        .filter(|p| !is_map_sidecar(p))
         .collect();
 
     let mut disk_map: HashMap<String, (PathBuf, u64, i64)> = HashMap::new();
@@ -929,7 +935,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
     let is_drifted = !modified_files.is_empty()
         || !missing_files.is_empty()
         || !unindexed_files.is_empty()
-        || !map_file.exists();
+        || !map_file.is_file();
 
     let mut healed = false;
 
@@ -985,7 +991,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
 }
 
 impl MatrixEngine {
-    /// Create or rebuild peer Arrow IPC LakeMap `.br_map.ipc` for `dir_path`
+    /// Create or rebuild peer LakeMap `.br_map.bazan` for `dir_path`.
     pub fn create_lake_map_native(
         &self,
         dir_path: &str,
