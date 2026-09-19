@@ -43,6 +43,7 @@ Signatures below match `src/pyapi/*.rs`. All functions return PyArrow objects (`
 | `process_and_write_lake(input_dir: str, clean_output_dir: str, trash_output_dir: str, partition_filter: str \| None, batch_size: int)` | `(total_files, total_rows, clean_rows, trash_rows)` |
 | `generate_gold_table(input_dir: str, gold_output_dir: str, table_version: str, partition_filter: str \| None, batch_size: int)` | `(files_read, gold_rows, manifest_path)` |
 | `create_map(dir_path: str, show_progress: bool = True)` | path to the written `.br_map.ipc` (`str`) |
+| `locate_row(dir_path: str, global_row: int)` | location dict or `None`: file path, file offset, row-group ordinal, local row, and page-index availability |
 | `doctor(dir_path: str, auto_heal: bool = False)` | dict, see [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
 
 ## `basaltic_red.sql`

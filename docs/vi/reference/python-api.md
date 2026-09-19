@@ -43,6 +43,7 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 | `process_and_write_lake(input_dir: str, clean_output_dir: str, trash_output_dir: str, partition_filter: str \| None, batch_size: int)` | `(total_files, total_rows, clean_rows, trash_rows)` |
 | `generate_gold_table(input_dir: str, gold_output_dir: str, table_version: str, partition_filter: str \| None, batch_size: int)` | `(files_read, gold_rows, manifest_path)` |
 | `create_map(dir_path: str, show_progress: bool = True)` | đường dẫn tới `.br_map.ipc` vừa ghi (`str`) |
+| `locate_row(dir_path: str, global_row: int)` | dict vị trí hoặc `None`: file, offset trong file, row-group, dòng cục bộ và trạng thái page-index |
 | `doctor(dir_path: str, auto_heal: bool = False)` | dict, xem [Lake Doctor](../architecture/lake-map.md#lake-doctor) |
 
 ## `basaltic_red.sql`

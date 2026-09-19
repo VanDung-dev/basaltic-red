@@ -11,8 +11,8 @@
 `basaltic-red` is not a database. It has no background daemon, network socket, or proprietary storage format. It is a companion toolkit designed to work with existing query engines like DuckDB, Polars, PyArrow, pandas, and DataFusion.
 
 Utilities for file-based data lakes:
-* Memory-mapped lake catalog (`.br_map.ipc`): loads catalog metadata in under 0.5 ms via OS `mmap`, with automated drift detection (`br.lake.doctor`) and a terminal progress bar. It is not a row/byte index.
-* Streaming slicing (`br.read`): reads row ranges and column projections without loading entire multi-gigabyte files into RAM; row offsets are reached by streaming batches.
+* Memory-mapped lake map (`.br_map.ipc`): stores file metadata plus Parquet row-group and column-chunk locations, with automated drift detection (`br.lake.doctor`). It is not a per-row byte index.
+* Slicing (`br.read`): healthy Parquet maps resolve the required row groups before reading; other formats retain bounded streaming fallback without loading entire files into RAM.
 * Parallel data-quality filtering (`br.filter`): multi-threaded dynamic rule validation with per-row `u64` audit bitmasks that separate clean from invalid rows.
 * Embedded SQL execution (`br.sql`): runs in-memory DataFusion SQL queries over directories and hands RecordBatches to DuckDB or Polars without copying data.
 * Custom format registration & sniffing (`br.formats`): detects file types via magic bytes and enables user-defined delimiters without recompiling.
@@ -84,6 +84,7 @@ import duckdb
 map_path = br.lake.create_map("data", show_progress=True)
 report = br.lake.doctor("data", auto_heal=True)
 print(report["status"], report["total_files"])
+print(br.lake.locate_row("data", 3_000_000))
 
 # 2. Slice rows without reading the whole file
 table = br.read.slice_rows("data/yellow_tripdata_2025-12.parquet", offset=0, limit=100)

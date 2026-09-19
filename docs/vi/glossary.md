@@ -46,7 +46,7 @@ Chỉ dùng để tra nhanh. Muốn giải thích chi tiết, theo link sang tra
 | Khối bitmask | 64 quy tắc mỗi `u64`; quy tắc *i* → bit `i % 64` của khối `i / 64` |
 | `audit_error_code` | Bitmask `UInt64` các quy tắc 0 đến 63 bị vi phạm trên dòng Trash |
 | `audit_violated_rules` | `List<UInt32>` toàn bộ chỉ số vi phạm (chỉ khi >64 quy tắc) |
-| `.br_map.ipc` | Danh mục Arrow IPC tại gốc lake (5 cột, xem đặc tả) |
+| `.br_map.ipc` | Lake map Arrow IPC tại gốc: metadata file và vị trí row-group Parquet (7 cột, xem đặc tả) |
 | Trạng thái Doctor | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |
 | Nhóm drift | `modified_files`, `unindexed_files`, `missing_files` |
 | Partition filter | Bộ chọn cây phân vùng kiểu Hive, vd `year=2026/month=08` |

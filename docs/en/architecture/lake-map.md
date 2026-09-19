@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC catalog, `.br_map.ipc`, at the root of the data lake. It avoids rebuilding row counts and statistics; Lake Doctor still checks current file metadata on disk to detect drift.
+Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC index, `.br_map.ipc`, at the root of the data lake. It contains file metadata for every supported format and physical row-group/column-chunk locations for Parquet. Lake Doctor still checks current file metadata on disk to detect drift.
 
 ---
 
@@ -31,6 +31,7 @@ stateDiagram-v2
 ```
 
 - `build_lake_map()` walks the directory (via `discover_data_files`), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.
+- For Parquet, the builder also reads the footer and records each row group's row range, compressed byte range, and per-column chunk ranges. This is metadata work; it does not create one byte offset per logical row.
 - `save_lake_map_ipc()` serializes the map; `load_lake_map_ipc()` reads it back through a memory map.
 
 ## On-Disk Schema
@@ -42,8 +43,14 @@ stateDiagram-v2
 | `mtime_ms` | `Int64` | Modification time in **milliseconds** since Unix epoch |
 | `total_rows` | `UInt64` | Row count |
 | `stats_json` | `Utf8` | JSON blob: per-column `{min, max, min_str, max_str}` plus row count |
+| `first_global_row` | `UInt64` | Starting row when files are ordered by relative path |
+| `row_groups_json` | `Utf8` | Parquet row-group locations; `[]` for non-Parquet files |
 
 The aggregate struct also carries `total_files`, `total_rows`, `total_bytes`.
+
+## Location Resolution
+
+For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. When the source contains an OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing, legacy, or stale map falls back to the normal streaming reader; it is never used to read a modified file.
 
 ---
 

@@ -44,8 +44,8 @@ Implemented in `src/engine/slice.rs`; exposed through [`br.read.*`](../reference
 
 | Method | Behavior |
 | :--- | :--- |
-| `slice_rows(file_path, offset, limit)` | Reads one row range as a PyArrow Table by streaming and skipping batches before `offset`. IPC/Feather sources use `memmap2` where supported. |
-| `slice_cols(file_path, selected_cols, offset, limit)` | Same, with column projection pushed into the reader (Parquet reads only the required column chunks). |
+| `slice_rows(file_path, offset, limit)` | Parquet resolves the healthy `.br_map.ipc` row groups before reading, then applies the local offset/limit; other formats stream and skip batches. IPC/Feather sources use `memmap2` where supported. |
+| `slice_cols(file_path, selected_cols, offset, limit)` | Same location resolution, with column projection pushed into the reader (Parquet reads only the required column chunks). |
 | `preview_sample(file_path, limit_rows)` | Opens the first batch only and runs the **static** threshold filter; returns `(clean_table, trash_table)`. |
 
 Both slice methods resolve the handler through the [format registry](formats.md), so they work on every supported format, not just Parquet.
