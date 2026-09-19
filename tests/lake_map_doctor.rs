@@ -2,12 +2,14 @@ use std::fs::File;
 use std::sync::Arc;
 use std::time::Instant;
 
-use arrow::array::{Float64Array, Int64Array, RecordBatch, StringArray};
+use arrow::array::{Array, Float64Array, Int64Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
-use basaltic_red::engine::map::{load_lake_map_ipc, resolve_map_path};
+use basaltic_red::engine::map::{
+    load_lake_map_ipc, resolve_map_path, resolve_parquet_range, RowGroupLocation,
+};
 use basaltic_red::engine::MatrixEngine;
 
 fn create_sample_parquet(path: &std::path::Path, rows: usize, fare_base: f64) {
@@ -67,6 +69,26 @@ fn create_multi_batch_stats_parquet(path: &std::path::Path) {
     writer
         .write(
             &RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(vec![1.0]))]).unwrap(),
+        )
+        .unwrap();
+    writer.close().unwrap();
+}
+
+fn create_multi_row_group_parquet(path: &std::path::Path) {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Int64,
+        false,
+    )]));
+    let file = File::create(path).unwrap();
+    let props = WriterProperties::builder()
+        .set_max_row_group_row_count(Some(4))
+        .build();
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
+    writer
+        .write(
+            &RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from_iter_values(0..10))])
+                .unwrap(),
         )
         .unwrap();
     writer.close().unwrap();
@@ -200,4 +222,47 @@ fn test_doctor_rejects_corrupt_map() {
         .doctor_lake_map_native(temp_dir.path().to_str().unwrap(), false)
         .unwrap_err();
     assert!(!error.to_string().is_empty());
+}
+
+#[test]
+fn test_lake_map_resolves_parquet_row_groups_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.parquet");
+    create_multi_row_group_parquet(&file);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert!(row_groups.len() >= 3);
+    assert_eq!(row_groups[0].first_row, 0);
+    assert_eq!(row_groups[0].columns[0].path, "value");
+    assert!(!row_groups[0].columns[0].pages.is_empty());
+
+    let location = map.locate_global_row(5).unwrap().unwrap();
+    assert_eq!(location.rel_path, "mapped.parquet");
+    assert_eq!(location.file_offset, 5);
+    assert_eq!(location.row_group, Some(1));
+    assert_eq!(location.row_in_group, Some(1));
+    assert!(location.page_indexed);
+
+    let resolved = resolve_parquet_range(&file, 5, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 1);
+    assert_eq!(resolved.row_groups, vec![1]);
+
+    let batch = engine
+        .slice_rows_native(file.to_str().unwrap(), 5, 2)
+        .unwrap();
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(values.len(), 2);
+    assert_eq!(values.value(0), 5);
+    assert_eq!(values.value(1), 6);
 }
