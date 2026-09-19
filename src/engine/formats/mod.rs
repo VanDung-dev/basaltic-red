@@ -88,7 +88,7 @@ pub trait FormatHandler: Send + Sync {
 }
 
 /// Shared stream-and-skip for `read_range` / `read_range_columns`.
-fn read_range_from_source(
+pub(crate) fn read_range_from_source(
     source: OpenedSource,
     offset: usize,
     limit: usize,

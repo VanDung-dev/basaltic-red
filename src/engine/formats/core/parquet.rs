@@ -1,6 +1,7 @@
 use arrow::array::RecordBatch;
 use arrow_array::RecordBatchReader;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
+use parquet::file::metadata::PageIndexPolicy;
 use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
@@ -10,7 +11,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::engine::formats::{
+    clamp_batch_size, read_range_from_source, FormatHandler, OpenedSource,
+};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use crate::utils::discover_parquet_files;
@@ -63,10 +66,8 @@ pub fn open_parquet_columns(
             projected_fields.push(field.clone());
         }
     }
-    let projected_schema = Arc::new(arrow_schema.project(&projected_fields_indices(
-        &arrow_schema,
-        columns,
-    ))?);
+    let projected_schema =
+        Arc::new(arrow_schema.project(&projected_fields_indices(&arrow_schema, columns))?);
 
     Ok(OpenedSource {
         schema: projected_schema,
@@ -74,14 +75,56 @@ pub fn open_parquet_columns(
     })
 }
 
-fn projected_fields_indices(
-    schema: &arrow::datatypes::Schema,
-    columns: &[String],
-) -> Vec<usize> {
+fn projected_fields_indices(schema: &arrow::datatypes::Schema, columns: &[String]) -> Vec<usize> {
     columns
         .iter()
         .filter_map(|name| schema.index_of(name).ok())
         .collect()
+}
+
+/// Read a range from only the Parquet row groups selected by the lake map.
+pub fn read_parquet_range_from_row_groups(
+    file_path: &str,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+    columns: &[String],
+    row_groups: &[usize],
+) -> Result<RecordBatch, BazanError> {
+    let file = File::open(file_path)?;
+    let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional);
+    let builder = ParquetRecordBatchReaderBuilder::try_new_with_options(file, options)?;
+    let arrow_schema = builder.schema().clone();
+    let mut builder = builder
+        .with_batch_size(clamp_batch_size(batch_size))
+        .with_row_groups(row_groups.to_vec())
+        .with_offset(offset)
+        .with_limit(limit);
+
+    let output_schema = if columns.is_empty() {
+        arrow_schema
+    } else {
+        let schema_descr = builder.metadata().file_metadata().schema_descr();
+        let projected_indices: Vec<usize> = columns
+            .iter()
+            .filter_map(|name| {
+                schema_descr
+                    .columns()
+                    .iter()
+                    .position(|field| field.name() == name)
+            })
+            .collect();
+        let mask = ProjectionMask::leaves(schema_descr, projected_indices);
+        builder = builder.with_projection(mask);
+        Arc::new(arrow_schema.project(&projected_fields_indices(&arrow_schema, columns))?)
+    };
+
+    let reader = builder.build()?;
+    let source = OpenedSource {
+        schema: output_schema,
+        batches: Box::new(reader.map(|result| result.map_err(BazanError::from))),
+    };
+    read_range_from_source(source, 0, limit)
 }
 
 /// Parquet Streaming In-Memory Reader (Tier 1 Core Standard)

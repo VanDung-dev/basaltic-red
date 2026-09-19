@@ -1,7 +1,9 @@
 use arrow::array::RecordBatch;
 
+use crate::engine::formats::read_parquet_range_from_row_groups;
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
+use crate::engine::map::resolve_parquet_range;
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -21,8 +23,25 @@ impl MatrixEngine {
             .to_lowercase();
 
         maybe_hint_not_parquet(file_path, &ext);
+
+        if matches!(ext.as_str(), "parquet" | "pq") {
+            if let Some(resolved) = resolve_parquet_range(path, offset, limit)? {
+                return read_parquet_range_from_row_groups(
+                    file_path,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                    &[],
+                    &resolved.row_groups,
+                );
+            }
+        }
+
         let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
-            BazanError::Message(format!("Format for '{}' not supported or recognized", file_path))
+            BazanError::Message(format!(
+                "Format for '{}' not supported or recognized",
+                file_path
+            ))
         })?;
 
         handler.read_range(file_path, offset, limit, DEFAULT_MAX_BATCH_SIZE)
@@ -50,8 +69,33 @@ impl MatrixEngine {
             .to_lowercase();
 
         maybe_hint_not_parquet(file_path, &ext);
+
+        if matches!(ext.as_str(), "parquet" | "pq") {
+            if let Some(resolved) = resolve_parquet_range(path, offset, limit)? {
+                let batch = read_parquet_range_from_row_groups(
+                    file_path,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                    selected_cols,
+                    &resolved.row_groups,
+                )?;
+                let schema = batch.schema();
+                let mut indices = Vec::new();
+                for col_name in selected_cols {
+                    indices.push(schema.index_of(col_name).map_err(|_| {
+                        BazanError::Message(format!("Column '{}' not found in schema", col_name))
+                    })?);
+                }
+                return Ok(batch.project(&indices)?);
+            }
+        }
+
         let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
-            BazanError::Message(format!("Format for '{}' not supported or recognized", file_path))
+            BazanError::Message(format!(
+                "Format for '{}' not supported or recognized",
+                file_path
+            ))
         })?;
 
         let batch = handler.read_range_columns(

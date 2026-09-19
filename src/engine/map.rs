@@ -10,6 +10,8 @@ use arrow::array::{ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
+use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
+use parquet::file::metadata::PageIndexPolicy;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -34,13 +36,42 @@ pub struct FileStats {
     pub columns: HashMap<String, ColumnMinMax>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnLocation {
+    pub path: String,
+    pub offset: u64,
+    pub length: u64,
+    #[serde(default)]
+    pub pages: Vec<PageLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageLocation {
+    pub first_row: usize,
+    pub offset: u64,
+    pub length: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RowGroupLocation {
+    pub ordinal: usize,
+    pub first_row: usize,
+    pub row_count: usize,
+    pub first_byte: Option<u64>,
+    pub total_byte_size: u64,
+    pub compressed_size: u64,
+    pub columns: Vec<ColumnLocation>,
+}
+
 #[derive(Debug, Clone)]
 pub struct LakeMapEntry {
     pub rel_path: String,
     pub size_bytes: u64,
     pub mtime_ms: i64,
+    pub first_global_row: usize,
     pub total_rows: usize,
     pub stats_json: String,
+    pub row_groups_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +91,21 @@ pub struct DoctorReport {
     pub unindexed_files: Vec<String>,
     pub missing_files: Vec<String>,
     pub healed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedParquetRange {
+    pub row_groups: Vec<usize>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalRowLocation {
+    pub rel_path: String,
+    pub file_offset: usize,
+    pub row_group: Option<usize>,
+    pub row_in_group: Option<usize>,
+    pub page_indexed: bool,
 }
 
 /// Helper function to format bytes into human-readable string
@@ -220,7 +266,14 @@ impl MapProgressTracker {
 }
 
 impl LakeMap {
-    pub fn new(entries: Vec<LakeMapEntry>) -> Self {
+    pub fn new(mut entries: Vec<LakeMapEntry>) -> Self {
+        entries.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+        let mut first_global_row = 0usize;
+        for entry in &mut entries {
+            entry.first_global_row = first_global_row;
+            first_global_row = first_global_row.saturating_add(entry.total_rows);
+        }
+
         let total_files = entries.len();
         let total_rows = entries.iter().map(|e| e.total_rows).sum();
         let total_bytes = entries.iter().map(|e| e.size_bytes).sum();
@@ -240,6 +293,8 @@ impl LakeMap {
             Field::new("mtime_ms", DataType::Int64, false),
             Field::new("total_rows", DataType::UInt64, false),
             Field::new("stats_json", DataType::Utf8, false),
+            Field::new("first_global_row", DataType::UInt64, false),
+            Field::new("row_groups_json", DataType::Utf8, false),
         ]));
 
         let rel_paths: Vec<&str> = self.entries.iter().map(|e| e.rel_path.as_str()).collect();
@@ -247,6 +302,16 @@ impl LakeMap {
         let mtimes: Vec<i64> = self.entries.iter().map(|e| e.mtime_ms).collect();
         let rows: Vec<u64> = self.entries.iter().map(|e| e.total_rows as u64).collect();
         let stats: Vec<&str> = self.entries.iter().map(|e| e.stats_json.as_str()).collect();
+        let first_rows: Vec<u64> = self
+            .entries
+            .iter()
+            .map(|e| e.first_global_row as u64)
+            .collect();
+        let row_groups: Vec<&str> = self
+            .entries
+            .iter()
+            .map(|e| e.row_groups_json.as_str())
+            .collect();
 
         let columns: Vec<ArrayRef> = vec![
             Arc::new(StringArray::from(rel_paths)),
@@ -254,6 +319,8 @@ impl LakeMap {
             Arc::new(Int64Array::from(mtimes)),
             Arc::new(UInt64Array::from(rows)),
             Arc::new(StringArray::from(stats)),
+            Arc::new(UInt64Array::from(first_rows)),
+            Arc::new(StringArray::from(row_groups)),
         ];
 
         RecordBatch::try_new(schema, columns).map_err(BazanError::from)
@@ -286,6 +353,32 @@ impl LakeMap {
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| BazanError::Message("Invalid stats_json column".to_string()))?;
+        let first_rows_arr = if batch.num_columns() >= 7 {
+            Some(
+                batch
+                    .column(5)
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .ok_or_else(|| {
+                        BazanError::Message("Invalid first_global_row column".to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
+        let row_groups_arr = if batch.num_columns() >= 7 {
+            Some(
+                batch
+                    .column(6)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| {
+                        BazanError::Message("Invalid row_groups_json column".to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
 
         let num_rows = batch.num_rows();
         let mut entries = Vec::with_capacity(num_rows);
@@ -295,16 +388,130 @@ impl LakeMap {
                 rel_path: rel_path_arr.value(i).to_string(),
                 size_bytes: size_arr.value(i),
                 mtime_ms: mtime_arr.value(i),
+                first_global_row: first_rows_arr.map(|arr| arr.value(i) as usize).unwrap_or(0),
                 total_rows: rows_arr.value(i) as usize,
                 stats_json: stats_arr.value(i).to_string(),
+                row_groups_json: row_groups_arr
+                    .map(|arr| arr.value(i).to_string())
+                    .unwrap_or_else(|| "[]".to_string()),
             });
         }
 
         Ok(Self::new(entries))
     }
+
+    pub fn locate_global_row(
+        &self,
+        global_row: usize,
+    ) -> Result<Option<GlobalRowLocation>, BazanError> {
+        let Some(entry) = self.entries.iter().find(|entry| {
+            global_row >= entry.first_global_row
+                && global_row < entry.first_global_row.saturating_add(entry.total_rows)
+        }) else {
+            return Ok(None);
+        };
+
+        let file_offset = global_row.saturating_sub(entry.first_global_row);
+        let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+        let Some(group) = row_groups.iter().find(|group| {
+            file_offset >= group.first_row
+                && file_offset < group.first_row.saturating_add(group.row_count)
+        }) else {
+            return Ok(Some(GlobalRowLocation {
+                rel_path: entry.rel_path.clone(),
+                file_offset,
+                row_group: None,
+                row_in_group: None,
+                page_indexed: false,
+            }));
+        };
+
+        Ok(Some(GlobalRowLocation {
+            rel_path: entry.rel_path.clone(),
+            file_offset,
+            row_group: Some(group.ordinal),
+            row_in_group: Some(file_offset.saturating_sub(group.first_row)),
+            page_indexed: group.columns.iter().any(|column| !column.pages.is_empty()),
+        }))
+    }
 }
 
-/// Helper to extract stats and row count from a single data file
+fn is_parquet_path(file_path: &Path) -> bool {
+    matches!(
+        file_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref(),
+        Some("parquet") | Some("pq")
+    )
+}
+
+fn inspect_parquet_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+    let file = File::open(file_path)?;
+    let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional);
+    let builder = ParquetRecordBatchReaderBuilder::try_new_with_options(file, options)?;
+    let mut first_row = 0usize;
+    let mut row_groups = Vec::with_capacity(builder.metadata().num_row_groups());
+    let offset_indexes = builder.metadata().offset_index();
+
+    for (ordinal, row_group) in builder.metadata().row_groups().iter().enumerate() {
+        let row_count = usize::try_from(row_group.num_rows()).map_err(|_| {
+            BazanError::Message(format!(
+                "Invalid negative row count in Parquet row group {}: {}",
+                ordinal,
+                row_group.num_rows()
+            ))
+        })?;
+        let columns = row_group
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(column_index, column)| {
+                let (offset, length) = column.byte_range();
+                let pages = offset_indexes
+                    .and_then(|indexes| indexes.get(ordinal))
+                    .and_then(|indexes| indexes.get(column_index))
+                    .map(|index| {
+                        index
+                            .page_locations()
+                            .iter()
+                            .filter_map(|page| {
+                                Some(PageLocation {
+                                    first_row: usize::try_from(page.first_row_index).ok()?,
+                                    offset: u64::try_from(page.offset).ok()?,
+                                    length: u64::try_from(page.compressed_page_size).ok()?,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                ColumnLocation {
+                    path: column.column_path().string(),
+                    offset,
+                    length,
+                    pages,
+                }
+            })
+            .collect::<Vec<_>>();
+        let first_byte = columns.iter().map(|column| column.offset).min();
+
+        row_groups.push(RowGroupLocation {
+            ordinal,
+            first_row,
+            row_count,
+            first_byte,
+            total_byte_size: row_group.total_byte_size().max(0) as u64,
+            compressed_size: row_group.compressed_size().max(0) as u64,
+            columns,
+        });
+        first_row = first_row.saturating_add(row_count);
+    }
+
+    Ok(row_groups)
+}
+
+/// Helper to extract stats, row count, and physical row-group locations from a single data file.
 fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry, BazanError> {
     let rel = file_path
         .strip_prefix(root_dir)
@@ -328,6 +535,12 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
             file_str
         ))
     })?;
+
+    let row_groups_json = if is_parquet_path(file_path) {
+        serde_json::to_string(&inspect_parquet_row_groups(file_path)?)?
+    } else {
+        "[]".to_string()
+    };
 
     let source = handler.open(file_str, 64 * 1024)?;
     let mut total_rows = 0usize;
@@ -421,8 +634,10 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         rel_path: rel,
         size_bytes,
         mtime_ms,
+        first_global_row: 0,
         total_rows,
         stats_json,
+        row_groups_json,
     })
 }
 
@@ -559,6 +774,87 @@ pub fn load_lake_map_ipc(input_path: &Path) -> Result<LakeMap, BazanError> {
 /// Resolve map path: either explicit or default peer file `dir/.br_map.ipc`
 pub fn resolve_map_path(dir_path: &Path) -> PathBuf {
     dir_path.join(DEFAULT_MAP_FILENAME)
+}
+
+/// Resolve a file-local row range to the Parquet row groups that contain it.
+///
+/// Returns `None` when no compatible, healthy map is available so callers can
+/// preserve the normal streaming fallback for old maps and non-Parquet files.
+pub fn resolve_parquet_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedParquetRange>, BazanError> {
+    if !is_parquet_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(mut map_root) = file_path.parent() else {
+        return Ok(None);
+    };
+
+    loop {
+        let map_path = resolve_map_path(map_root);
+        if map_path.is_file() {
+            let map = load_lake_map_ipc(&map_path)?;
+            let Some(rel_path) = file_path.strip_prefix(map_root).ok() else {
+                return Ok(None);
+            };
+            let rel_path = rel_path.to_string_lossy();
+            let Some(entry) = map.entries.iter().find(|entry| entry.rel_path == rel_path) else {
+                return Ok(None);
+            };
+
+            let metadata = fs::metadata(file_path)?;
+            let mtime_ms = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            if metadata.len() != entry.size_bytes || mtime_ms != entry.mtime_ms {
+                return Ok(None);
+            }
+
+            let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+            if row_groups.is_empty() || offset >= entry.total_rows {
+                return Ok(Some(ResolvedParquetRange {
+                    row_groups: Vec::new(),
+                    offset: 0,
+                }));
+            }
+
+            let end = offset.saturating_add(limit).min(entry.total_rows);
+            let selected: Vec<&RowGroupLocation> = row_groups
+                .iter()
+                .filter(|group| {
+                    let group_end = group.first_row.saturating_add(group.row_count);
+                    group.first_row < end && group_end > offset
+                })
+                .collect();
+            let Some(first_group) = selected.first() else {
+                return Ok(Some(ResolvedParquetRange {
+                    row_groups: Vec::new(),
+                    offset: 0,
+                }));
+            };
+
+            return Ok(Some(ResolvedParquetRange {
+                row_groups: selected.iter().map(|group| group.ordinal).collect(),
+                offset: offset.saturating_sub(first_group.first_row),
+            }));
+        }
+
+        let Some(parent) = map_root.parent() else {
+            break;
+        };
+        if parent == map_root {
+            break;
+        }
+        map_root = parent;
+    }
+
+    Ok(None)
 }
 
 /// Diagnose data lake map consistency and optionally auto-heal incremental drifts
@@ -700,6 +996,15 @@ impl MatrixEngine {
         let out_file = resolve_map_path(path);
         save_lake_map_ipc(&map, &out_file)?;
         Ok(out_file.to_string_lossy().to_string())
+    }
+
+    pub fn locate_lake_row_native(
+        &self,
+        dir_path: &str,
+        global_row: usize,
+    ) -> Result<Option<GlobalRowLocation>, BazanError> {
+        let map = load_lake_map_ipc(&resolve_map_path(Path::new(dir_path)))?;
+        map.locate_global_row(global_row)
     }
 
     /// Run doctor health check and optional auto-healing sync
