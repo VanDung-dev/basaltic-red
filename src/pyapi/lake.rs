@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use super::default_engine;
 
@@ -69,6 +70,16 @@ fn create_map(py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<S
 }
 
 #[pyfunction]
+#[pyo3(signature = (dir_path, global_row))]
+fn locate_row<'py>(
+    py: Python<'py>,
+    dir_path: &str,
+    global_row: usize,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    default_engine().locate_row(py, dir_path, global_row)
+}
+
+#[pyfunction]
 #[pyo3(signature = (dir_path, auto_heal=false))]
 fn doctor<'py>(
     py: Python<'py>,
@@ -85,6 +96,7 @@ pub fn lake(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_file, m)?)?;
     m.add_function(wrap_pyfunction!(ingest, m)?)?;
     m.add_function(wrap_pyfunction!(create_map, m)?)?;
+    m.add_function(wrap_pyfunction!(locate_row, m)?)?;
     m.add_function(wrap_pyfunction!(doctor, m)?)?;
     Ok(())
 }

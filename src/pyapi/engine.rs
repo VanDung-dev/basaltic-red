@@ -121,6 +121,31 @@ impl MatrixEngine {
         }
     }
 
+    /// Locate a global row through the lake map without reading data pages.
+    #[pyo3(signature = (dir_path, global_row))]
+    pub fn locate_row<'py>(
+        &self,
+        py: Python<'py>,
+        dir_path: &str,
+        global_row: usize,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let dir = dir_path.to_string();
+        let location = py.detach(|| self.locate_lake_row_native(&dir, global_row));
+        match location {
+            Ok(Some(location)) => {
+                let dict = PyDict::new(py);
+                dict.set_item("rel_path", location.rel_path)?;
+                dict.set_item("file_offset", location.file_offset)?;
+                dict.set_item("row_group", location.row_group)?;
+                dict.set_item("row_in_group", location.row_in_group)?;
+                dict.set_item("page_indexed", location.page_indexed)?;
+                Ok(Some(dict))
+            }
+            Ok(None) => Ok(None),
+            Err(error) => Err(bazan_to_pyerr(error)),
+        }
+    }
+
     /// Run doctor health check and optional auto-healing sync on a data directory
     #[pyo3(signature = (dir_path, auto_heal=false))]
     pub fn doctor<'py>(
