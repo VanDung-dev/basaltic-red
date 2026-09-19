@@ -27,7 +27,7 @@ Each component page names its source files inline. The table below is the entry 
 | Parallel filter | `engine/parallel_filter.rs`, `engine/partition.rs` | Rayon multi-file filtering, Hive-style pruning | [Filtering Pipeline](filtering-pipeline.md) |
 | Format layer | `engine/formats/` | `FormatHandler` trait, registries, magic-byte sniffer | [Format Registry & Sniffing](formats.md) |
 | SQL layer | `engine/sql.rs`, `pyapi/iterator.rs` | DataFusion session, `PyBatchIterator` bridge | [DataFusion SQL Layer](datafusion.md) |
-| Lake map | `engine/map.rs` | `.br_map.ipc` catalog + Lake Doctor | [Lake Map & Lake Doctor](lake-map.md) |
+| Lake map | `engine/map.rs` | `.br_map.bazan` catalog + Lake Doctor | [Lake Map & Lake Doctor](lake-map.md) |
 | Write pipeline | `engine/ingest.rs`, `engine/splitter.rs`, `engine/formats/core/parquet.rs` | Ingest, split, clean/trash lake write, gold table | [Lakehouse Pipeline](lakehouse-pipeline.md) |
 | Memory & runtimes | `engine/memory.rs` | RAM budget, global tokio/Rayon runtimes | [Lakehouse Pipeline](lakehouse-pipeline.md#memory-budget-runtimes) |
 | Extras | `engine/csv_guard.rs`, `engine/graph.rs`, `engine/recommend.rs` | CSV injection guard, Mermaid ER diagrams, batch-size hint |, |

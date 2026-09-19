@@ -1,12 +1,14 @@
 ---
 title: Lake Map Specification
-description: Binary layout and column schema of .br_map.ipc files
+description: Binary layout and column schema of .br_map.bazan files
 icon: material/map
 ---
 
 # Lake Map Specification
 
-The Lake Map is serialized as an **Apache Arrow IPC file** named `.br_map.ipc` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations; legacy five-column maps remain readable but cannot accelerate slices. `doctor_lake_map` additionally walks current file metadata to detect drift.
+The Lake Map is serialized as an **Apache Arrow IPC payload** in the system file `.br_map.bazan` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations; legacy five-column maps remain readable but cannot accelerate slices. `.br_map.ipc` is reserved as an ignored legacy sidecar name. `doctor_lake_map` additionally walks current file metadata to detect drift.
+
+New maps carry schema metadata identifying `bazan.kind=lake_map`, `bazan.version=1`, `bazan.payload=arrow_ipc`, and `bazan.map_schema=2`. The payload remains an ordinary Arrow IPC file; the `.bazan` suffix reserves the system-file namespace without taking `.ipc` away from user data.
 
 ## RecordBatch Schema (single row per data file)
 

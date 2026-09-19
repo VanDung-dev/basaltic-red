@@ -44,7 +44,7 @@ Cài đặt trong `src/engine/slice.rs`; phơi ra qua [`br.read.*`](../reference
 
 | Phương thức | Hành vi |
 | :--- | :--- |
-| `slice_rows(file_path, offset, limit)` | Parquet phân giải row group khỏe từ `.br_map.ipc` trước khi đọc rồi áp dụng offset/limit cục bộ; định dạng khác vẫn stream và bỏ qua batch. IPC/Feather dùng memory-map qua `memmap2`. |
+| `slice_rows(file_path, offset, limit)` | Parquet phân giải row group khỏe từ `.br_map.bazan` trước khi đọc rồi áp dụng offset/limit cục bộ; định dạng khác vẫn stream và bỏ qua batch. IPC/Feather dùng memory-map qua `memmap2`. |
 | `slice_cols(file_path, selected_cols, offset, limit)` | Như trên, kèm phân giải vị trí và chiếu cột đẩy xuống reader (Parquet chỉ đọc đúng các column chunk cần thiết). |
 | `preview_sample(file_path, limit_rows)` | Mở batch đầu tiên và chạy bộ lọc **ngưỡng tĩnh**; trả về `(clean_table, trash_table)`. |
 

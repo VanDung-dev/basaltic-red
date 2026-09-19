@@ -14,14 +14,14 @@ icon: material/home
 
 ## Tổng quan
 
-`basaltic-red` là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (`.br_map.ipc`), cắt lát dòng và cột không cần đọc toàn bộ file, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về `pyarrow.Table` hoặc `RecordBatch` để sử dụng trực tiếp với Polars, DuckDB, hoặc pandas.
+`basaltic-red` là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (`.br_map.bazan`), cắt lát dòng và cột không cần đọc toàn bộ file, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về `pyarrow.Table` hoặc `RecordBatch` để sử dụng trực tiếp với Polars, DuckDB, hoặc pandas.
 
 Demo trong [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb): NYC TLC Yellow Taxi từ năm 2009 đến 2025, gồm 204 file Parquet, dung lượng 29.66 GB, 1,826,960,642 dòng nhân 20 cột.
 
 ```mermaid
 graph LR
     A["File thô (204 Parquet / 29.66 GB)"] --> B["Lõi Rust"]
-    B --> C["Catalog (.br_map.ipc / memmap2)"]
+    B --> C["Catalog (.br_map.bazan / memmap2)"]
     B --> D["Lọc song song (Rayon, 1.82B dòng)"]
     B --> E["SQL stream (DataFusion)"]
     D --> F["Clean (1.78B)"]
@@ -31,7 +31,7 @@ graph LR
 
 ## Chức năng chính
 
-- Catalog (`.br_map.ipc`): một file Arrow IPC ở gốc lake; đọc warm qua `memmap2` tránh duyệt cây thư mục. Doctor trả về `HEALTHY`, `DRIFT_DETECTED`, hoặc `HEALED`.
+- Catalog (`.br_map.bazan`): một payload Arrow IPC ở gốc lake; đọc warm qua `memmap2` tránh duyệt cây thư mục. Doctor trả về `HEALTHY`, `DRIFT_DETECTED`, hoặc `HEALED`.
 - Cắt lát: `slice_rows` và `slice_cols` chỉ đọc phần dữ liệu được yêu cầu.
 - Lọc: quy tắc động theo định dạng `cột toán_tử giá_trị`; dòng lỗi mang `audit_error_code` (bitmask `u64`, chia chunk khi số quy tắc vượt quá 64).
 - SQL: phiên DataFusion; `execute_sql_stream` trả về `PyBatchIterator`, `to_pyarrow()` bàn giao batch cho Polars hoặc DuckDB không qua sao chép.

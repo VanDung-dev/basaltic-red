@@ -1,12 +1,12 @@
 ---
 title: Binary Lake Map & Lake Doctor
-description: The .br_map.ipc catalog, its Arrow schema, and the doctor diagnostic/healing loop
+description: The .br_map.bazan catalog, its Arrow schema, and the doctor diagnostic/healing loop
 icon: material/map
 ---
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC index, `.br_map.ipc`, at the root of the data lake. It contains file metadata for every supported format and physical row-group/column-chunk locations for Parquet. Lake Doctor still checks current file metadata on disk to detect drift.
+Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC payload in the system file `.br_map.bazan` at the root of the data lake. It contains file metadata for every supported format and physical row-group/column-chunk locations for Parquet. Only `.br_map.bazan` is loaded; `.br_map.ipc` is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.
 
 ---
 
@@ -16,7 +16,7 @@ Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC
 stateDiagram-v2
     direction LR
     state "Building catalog" as Building
-    state ".br_map.ipc saved" as Saved
+    state ".br_map.bazan saved" as Saved
     state "HEALTHY" as Healthy
     state "DRIFT_DETECTED" as Drift
     state "HEALED" as Healed
@@ -50,7 +50,7 @@ The aggregate struct also carries `total_files`, `total_rows`, `total_bytes`.
 
 ## Location Resolution
 
-For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. When the source contains an OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing, legacy, or stale map falls back to the normal streaming reader; it is never used to read a modified file.
+For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. When the source contains an OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.
 
 ---
 
@@ -68,7 +68,7 @@ For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group
 | `missing_files` | Indexed files no longer on disk |
 | `healed` | Whether healing ran |
 
-**Healing** rebuilds the entry list from what still exists (dropping `missing_files`, refreshing stats for modified/unindexed entries) and rewrites `.br_map.ipc`. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes `"HEALED"`. Without `auto_heal=True` the report is purely diagnostic.
+**Healing** rebuilds the entry list from what still exists (dropping `missing_files`, refreshing stats for modified/unindexed entries) and rewrites `.br_map.bazan`. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes `"HEALED"`. Without `auto_heal=True` the report is purely diagnostic.
 
 ```python
 import basaltic_red as br

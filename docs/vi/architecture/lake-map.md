@@ -1,12 +1,12 @@
 ---
 title: Lake Map & Lake Doctor
-description: Danh mục nhị phân .br_map.ipc, schema Arrow của nó và vòng chẩn đoán/tự chữa lành
+description: Danh mục nhị phân .br_map.bazan, schema Arrow của nó và vòng chẩn đoán/tự chữa lành
 icon: material/map
 ---
 
 # Binary Lake Map & Lake Doctor
 
-Cài đặt trong `src/engine/map.rs`. Lake Map lưu một index Arrow IPC đã biên dịch sẵn, `.br_map.ipc`, tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng và vị trí row-group/column-chunk vật lý cho Parquet. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
+Cài đặt trong `src/engine/map.rs`. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống `.br_map.bazan` tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng và vị trí row-group/column-chunk vật lý cho Parquet. Chỉ `.br_map.bazan` được load; `.br_map.ipc` bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
 
 ---
 
@@ -16,7 +16,7 @@ Cài đặt trong `src/engine/map.rs`. Lake Map lưu một index Arrow IPC đã 
 stateDiagram-v2
     direction LR
     state "Đang dựng danh mục" as Building
-    state "Đã lưu .br_map.ipc" as Saved
+    state "Đã lưu .br_map.bazan" as Saved
     state "HEALTHY" as Healthy
     state "DRIFT_DETECTED" as Drift
     state "HEALED" as Healed
@@ -50,7 +50,7 @@ Struct tổng hợp cũng mang theo `total_files`, `total_rows`, `total_bytes`.
 
 ## Phân giải vị trí
 
-Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Nếu file có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map cũ, map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
+Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Nếu file có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
 
 ---
 
@@ -68,7 +68,7 @@ Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row gro
 | `missing_files` | Entry trong danh mục nhưng tệp không còn trên đĩa |
 | `healed` | Có chạy chữa lành hay không |
 
-**Chữa lành** dựng lại danh sách entry từ những gì còn tồn tại (bỏ `missing_files`, làm mới thống kê cho entry modified/unindexed) rồi ghi lại `.br_map.ipc`. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành `"HEALED"`. Không có `auto_heal=True` thì báo cáo thuần túy chẩn đoán.
+**Chữa lành** dựng lại danh sách entry từ những gì còn tồn tại (bỏ `missing_files`, làm mới thống kê cho entry modified/unindexed) rồi ghi lại `.br_map.bazan`. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành `"HEALED"`. Không có `auto_heal=True` thì báo cáo thuần túy chẩn đoán.
 
 ```python
 import basaltic_red as br

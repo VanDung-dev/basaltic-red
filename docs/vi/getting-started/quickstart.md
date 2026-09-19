@@ -17,7 +17,7 @@ Luôn bắt đầu bằng lệnh `br.lake.doctor` khi thao tác với thư mục
 ```python
 import basaltic_red as br
 
-# Chẩn đoán và tự động tạo/đồng bộ bản đồ .br_map.ipc
+# Chẩn đoán và tự động tạo/đồng bộ bản đồ .br_map.bazan
 health = br.lake.doctor("data", auto_heal=True)
 print("Báo cáo sức khỏe Data Lake:")
 for k, v in health.items():

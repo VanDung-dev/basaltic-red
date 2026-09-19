@@ -17,7 +17,7 @@ Always run `br.lake.doctor` when starting to work with a data directory:
 ```python
 import basaltic_red as br
 
-# Diagnose lake and generate .br_map.ipc catalog automatically
+# Diagnose lake and generate .br_map.bazan catalog automatically
 health = br.lake.doctor("data", auto_heal=True)
 print("Lake Health Report:")
 for k, v in health.items():

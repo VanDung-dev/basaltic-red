@@ -30,7 +30,7 @@ Quick lookup only. For explanations, follow the linked component pages.
 | Format trait | `src/engine/formats/mod.rs` | `FormatHandler`, registries, magic-byte sniffer |
 | Tier 1 to 3 handlers | `formats/core/`, `common/`, `plugins/adapters/` | Parquet/Feather · CSV & JSON families · XLSX/Avro/ORC/MsgPack |
 | Row chunking | `formats/plugins/base_templates/row_chunker.rs` | Shared row→batch conversion template |
-| Lake Map | `src/engine/map.rs` | `LakeMap`, `.br_map.ipc` IO, `doctor_lake_map` |
+| Lake Map | `src/engine/map.rs` | `LakeMap`, `.br_map.bazan` IO, `doctor_lake_map` |
 | Memory budget | `src/engine/memory.rs` | RAM cap, batch sizing, tokio/Rayon runtimes |
 | CSV Guard | `src/engine/csv_guard.rs` | Formula-injection sanitizer |
 | ER graphs | `src/engine/graph.rs` | Mermaid ER diagram generator |
@@ -46,7 +46,7 @@ Quick lookup only. For explanations, follow the linked component pages.
 | Bitmask chunk | 64 rules per `u64`; rule *i* → bit `i % 64` of chunk `i / 64` |
 | `audit_error_code` | `UInt64` bitmask of violated rules 0 to 63 on Trash rows |
 | `audit_violated_rules` | `List<UInt32>` of all violated indices (rules > 64 only) |
-| `.br_map.ipc` | Arrow IPC lake map at root: file metadata plus Parquet row-group locations (7 columns, see spec) |
+| `.br_map.bazan` | Arrow IPC lake map payload at root: file metadata plus Parquet row-group locations (7 columns, see spec) |
 | Doctor status | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |
 | Drift classes | `modified_files`, `unindexed_files`, `missing_files` |
 | Partition filter | Hive-style subtree selector, e.g. `year=2026/month=08` |

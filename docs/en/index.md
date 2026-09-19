@@ -14,14 +14,14 @@ icon: material/home
 
 ## Overview
 
-`basaltic-red` is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (`.br_map.ipc`), row and column slicing without full reads, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as `pyarrow.Table` or `RecordBatch` objects for use with Polars, DuckDB, or pandas.
+`basaltic-red` is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (`.br_map.bazan`), row and column slicing without full reads, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as `pyarrow.Table` or `RecordBatch` objects for use with Polars, DuckDB, or pandas.
 
 Demo in [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb): NYC TLC Yellow Taxi 2009 to 2025, with 204 Parquet files, 29.66 GB, and 1,826,960,642 rows by 20 columns.
 
 ```mermaid
 graph LR
     A["Raw files (204 Parquet / 29.66 GB)"] --> B["Rust core"]
-    B --> C["Catalog (.br_map.ipc / memmap2)"]
+    B --> C["Catalog (.br_map.bazan / memmap2)"]
     B --> D["Parallel filter (Rayon, 1.82B rows)"]
     B --> E["DataFusion SQL stream"]
     D --> F["Clean (1.78B)"]
@@ -31,7 +31,7 @@ graph LR
 
 ## What it does
 
-- Catalog (`.br_map.ipc`): one Arrow IPC file at the lake root; warm reads via `memmap2` avoid traversing directory trees. Doctor reports `HEALTHY`, `DRIFT_DETECTED`, or `HEALED`.
+- Catalog (`.br_map.bazan`): one Arrow IPC payload at the lake root; warm reads via `memmap2` avoid traversing directory trees. Doctor reports `HEALTHY`, `DRIFT_DETECTED`, or `HEALED`.
 - Slicing: `slice_rows` and `slice_cols` read only the requested rows and columns.
 - Filtering: dynamic rules evaluated per batch; invalid rows carry an `audit_error_code` (`u64` bitmask, chunked when rules exceed 64).
 - SQL: DataFusion session; `execute_sql_stream` returns a `PyBatchIterator` whose `to_pyarrow()` method hands batches to Polars or DuckDB without copying.

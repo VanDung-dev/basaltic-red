@@ -24,9 +24,9 @@ Kết quả từ một lần chạy [`demo.ipynb`](https://github.com/VanDung-de
 
 ---
 
-## 2. Kiểm tra catalog (`.br_map.ipc`)
+## 2. Kiểm tra catalog (`.br_map.bazan`)
 
-`br.lake.create_map("data")` lần đầu quét thư mục và tạo `.br_map.ipc`; load catalog đã lưu dùng `memmap2`. Một lần `doctor` đầy đủ vẫn kiểm tra metadata của các file hiện tại.
+`br.lake.create_map("data")` lần đầu quét thư mục và tạo `.br_map.bazan`; load catalog đã lưu dùng `memmap2`. Một lần `doctor` đầy đủ vẫn kiểm tra metadata của các file hiện tại.
 
 | Chế độ | Số file | Thời gian (demo) |
 | :--- | :--- | :--- |

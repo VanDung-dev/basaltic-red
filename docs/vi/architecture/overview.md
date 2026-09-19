@@ -27,7 +27,7 @@ Mỗi trang Thành phần đều ghi rõ file nguồn ngay trong nội dung. B�
 | Lọc song song | `engine/parallel_filter.rs`, `engine/partition.rs` | Lọc đa tệp Rayon, cắt tỉa kiểu Hive | [Đường ống Lọc](filtering-pipeline.md) |
 | Tầng định dạng | `engine/formats/` | Trait `FormatHandler`, registry, bộ sniff magic-byte | [Định dạng & Magic Byte](formats.md) |
 | Tầng SQL | `engine/sql.rs`, `pyapi/iterator.rs` | Phiên DataFusion, cầu nối `PyBatchIterator` | [Tầng SQL DataFusion](datafusion.md) |
-| Lake map | `engine/map.rs` | Danh mục `.br_map.ipc` + Lake Doctor | [Lake Map & Lake Doctor](lake-map.md) |
+| Lake map | `engine/map.rs` | Danh mục `.br_map.bazan` + Lake Doctor | [Lake Map & Lake Doctor](lake-map.md) |
 | Đường ống ghi | `engine/ingest.rs`, `engine/splitter.rs`, `engine/formats/core/parquet.rs` | Ingest, chia tệp, ghi lake sạch/rác, bảng gold | [Đường ống Lakehouse](lakehouse-pipeline.md) |
 | Bộ nhớ & runtime | `engine/memory.rs` | Ngân sách RAM, runtime tokio/Rayon toàn cục | [Đường ống Lakehouse](lakehouse-pipeline.md#ngan-sach-bo-nho-runtime) |
 | Tiện ích khác | `engine/csv_guard.rs`, `engine/graph.rs`, `engine/recommend.rs` | CSV injection guard, sơ đồ ER Mermaid, gợi ý batch-size |, |

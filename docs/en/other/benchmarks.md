@@ -24,9 +24,9 @@ Counted via `pq.read_metadata` + `os.path.getsize` in the notebook; volume scan 
 
 ---
 
-## 2. Catalog inspection (`.br_map.ipc`)
+## 2. Catalog inspection (`.br_map.bazan`)
 
-`br.lake.create_map("data")` walks the directory and builds `.br_map.ipc`; loading the saved catalog uses `memmap2`. A full `doctor` call still walks the current file metadata to detect drift.
+`br.lake.create_map("data")` walks the directory and builds `.br_map.bazan`; loading the saved catalog uses `memmap2`. A full `doctor` call still walks the current file metadata to detect drift.
 
 | Mode | Files | Time (demo) |
 | :--- | :--- | :--- |
