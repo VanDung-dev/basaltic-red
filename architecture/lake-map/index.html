@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="The .br_map.ipc catalog, its Arrow schema, and the doctor diagnostic/healing loop">
+        <meta name="description" content="The .br_map.bazan catalog, its Arrow schema, and the doctor diagnostic/healing loop">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -954,6 +954,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#location-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Location Resolution
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1749,6 +1760,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#location-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Location Resolution
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1791,13 +1813,13 @@
 
 
 <h1 id="binary-lake-map-lake-doctor">Binary Lake Map &amp; Lake Doctor</h1>
-<p>Implemented in <code>src/engine/map.rs</code>. The Lake Map stores a pre-compiled Arrow IPC catalog, <code>.br_map.ipc</code>, at the root of the data lake. It avoids rebuilding row counts and statistics; Lake Doctor still checks current file metadata on disk to detect drift.</p>
+<p>Implemented in <code>src/engine/map.rs</code>. The Lake Map stores a pre-compiled Arrow IPC payload in the system file <code>.br_map.bazan</code> at the root of the data lake. It contains file metadata for every supported format, Parquet row-group/column-chunk locations, and NDJSON row-block byte checkpoints. Only <code>.br_map.bazan</code> is loaded; <code>.br_map.ipc</code> is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.</p>
 <hr />
 <h2 id="catalog-lifecycle">Catalog Lifecycle</h2>
 <pre class="mermaid"><code>stateDiagram-v2
     direction LR
     state "Building catalog" as Building
-    state ".br_map.ipc saved" as Saved
+    state ".br_map.bazan saved" as Saved
     state "HEALTHY" as Healthy
     state "DRIFT_DETECTED" as Drift
     state "HEALED" as Healed
@@ -1811,6 +1833,8 @@
     Healed --&gt; Healthy: catalog in sync again</code></pre>
 <ul>
 <li><code>build_lake_map()</code> walks the directory (via <code>discover_data_files</code>), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.</li>
+<li>For Parquet, the builder also reads the footer and records each row group's row range, compressed byte range, and per-column chunk ranges. This is metadata work; it does not create one byte offset per logical row.</li>
+<li>For NDJSON, the builder records 64K-row blocks with their first logical row, first byte, and byte length. It does not create one byte offset per line.</li>
 <li><code>save_lake_map_ipc()</code> serializes the map; <code>load_lake_map_ipc()</code> reads it back through a memory map.</li>
 </ul>
 <h2 id="on-disk-schema">On-Disk Schema</h2>
@@ -1848,9 +1872,21 @@
 <td style="text-align: left;"><code>Utf8</code></td>
 <td style="text-align: left;">JSON blob: per-column <code>{min, max, min_str, max_str}</code> plus row count</td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>first_global_row</code></td>
+<td style="text-align: left;"><code>UInt64</code></td>
+<td style="text-align: left;">Starting row when files are ordered by relative path</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>row_groups_json</code></td>
+<td style="text-align: left;"><code>Utf8</code></td>
+<td style="text-align: left;">Parquet row-group or NDJSON row-block locations; <code>[]</code> for other formats</td>
+</tr>
 </tbody>
 </table>
 <p>The aggregate struct also carries <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>.</p>
+<h2 id="location-resolution">Location Resolution</h2>
+<p>For a healthy Parquet entry, <code>slice_rows</code> and <code>slice_cols</code> resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For a healthy NDJSON entry, they seek to the block containing the requested row and parse forward from that checkpoint. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. <code>br.lake.locate_row()</code> exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.</p>
 <hr />
 <h2 id="lake-doctor">Lake Doctor</h2>
 <p><code>doctor_lake_map(dir_path, auto_heal)</code> compares the on-disk reality against the catalog:</p>
@@ -1892,7 +1928,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Healing</strong> rebuilds the entry list from what still exists (dropping <code>missing_files</code>, refreshing stats for modified/unindexed entries) and rewrites <code>.br_map.ipc</code>. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes <code>"HEALED"</code>. Without <code>auto_heal=True</code> the report is purely diagnostic.</p>
+<p><strong>Healing</strong> rebuilds the entry list from what still exists (dropping <code>missing_files</code>, refreshing stats for modified/unindexed entries) and rewrites <code>.br_map.bazan</code>. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes <code>"HEALED"</code>. Without <code>auto_heal=True</code> the report is purely diagnostic.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>

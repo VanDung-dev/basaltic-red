@@ -703,10 +703,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-ban-o-nhi-phan-br_mapipc-bac-si-data-lake" class="md-nav__link">
+  <a href="#3-ban-o-nhi-phan-br_mapbazan-bac-si-data-lake" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Bản đồ nhị phân (<code>.br_map.ipc</code>) &amp; Bác sĩ Data Lake
+        3. Bản đồ nhị phân (<code>.br_map.bazan</code>) &amp; Bác sĩ Data Lake
       </span>
     </span>
   </a>
@@ -1749,10 +1749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-ban-o-nhi-phan-br_mapipc-bac-si-data-lake" class="md-nav__link">
+  <a href="#3-ban-o-nhi-phan-br_mapbazan-bac-si-data-lake" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Bản đồ nhị phân (<code>.br_map.ipc</code>) &amp; Bác sĩ Data Lake
+        3. Bản đồ nhị phân (<code>.br_map.bazan</code>) &amp; Bác sĩ Data Lake
       </span>
     </span>
   </a>
@@ -1812,8 +1812,8 @@
 - <strong>Không giới hạn số quy tắc</strong>: Hỗ trợ &gt;64 quy tắc mượt mà qua nhiều khối 64-bit.
 - <strong>Mã lỗi Bitwise (Audit Error Code)</strong>: Mỗi dòng bị loại trong bảng Trash được gắn kèm <code>audit_error_code</code>, bitmask <code>UInt64</code> trong đó bit thứ <em>i</em> báo hiệu quy tắc <em>i</em> bị vi phạm. Khi dùng hơn 64 quy tắc, cột danh sách <code>audit_violated_rules</code> bổ sung sẽ ghi lại toàn bộ chỉ số vi phạm.</p>
 <hr />
-<h2 id="3-ban-o-nhi-phan-br_mapipc-bac-si-data-lake">3. Bản đồ nhị phân (<code>.br_map.ipc</code>) &amp; Bác sĩ Data Lake</h2>
-<p>Thay vì dựng lại số dòng và thống kê từ đầu, <code>basaltic-red</code> duy trì catalog <code>.br_map.ipc</code>:
+<h2 id="3-ban-o-nhi-phan-br_mapbazan-bac-si-data-lake">3. Bản đồ nhị phân (<code>.br_map.bazan</code>) &amp; Bác sĩ Data Lake</h2>
+<p>Thay vì dựng lại số dòng và thống kê từ đầu, <code>basaltic-red</code> duy trì catalog <code>.br_map.bazan</code>:
 - Chứa đường dẫn tương đối, dung lượng, thời gian sửa đổi, số dòng và thống kê min/max từng cột.
 - Load catalog warm qua <code>memmap2</code> (sub-mili-giây trong <code>demo.ipynb</code>; thực tế tùy phần cứng/hệ thống file). Doctor đầy đủ vẫn kiểm tra metadata file hiện tại.
 - <code>br.lake.doctor</code> phát hiện drift (thiếu/sửa/chưa index) và tự động chữa lành catalog.</p>

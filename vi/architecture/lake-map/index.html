@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Danh mục nhị phân .br_map.ipc, schema Arrow của nó và vòng chẩn đoán/tự chữa lành">
+        <meta name="description" content="Danh mục nhị phân .br_map.bazan, schema Arrow của nó và vòng chẩn đoán/tự chữa lành">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -954,6 +954,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#phan-giai-vi-tri" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Phân giải vị trí
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1749,6 +1760,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#phan-giai-vi-tri" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Phân giải vị trí
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1791,13 +1813,13 @@
 
 
 <h1 id="binary-lake-map-lake-doctor">Binary Lake Map &amp; Lake Doctor</h1>
-<p>Cài đặt trong <code>src/engine/map.rs</code>. Lake Map lưu một catalog Arrow IPC đã biên dịch sẵn, <code>.br_map.ipc</code>, tại gốc hồ dữ liệu. Catalog tránh phải dựng lại số dòng và thống kê; Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.</p>
+<p>Cài đặt trong <code>src/engine/map.rs</code>. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống <code>.br_map.bazan</code> tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng, vị trí row-group/column-chunk của Parquet và checkpoint byte theo block dòng của NDJSON. Chỉ <code>.br_map.bazan</code> được load; <code>.br_map.ipc</code> bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.</p>
 <hr />
 <h2 id="vong-oi-danh-muc">Vòng đời danh mục</h2>
 <pre class="mermaid"><code>stateDiagram-v2
     direction LR
     state "Đang dựng danh mục" as Building
-    state "Đã lưu .br_map.ipc" as Saved
+    state "Đã lưu .br_map.bazan" as Saved
     state "HEALTHY" as Healthy
     state "DRIFT_DETECTED" as Drift
     state "HEALED" as Healed
@@ -1811,6 +1833,8 @@
     Healed --&gt; Healthy: danh mục đồng bộ trở lại</code></pre>
 <ul>
 <li><code>build_lake_map()</code> duyệt thư mục (qua <code>discover_data_files</code>), đọc schema/số dòng và thống kê min/max toàn file cho các cột số/chuỗi được hỗ trợ.</li>
+<li>Với Parquet, builder còn đọc footer và lưu khoảng dòng, khoảng byte nén của từng row group cùng khoảng byte của từng column chunk. Đây không phải một byte offset cho từng dòng logic.</li>
+<li>Với NDJSON, builder lưu block 64K dòng cùng dòng logic đầu tiên, byte đầu tiên và độ dài byte. Nó không tạo offset cho từng dòng.</li>
 <li><code>save_lake_map_ipc()</code> serialize bản đồ; <code>load_lake_map_ipc()</code> đọc ngược qua memory map.</li>
 </ul>
 <h2 id="schema-tren-ia">Schema trên đĩa</h2>
@@ -1848,9 +1872,21 @@
 <td style="text-align: left;"><code>Utf8</code></td>
 <td style="text-align: left;">JSON: <code>{min, max, min_str, max_str}</code> từng cột kèm số dòng</td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>first_global_row</code></td>
+<td style="text-align: left;"><code>UInt64</code></td>
+<td style="text-align: left;">Dòng bắt đầu khi sắp xếp file theo đường dẫn tương đối</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>row_groups_json</code></td>
+<td style="text-align: left;"><code>Utf8</code></td>
+<td style="text-align: left;">Vị trí row group của Parquet hoặc block dòng NDJSON; <code>[]</code> với định dạng khác</td>
+</tr>
 </tbody>
 </table>
 <p>Struct tổng hợp cũng mang theo <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>.</p>
+<h2 id="phan-giai-vi-tri">Phân giải vị trí</h2>
+<p>Với entry Parquet còn khỏe, <code>slice_rows</code> và <code>slice_cols</code> tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry NDJSON còn khỏe, chúng seek tới block chứa dòng yêu cầu rồi parse tiếp từ checkpoint đó. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. <code>br.lake.locate_row()</code> phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.</p>
 <hr />
 <h2 id="lake-doctor">Lake Doctor</h2>
 <p><code>doctor_lake_map(dir_path, auto_heal)</code> so sánh hiện trạng đĩa với danh mục:</p>
@@ -1892,7 +1928,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Chữa lành</strong> dựng lại danh sách entry từ những gì còn tồn tại (bỏ <code>missing_files</code>, làm mới thống kê cho entry modified/unindexed) rồi ghi lại <code>.br_map.ipc</code>. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành <code>"HEALED"</code>. Không có <code>auto_heal=True</code> thì báo cáo thuần túy chẩn đoán.</p>
+<p><strong>Chữa lành</strong> dựng lại danh sách entry từ những gì còn tồn tại (bỏ <code>missing_files</code>, làm mới thống kê cho entry modified/unindexed) rồi ghi lại <code>.br_map.bazan</code>. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành <code>"HEALED"</code>. Không có <code>auto_heal=True</code> thì báo cáo thuần túy chẩn đoán.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">report</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>

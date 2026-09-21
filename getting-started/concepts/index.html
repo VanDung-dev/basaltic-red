@@ -703,10 +703,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-binary-lake-map-br_mapipc-lake-doctor" class="md-nav__link">
+  <a href="#3-binary-lake-map-br_mapbazan-lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Binary Lake Map (<code>.br_map.ipc</code>) &amp; Lake Doctor
+        3. Binary Lake Map (<code>.br_map.bazan</code>) &amp; Lake Doctor
       </span>
     </span>
   </a>
@@ -1749,10 +1749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-binary-lake-map-br_mapipc-lake-doctor" class="md-nav__link">
+  <a href="#3-binary-lake-map-br_mapbazan-lake-doctor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        3. Binary Lake Map (<code>.br_map.ipc</code>) &amp; Lake Doctor
+        3. Binary Lake Map (<code>.br_map.bazan</code>) &amp; Lake Doctor
       </span>
     </span>
   </a>
@@ -1812,8 +1812,8 @@
 - <strong>Arbitrary rule counts</strong>: Supports &gt;64 rules directly across multiple 64-bit chunks.
 - <strong>Bitwise Audit Codes</strong>: Every rejected record in the Trash table is tagged with <code>audit_error_code</code>, a <code>UInt64</code> bitmask whose bit <em>i</em> marks rule <em>i</em> as violated. With more than 64 rules an additional <code>audit_violated_rules</code> list column records every violated index.</p>
 <hr />
-<h2 id="3-binary-lake-map-br_mapipc-lake-doctor">3. Binary Lake Map (<code>.br_map.ipc</code>) &amp; Lake Doctor</h2>
-<p>Rather than rebuilding row counts and statistics from scratch, <code>basaltic-red</code> maintains an Arrow IPC binary catalog (<code>.br_map.ipc</code>) inside the lake directory:
+<h2 id="3-binary-lake-map-br_mapbazan-lake-doctor">3. Binary Lake Map (<code>.br_map.bazan</code>) &amp; Lake Doctor</h2>
+<p>Rather than rebuilding row counts and statistics from scratch, <code>basaltic-red</code> maintains an Arrow IPC binary catalog (<code>.br_map.bazan</code>) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
 - Warm catalog loads via <code>memmap2</code> (sub-millisecond in <code>demo.ipynb</code>; actual time depends on hardware/filesystem). Full doctor checks still inspect current file metadata.
 - <code>br.lake.doctor</code> detects drift (unindexed, modified, missing files) and incrementally heals the catalog.</p>

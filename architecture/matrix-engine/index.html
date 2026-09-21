@@ -1849,11 +1849,11 @@
 <tbody>
 <tr>
 <td style="text-align: left;"><code>slice_rows(file_path, offset, limit)</code></td>
-<td style="text-align: left;">Reads one row range as a PyArrow Table by streaming and skipping batches before <code>offset</code>. IPC/Feather sources use <code>memmap2</code> where supported.</td>
+<td style="text-align: left;">Parquet resolves healthy <code>.br_map.bazan</code> row groups; NDJSON seeks to the indexed row block; both then apply the local offset/limit. Other formats stream and skip batches. IPC/Feather sources use <code>memmap2</code> where supported.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
-<td style="text-align: left;">Same, with column projection pushed into the reader (Parquet reads only the required column chunks).</td>
+<td style="text-align: left;">Same location resolution. Parquet pushes projection into the reader; NDJSON seeks to its row block, reads the bounded range, then projects the requested columns.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>preview_sample(file_path, limit_rows)</code></td>

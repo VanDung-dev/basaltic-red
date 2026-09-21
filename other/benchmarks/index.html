@@ -1620,10 +1620,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-catalog-inspection-br_mapipc" class="md-nav__link">
+  <a href="#2-catalog-inspection-br_mapbazan" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Catalog inspection (<code>.br_map.ipc</code>)
+        2. Catalog inspection (<code>.br_map.bazan</code>)
       </span>
     </span>
   </a>
@@ -1749,10 +1749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-catalog-inspection-br_mapipc" class="md-nav__link">
+  <a href="#2-catalog-inspection-br_mapbazan" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        2. Catalog inspection (<code>.br_map.ipc</code>)
+        2. Catalog inspection (<code>.br_map.bazan</code>)
       </span>
     </span>
   </a>
@@ -1848,8 +1848,8 @@
 </table>
 <p>Counted via <code>pq.read_metadata</code> + <code>os.path.getsize</code> in the notebook; volume scan is metadata-only (no full data read).</p>
 <hr />
-<h2 id="2-catalog-inspection-br_mapipc">2. Catalog inspection (<code>.br_map.ipc</code>)</h2>
-<p><code>br.lake.create_map("data")</code> walks the directory and builds <code>.br_map.ipc</code>; loading the saved catalog uses <code>memmap2</code>. A full <code>doctor</code> call still walks the current file metadata to detect drift.</p>
+<h2 id="2-catalog-inspection-br_mapbazan">2. Catalog inspection (<code>.br_map.bazan</code>)</h2>
+<p><code>br.lake.create_map("data")</code> walks the directory and builds <code>.br_map.bazan</code>; loading the saved catalog uses <code>memmap2</code>. A full <code>doctor</code> call still walks the current file metadata to detect drift.</p>
 <table>
 <thead>
 <tr>

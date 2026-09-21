@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Bố cục nhị phân và schema cột của tệp .br_map.ipc">
+        <meta name="description" content="Bố cục nhị phân và schema cột của tệp .br_map.bazan">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -1791,7 +1791,8 @@
 
 
 <h1 id="ac-ta-lake-map">Đặc tả Lake Map</h1>
-<p>Lake Map được serialize thành <strong>tệp Apache Arrow IPC</strong> tên <code>.br_map.ipc</code> tại gốc hồ dữ liệu (<code>resolve_map_path()</code> trong <code>src/engine/map.rs</code>). Được <code>br.lake.create_map()</code> ghi ra và <code>doctor_lake_map</code> đọc ngược qua memory-map (&lt;1 ms).</p>
+<p>Lake Map được serialize thành <strong>payload Apache Arrow IPC</strong> trong tệp hệ thống <code>.br_map.bazan</code> tại gốc hồ dữ liệu (<code>resolve_map_path()</code> trong <code>src/engine/map.rs</code>). Được <code>br.lake.create_map()</code> ghi ra và đọc qua memory-map (&lt;1 ms). Map mới có vị trí row group Parquet và checkpoint byte theo block dòng NDJSON; map cũ 5 cột vẫn đọc được nhưng không tăng tốc slicing. <code>.br_map.ipc</code> được dành riêng làm tên sidecar cũ bị bỏ qua. <code>doctor_lake_map</code> vẫn kiểm tra metadata tệp hiện tại để phát hiện drift.</p>
+<p>Map mới có schema metadata xác định <code>bazan.kind=lake_map</code>, <code>bazan.version=1</code>, <code>bazan.payload=arrow_ipc</code> và <code>bazan.map_schema=2</code>. Payload vẫn là tệp Arrow IPC thông thường; hậu tố <code>.bazan</code> dành riêng namespace tệp hệ thống mà không chiếm <code>.ipc</code> của data người dùng.</p>
 <h2 id="schema-recordbatch-mot-dong-cho-moi-tep-du-lieu">Schema RecordBatch (một dòng cho mỗi tệp dữ liệu)</h2>
 <table>
 <thead>
@@ -1833,8 +1834,21 @@
 <td style="text-align: left;">Không</td>
 <td style="text-align: left;">JSON: <code>{"total_rows": N, "columns": {"&lt;tên&gt;": {"min": f64, "max": f64, "min_str": str, "max_str": str}}}</code></td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>first_global_row</code></td>
+<td style="text-align: left;"><code>UInt64</code></td>
+<td style="text-align: left;">Không</td>
+<td style="text-align: left;">Dòng bắt đầu trong lake đã sắp xếp theo path</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>row_groups_json</code></td>
+<td style="text-align: left;"><code>Utf8</code></td>
+<td style="text-align: left;">Không</td>
+<td style="text-align: left;">Mảng JSON vị trí row group Parquet hoặc block dòng NDJSON; <code>[]</code> với định dạng khác</td>
+</tr>
 </tbody>
 </table>
+<p>Mỗi object có <code>ordinal</code>, <code>first_row</code>, <code>row_count</code>, <code>first_byte</code>, <code>total_byte_size</code>, <code>compressed_size</code> và <code>columns</code>. Object Parquet có thêm path cột, byte range nén và page location tùy chọn. Object NDJSON dùng <code>first_byte</code> và <code>total_byte_size</code> cho block 64K dòng, với <code>columns</code> rỗng. Đây là vị trí block/row-group, không phải byte offset của từng dòng.</p>
 <h2 id="khoa-so-sanh-cua-doctor">Khóa so sánh của Doctor</h2>
 <p>Một entry <em>khỏe mạnh</em> khi cả ba thuộc tính <code>size_bytes</code>, <code>mtime_ms</code> và sự tồn tại đều khớp hệ thống tệp hiện tại. Mọi sai lệch xếp tệp vào <code>modified</code>; tệp có trên đĩa nhưng thiếu trong danh mục là <code>unindexed</code>; entry trong danh mục nhưng không còn tệp là <code>missing</code>.</p>
 <h2 id="tong-hop">Tổng hợp</h2>

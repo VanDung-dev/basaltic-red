@@ -1895,7 +1895,7 @@
 <tr>
 <td style="text-align: left;">Lake Map</td>
 <td style="text-align: left;"><code>src/engine/map.rs</code></td>
-<td style="text-align: left;"><code>LakeMap</code>, <code>.br_map.ipc</code> IO, <code>doctor_lake_map</code></td>
+<td style="text-align: left;"><code>LakeMap</code>, <code>.br_map.bazan</code> IO, <code>doctor_lake_map</code></td>
 </tr>
 <tr>
 <td style="text-align: left;">Memory budget</td>
@@ -1953,8 +1953,8 @@
 <td style="text-align: left;"><code>List&lt;UInt32&gt;</code> of all violated indices (rules &gt; 64 only)</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>.br_map.ipc</code></td>
-<td style="text-align: left;">Arrow IPC catalog at lake root (5 columns, see spec)</td>
+<td style="text-align: left;"><code>.br_map.bazan</code></td>
+<td style="text-align: left;">Arrow IPC lake map payload at root: file metadata plus Parquet row-group and NDJSON row-block locations (7 columns, see spec)</td>
 </tr>
 <tr>
 <td style="text-align: left;">Doctor status</td>
