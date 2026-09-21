@@ -10,8 +10,8 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
 use basaltic_red::engine::map::{
-    load_lake_map_ipc, resolve_map_path, resolve_ndjson_range, resolve_parquet_range,
-    RowGroupLocation,
+    load_lake_map_ipc, resolve_arrow_ipc_range, resolve_map_path, resolve_ndjson_range,
+    resolve_parquet_range, RowGroupLocation,
 };
 use basaltic_red::engine::MatrixEngine;
 
@@ -84,6 +84,33 @@ fn create_sample_ndjson(path: &std::path::Path, rows: usize) {
     }
 }
 
+fn create_sample_arrow_ipc(path: &std::path::Path) {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("value", DataType::Int64, false),
+        Field::new("scaled", DataType::Int64, false),
+    ]));
+    let file = File::create(path).unwrap();
+    let mut writer = FileWriter::try_new(file, &schema).unwrap();
+
+    for start in [0i64, 3, 6] {
+        let values = vec![start, start + 1, start + 2];
+        let scaled = values.iter().map(|value| value * 10).collect::<Vec<_>>();
+        writer
+            .write(
+                &RecordBatch::try_new(
+                    schema.clone(),
+                    vec![
+                        Arc::new(Int64Array::from(values)),
+                        Arc::new(Int64Array::from(scaled)),
+                    ],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+    }
+    writer.finish().unwrap();
+}
+
 fn create_multi_row_group_parquet(path: &std::path::Path) {
     let schema = Arc::new(Schema::new(vec![Field::new(
         "value",
@@ -151,32 +178,53 @@ fn test_lake_map_creation_and_fast_load() {
 
 #[test]
 fn test_lake_map_indexes_arrow_ipc_data() {
-    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
-    let temp_dir = tempfile::tempdir().unwrap();
-    let data_path = temp_dir.path().join("data.ipc");
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "value",
-        DataType::Int64,
-        false,
-    )]));
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![Arc::new(Int64Array::from(vec![1, 2, 3]))],
-    )
-    .unwrap();
-    let file = File::create(&data_path).unwrap();
-    let mut writer = FileWriter::try_new(file, &schema).unwrap();
-    writer.write(&batch).unwrap();
-    writer.finish().unwrap();
+    for extension in ["ipc", "arrow", "feather"] {
+        let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_path = temp_dir.path().join(format!("data.{extension}"));
+        create_sample_arrow_ipc(&data_path);
 
-    engine
-        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
-        .unwrap();
+        engine
+            .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+            .unwrap();
 
-    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
-    assert_eq!(map.total_files, 1);
-    assert_eq!(map.entries[0].rel_path, "data.ipc");
-    assert_eq!(map.total_rows, 3);
+        let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+        assert_eq!(map.total_files, 1);
+        assert_eq!(map.entries[0].rel_path, format!("data.{extension}"));
+        assert_eq!(map.total_rows, 9);
+
+        let row_groups: Vec<RowGroupLocation> =
+            serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+        assert_eq!(row_groups.len(), 3, "{extension}");
+        assert_eq!(row_groups[1].first_row, 3, "{extension}");
+        assert!(row_groups.iter().all(|group| group.first_byte.is_none()));
+
+        let resolved = resolve_arrow_ipc_range(&data_path, 4, 2).unwrap().unwrap();
+        assert_eq!(resolved.batch_ordinal, 1, "{extension}");
+        assert_eq!(resolved.offset, 1, "{extension}");
+
+        let batch = engine
+            .slice_rows_native(data_path.to_str().unwrap(), 4, 2)
+            .unwrap();
+        let values = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(values.values(), &[4, 5], "{extension}");
+
+        let batch = engine
+            .slice_cols_native(data_path.to_str().unwrap(), &[String::from("scaled")], 4, 2)
+            .unwrap();
+        assert_eq!(batch.schema().fields()[0].name(), "scaled");
+        let scaled = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(scaled.values(), &[40, 50], "{extension}");
+    }
 }
 
 #[test]
