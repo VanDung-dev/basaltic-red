@@ -1791,7 +1791,7 @@
 
 
 <h1 id="lake-map-specification">Lake Map Specification</h1>
-<p>The Lake Map is serialized as an <strong>Apache Arrow IPC payload</strong> in the system file <code>.br_map.bazan</code> at the root of the data lake (<code>resolve_map_path()</code> in <code>src/engine/map.rs</code>). It is written by <code>br.lake.create_map()</code> and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations and NDJSON row-block byte checkpoints; legacy five-column maps remain readable but cannot accelerate slices. <code>.br_map.ipc</code> is reserved as an ignored legacy sidecar name. <code>doctor_lake_map</code> additionally walks current file metadata to detect drift.</p>
+<p>The Lake Map is serialized as an <strong>Apache Arrow IPC payload</strong> in the system file <code>.br_map.bazan</code> at the root of the data lake (<code>resolve_map_path()</code> in <code>src/engine/map.rs</code>). It is written by <code>br.lake.create_map()</code> and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations, NDJSON/CSV/TSV/PSV row-block byte checkpoints, and Arrow IPC/Feather RecordBatch ordinals; legacy five-column maps remain readable but cannot accelerate slices. <code>.br_map.ipc</code> is reserved as an ignored legacy sidecar name. <code>doctor_lake_map</code> additionally walks current file metadata to detect drift.</p>
 <p>New maps carry schema metadata identifying <code>bazan.kind=lake_map</code>, <code>bazan.version=1</code>, <code>bazan.payload=arrow_ipc</code>, and <code>bazan.map_schema=2</code>. The payload remains an ordinary Arrow IPC file; the <code>.bazan</code> suffix reserves the system-file namespace without taking <code>.ipc</code> away from user data.</p>
 <h2 id="recordbatch-schema-single-row-per-data-file">RecordBatch Schema (single row per data file)</h2>
 <table>
@@ -1844,11 +1844,11 @@
 <td style="text-align: left;"><code>row_groups_json</code></td>
 <td style="text-align: left;"><code>Utf8</code></td>
 <td style="text-align: left;">No</td>
-<td style="text-align: left;">JSON array of Parquet row groups or NDJSON row blocks; <code>[]</code> for other formats</td>
+<td style="text-align: left;">JSON array of Parquet row groups, NDJSON/CSV/TSV/PSV row blocks, or Arrow IPC/Feather RecordBatches; <code>[]</code> for other formats</td>
 </tr>
 </tbody>
 </table>
-<p>Each object contains <code>ordinal</code>, <code>first_row</code>, <code>row_count</code>, <code>first_byte</code>, <code>total_byte_size</code>, <code>compressed_size</code>, and <code>columns</code>. Parquet objects additionally contain column paths, compressed byte ranges, and optional page locations. NDJSON objects use <code>first_byte</code> and <code>total_byte_size</code> for 64K-row blocks, with an empty <code>columns</code> array. These are block/row-group locations, not individual row byte offsets.</p>
+<p>Each object contains <code>ordinal</code>, <code>first_row</code>, <code>row_count</code>, <code>first_byte</code>, <code>total_byte_size</code>, <code>compressed_size</code>, and <code>columns</code>. Parquet objects additionally contain column paths, compressed byte ranges, and optional page locations. NDJSON, CSV, TSV, and PSV objects use <code>first_byte</code> and <code>total_byte_size</code> for 64K-row blocks; delimited checkpoints are quote-safe. Arrow IPC/Feather objects use the ordinal and row range, with <code>first_byte</code>, <code>total_byte_size</code>, and <code>columns</code> empty because the reader uses Arrow IPC's native batch index. These are block/row-group/batch locations, not individual row byte offsets.</p>
 <h2 id="doctor-comparison-keys">Doctor Comparison Keys</h2>
 <p>An entry is <em>healthy</em> when all three of <code>size_bytes</code>, <code>mtime_ms</code>, and existence match the current filesystem. Any mismatch classifies the file as <code>modified</code>; files present on disk but absent from the catalog are <code>unindexed</code>; catalog entries without a backing file are <code>missing</code>.</p>
 <h2 id="aggregate-totals">Aggregate Totals</h2>
