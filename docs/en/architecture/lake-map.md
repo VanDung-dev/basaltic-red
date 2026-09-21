@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC payload in the system file `.br_map.bazan` at the root of the data lake. It contains file metadata for every supported format, Parquet row-group/column-chunk locations, and NDJSON row-block byte checkpoints. Only `.br_map.bazan` is loaded; `.br_map.ipc` is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.
+Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC payload in the system file `.br_map.bazan` at the root of the data lake. It contains file metadata for every supported format, Parquet row-group/column-chunk locations, NDJSON row-block byte checkpoints, and Arrow IPC/Feather RecordBatch ordinals. Only `.br_map.bazan` is loaded; `.br_map.ipc` is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.
 
 ---
 
@@ -33,6 +33,7 @@ stateDiagram-v2
 - `build_lake_map()` walks the directory (via `discover_data_files`), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.
 - For Parquet, the builder also reads the footer and records each row group's row range, compressed byte range, and per-column chunk ranges. This is metadata work; it does not create one byte offset per logical row.
 - For NDJSON, the builder records 64K-row blocks with their first logical row, first byte, and byte length. It does not create one byte offset per line.
+- For Arrow IPC/Feather, the builder records each RecordBatch ordinal and row range. Reading uses Arrow IPC's native random-access batch index rather than a per-row byte offset.
 - `save_lake_map_ipc()` serializes the map; `load_lake_map_ipc()` reads it back through a memory map.
 
 ## On-Disk Schema
@@ -45,13 +46,13 @@ stateDiagram-v2
 | `total_rows` | `UInt64` | Row count |
 | `stats_json` | `Utf8` | JSON blob: per-column `{min, max, min_str, max_str}` plus row count |
 | `first_global_row` | `UInt64` | Starting row when files are ordered by relative path |
-| `row_groups_json` | `Utf8` | Parquet row-group or NDJSON row-block locations; `[]` for other formats |
+| `row_groups_json` | `Utf8` | Parquet row-group, NDJSON row-block, or Arrow IPC/Feather RecordBatch locations; `[]` for other formats |
 
 The aggregate struct also carries `total_files`, `total_rows`, `total_bytes`.
 
 ## Location Resolution
 
-For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For a healthy NDJSON entry, they seek to the block containing the requested row and parse forward from that checkpoint. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.
+For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For a healthy NDJSON entry, they seek to the block containing the requested row and parse forward from that checkpoint. For a healthy Arrow IPC/Feather entry, they resolve the containing RecordBatch and call Arrow IPC's random-access index before reading forward. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.
 
 ---
 
