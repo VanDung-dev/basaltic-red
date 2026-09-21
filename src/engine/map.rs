@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -97,6 +97,12 @@ pub struct DoctorReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedParquetRange {
     pub row_groups: Vec<usize>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedNdjsonRange {
+    pub byte_offset: u64,
     pub offset: usize,
 }
 
@@ -456,6 +462,71 @@ fn is_parquet_path(file_path: &Path) -> bool {
     )
 }
 
+fn is_ndjson_path(file_path: &Path) -> bool {
+    file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("ndjson"))
+}
+
+fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+    const NDJSON_BLOCK_ROWS: usize = 64 * 1024;
+
+    let mut reader = io::BufReader::new(File::open(file_path)?);
+    let mut line = Vec::new();
+    let mut byte_offset = 0u64;
+    let mut first_row = 0usize;
+    let mut row_count = 0usize;
+    let mut block_start = None;
+    let mut row_groups = Vec::new();
+
+    loop {
+        line.clear();
+        let bytes_read = reader.read_until(b'\n', &mut line)?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        let line_start = byte_offset;
+        byte_offset = byte_offset.saturating_add(bytes_read as u64);
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+
+        block_start.get_or_insert(line_start);
+        row_count += 1;
+        if row_count == NDJSON_BLOCK_ROWS {
+            let first_byte = block_start.take().expect("NDJSON block has a row");
+            row_groups.push(RowGroupLocation {
+                ordinal: row_groups.len(),
+                first_row,
+                row_count,
+                first_byte: Some(first_byte),
+                total_byte_size: byte_offset.saturating_sub(first_byte),
+                compressed_size: 0,
+                columns: Vec::new(),
+            });
+            first_row = first_row.saturating_add(row_count);
+            row_count = 0;
+        }
+    }
+
+    if row_count > 0 {
+        let first_byte = block_start.expect("NDJSON block has a row");
+        row_groups.push(RowGroupLocation {
+            ordinal: row_groups.len(),
+            first_row,
+            row_count,
+            first_byte: Some(first_byte),
+            total_byte_size: byte_offset.saturating_sub(first_byte),
+            compressed_size: 0,
+            columns: Vec::new(),
+        });
+    }
+
+    Ok(row_groups)
+}
+
 fn inspect_parquet_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
     let file = File::open(file_path)?;
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional);
@@ -547,6 +618,8 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
 
     let row_groups_json = if is_parquet_path(file_path) {
         serde_json::to_string(&inspect_parquet_row_groups(file_path)?)?
+    } else if is_ndjson_path(file_path) {
+        serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
     } else {
         "[]".to_string()
     };
@@ -853,6 +926,82 @@ pub fn resolve_parquet_range(
             return Ok(Some(ResolvedParquetRange {
                 row_groups: selected.iter().map(|group| group.ordinal).collect(),
                 offset: offset.saturating_sub(first_group.first_row),
+            }));
+        }
+
+        let Some(parent) = map_root.parent() else {
+            break;
+        };
+        if parent == map_root {
+            break;
+        }
+        map_root = parent;
+    }
+
+    Ok(None)
+}
+
+/// Resolve an NDJSON row range to the byte checkpoint containing its first row.
+pub fn resolve_ndjson_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedNdjsonRange>, BazanError> {
+    if !is_ndjson_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(mut map_root) = file_path.parent() else {
+        return Ok(None);
+    };
+
+    loop {
+        let map_path = resolve_map_path(map_root);
+        if map_path.is_file() {
+            let map = load_lake_map_ipc(&map_path)?;
+            let Some(rel_path) = file_path.strip_prefix(map_root).ok() else {
+                return Ok(None);
+            };
+            let rel_path = rel_path.to_string_lossy();
+            let Some(entry) = map.entries.iter().find(|entry| entry.rel_path == rel_path) else {
+                return Ok(None);
+            };
+
+            let metadata = fs::metadata(file_path)?;
+            let mtime_ms = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            if metadata.len() != entry.size_bytes || mtime_ms != entry.mtime_ms {
+                return Ok(None);
+            }
+
+            let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+            if row_groups.is_empty() {
+                return Ok(None);
+            }
+            if offset >= entry.total_rows {
+                return Ok(Some(ResolvedNdjsonRange {
+                    byte_offset: metadata.len(),
+                    offset: 0,
+                }));
+            }
+
+            let Some(group) = row_groups.iter().find(|group| {
+                offset >= group.first_row
+                    && offset < group.first_row.saturating_add(group.row_count)
+            }) else {
+                return Ok(None);
+            };
+            let Some(byte_offset) = group.first_byte else {
+                return Ok(None);
+            };
+
+            return Ok(Some(ResolvedNdjsonRange {
+                byte_offset,
+                offset: offset.saturating_sub(group.first_row),
             }));
         }
 

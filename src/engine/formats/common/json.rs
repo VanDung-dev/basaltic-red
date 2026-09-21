@@ -1,10 +1,13 @@
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
+use arrow::array::RecordBatch;
 use arrow_schema::Schema;
 
-use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::engine::formats::{
+    clamp_batch_size, read_range_from_source, FormatHandler, OpenedSource,
+};
 use crate::error::BazanError;
 
 /// Formatted Pretty Printed JSON Array Reader (Tier 2 Common)
@@ -52,15 +55,43 @@ impl FormatHandler for JsonlHandler {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NdjsonHandler;
 
+fn infer_ndjson_schema(file_path: &str) -> Result<Schema, BazanError> {
+    let file = File::open(file_path)?;
+    let mut buf_reader = BufReader::new(file);
+    Ok(arrow_json::reader::infer_json_schema_from_iterator(
+        arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100)),
+    )?)
+}
+
+pub fn read_ndjson_range(
+    file_path: &str,
+    byte_offset: u64,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+) -> Result<RecordBatch, BazanError> {
+    let batch_size = clamp_batch_size(batch_size);
+    let schema = infer_ndjson_schema(file_path)?;
+    let mut file = File::open(file_path)?;
+    file.seek(SeekFrom::Start(byte_offset))?;
+    let reader = arrow_json::ReaderBuilder::new(Arc::new(schema.clone()))
+        .with_batch_size(batch_size)
+        .build(BufReader::new(file))?;
+
+    read_range_from_source(
+        OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        },
+        offset,
+        limit,
+    )
+}
+
 impl FormatHandler for NdjsonHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
-        let file = File::open(file_path)?;
-        let mut buf_reader = BufReader::new(file);
-
-        let schema = arrow_json::reader::infer_json_schema_from_iterator(
-            arrow_json::reader::ValueIter::new(&mut buf_reader, Some(100)),
-        )?;
+        let schema = infer_ndjson_schema(file_path)?;
 
         let file_for_reader = File::open(file_path)?;
         let buf_reader_2 = BufReader::new(file_for_reader);
@@ -225,10 +256,7 @@ impl<R: Read> Read for JsonArrayStream<R> {
 
 /// Open a JSON array (`[{...},{...}]`, compact or multi-line) as a streaming
 /// single-pass cursor. Memory is O(batch), independent of file size.
-pub fn open_json_array(
-    file_path: &str,
-    batch_size: usize,
-) -> Result<OpenedSource, BazanError> {
+pub fn open_json_array(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
     let batch_size = clamp_batch_size(batch_size);
 
     let file = File::open(file_path)?;
