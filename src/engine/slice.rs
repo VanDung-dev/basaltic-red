@@ -3,12 +3,11 @@ use arrow::array::RecordBatch;
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::formats::{
-    read_arrow_ipc_range, read_csv_range, read_delimited_range, read_ndjson_range,
+    read_arrow_ipc_range, read_delimited_range, read_ndjson_range,
     read_parquet_range_from_row_groups,
 };
 use crate::engine::map::{
-    resolve_arrow_ipc_range, resolve_csv_range, resolve_delimited_range, resolve_ndjson_range,
-    resolve_parquet_range,
+    resolve_arrow_ipc_range, resolve_delimited_range, resolve_ndjson_range, resolve_parquet_range,
 };
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -54,14 +53,17 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "csv" {
-            if let Some(resolved) = resolve_csv_range(path, offset, limit)? {
-                return read_csv_range(
+        if matches!(ext.as_str(), "csv" | "psv") {
+            let delimiter = if ext == "csv" { b',' } else { b'|' };
+            if let Some(resolved) = resolve_delimited_range(path, offset, limit, delimiter)? {
+                return read_delimited_range(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
                     limit,
                     DEFAULT_MAX_BATCH_SIZE,
+                    delimiter,
+                    false,
                 );
             }
         }
@@ -165,14 +167,17 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "csv" {
-            if let Some(resolved) = resolve_csv_range(path, offset, limit)? {
-                let batch = read_csv_range(
+        if matches!(ext.as_str(), "csv" | "psv") {
+            let delimiter = if ext == "csv" { b',' } else { b'|' };
+            if let Some(resolved) = resolve_delimited_range(path, offset, limit, delimiter)? {
+                let batch = read_delimited_range(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
                     limit,
                     DEFAULT_MAX_BATCH_SIZE,
+                    delimiter,
+                    false,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
