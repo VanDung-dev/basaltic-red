@@ -6,7 +6,7 @@ icon: material/map
 
 # Lake Map Specification
 
-The Lake Map is serialized as an **Apache Arrow IPC payload** in the system file `.br_map.bazan` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations; legacy five-column maps remain readable but cannot accelerate slices. `.br_map.ipc` is reserved as an ignored legacy sidecar name. `doctor_lake_map` additionally walks current file metadata to detect drift.
+The Lake Map is serialized as an **Apache Arrow IPC payload** in the system file `.br_map.bazan` at the root of the data lake (`resolve_map_path()` in `src/engine/map.rs`). It is written by `br.lake.create_map()` and can be loaded memory-mapped in sub-millisecond time. New maps contain Parquet row-group locations and NDJSON row-block byte checkpoints; legacy five-column maps remain readable but cannot accelerate slices. `.br_map.ipc` is reserved as an ignored legacy sidecar name. `doctor_lake_map` additionally walks current file metadata to detect drift.
 
 New maps carry schema metadata identifying `bazan.kind=lake_map`, `bazan.version=1`, `bazan.payload=arrow_ipc`, and `bazan.map_schema=2`. The payload remains an ordinary Arrow IPC file; the `.bazan` suffix reserves the system-file namespace without taking `.ipc` away from user data.
 
@@ -20,9 +20,9 @@ New maps carry schema metadata identifying `bazan.kind=lake_map`, `bazan.version
 | `total_rows` | `UInt64` | No | Row count of the file |
 | `stats_json` | `Utf8` | No | JSON: `{"total_rows": N, "columns": {"<name>": {"min": f64, "max": f64, "min_str": str, "max_str": str}}}` |
 | `first_global_row` | `UInt64` | No | Starting row in the path-sorted lake |
-| `row_groups_json` | `Utf8` | No | JSON array of Parquet row groups, including compressed column-chunk offsets; `[]` for other formats |
+| `row_groups_json` | `Utf8` | No | JSON array of Parquet row groups or NDJSON row blocks; `[]` for other formats |
 
-Each row-group object contains `ordinal`, `first_row`, `row_count`, `first_byte`, `total_byte_size`, `compressed_size`, and `columns`. Each `columns` item contains a Parquet column path plus its compressed byte `offset` and `length`, and may contain `pages` with `first_row`, `offset`, and `length` when the source has an OffsetIndex. These are row-group/page locations, not individual row byte offsets.
+Each object contains `ordinal`, `first_row`, `row_count`, `first_byte`, `total_byte_size`, `compressed_size`, and `columns`. Parquet objects additionally contain column paths, compressed byte ranges, and optional page locations. NDJSON objects use `first_byte` and `total_byte_size` for 64K-row blocks, with an empty `columns` array. These are block/row-group locations, not individual row byte offsets.
 
 ## Doctor Comparison Keys
 

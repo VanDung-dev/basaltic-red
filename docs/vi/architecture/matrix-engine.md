@@ -44,8 +44,8 @@ Cài đặt trong `src/engine/slice.rs`; phơi ra qua [`br.read.*`](../reference
 
 | Phương thức | Hành vi |
 | :--- | :--- |
-| `slice_rows(file_path, offset, limit)` | Parquet phân giải row group khỏe từ `.br_map.bazan` trước khi đọc rồi áp dụng offset/limit cục bộ; định dạng khác vẫn stream và bỏ qua batch. IPC/Feather dùng memory-map qua `memmap2`. |
-| `slice_cols(file_path, selected_cols, offset, limit)` | Như trên, kèm phân giải vị trí và chiếu cột đẩy xuống reader (Parquet chỉ đọc đúng các column chunk cần thiết). |
+| `slice_rows(file_path, offset, limit)` | Parquet phân giải row group khỏe từ `.br_map.bazan`; NDJSON nhảy tới block đã lập chỉ mục; cả hai sau đó áp dụng offset/limit cục bộ. Định dạng khác vẫn stream và bỏ qua batch. IPC/Feather dùng memory-map qua `memmap2`. |
+| `slice_cols(file_path, selected_cols, offset, limit)` | Như trên. Parquet đẩy phép chiếu xuống reader; NDJSON nhảy tới block, đọc khoảng dòng giới hạn rồi mới chiếu các cột yêu cầu. |
 | `preview_sample(file_path, limit_rows)` | Mở batch đầu tiên và chạy bộ lọc **ngưỡng tĩnh**; trả về `(clean_table, trash_table)`. |
 
 Cả hai phương thức slice đều phân giải handler qua [registry định dạng](formats.md), nên hoạt động với mọi định dạng được hỗ trợ chứ không riêng Parquet.
