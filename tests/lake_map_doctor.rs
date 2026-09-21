@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -9,7 +10,8 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
 use basaltic_red::engine::map::{
-    load_lake_map_ipc, resolve_map_path, resolve_parquet_range, RowGroupLocation,
+    load_lake_map_ipc, resolve_map_path, resolve_ndjson_range, resolve_parquet_range,
+    RowGroupLocation,
 };
 use basaltic_red::engine::MatrixEngine;
 
@@ -73,6 +75,13 @@ fn create_multi_batch_stats_parquet(path: &std::path::Path) {
         )
         .unwrap();
     writer.close().unwrap();
+}
+
+fn create_sample_ndjson(path: &std::path::Path, rows: usize) {
+    let mut file = File::create(path).unwrap();
+    for value in 0..rows {
+        writeln!(file, r#"{{"id":{},"value":{}}}"#, value, value * 10).unwrap();
+    }
 }
 
 fn create_multi_row_group_parquet(path: &std::path::Path) {
@@ -328,4 +337,78 @@ fn test_lake_map_resolves_parquet_row_groups_for_slice() {
     assert_eq!(values.len(), 2);
     assert_eq!(values.value(0), 5);
     assert_eq!(values.value(1), 6);
+}
+
+#[test]
+fn test_lake_map_resolves_ndjson_byte_blocks_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.ndjson");
+    create_sample_ndjson(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].first_row, 0);
+    assert_eq!(row_groups[0].row_count, 65_536);
+    assert!(row_groups[1].first_byte.unwrap() > row_groups[0].first_byte.unwrap());
+
+    let resolved = resolve_ndjson_range(&file, 65_540, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 4);
+    assert_eq!(resolved.byte_offset, row_groups[1].first_byte.unwrap());
+
+    let batch = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    let ids = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(ids.value(0), 65_540);
+    assert_eq!(ids.value(1), 65_541);
+
+    let batch = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_540, 2)
+        .unwrap();
+    assert_eq!(batch.schema().fields()[0].name(), "value");
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(values.value(0), 655_400);
+    assert_eq!(values.value(1), 655_410);
+
+    let first = engine
+        .slice_rows_native(file.to_str().unwrap(), 0, 1)
+        .unwrap();
+    assert_eq!(first.num_rows(), 1);
+    assert_eq!(
+        first
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        0
+    );
+
+    let last = engine
+        .slice_rows_native(file.to_str().unwrap(), 69_999, 2)
+        .unwrap();
+    assert_eq!(last.num_rows(), 1);
+    assert_eq!(
+        last.column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        69_999
+    );
 }
