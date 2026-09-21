@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Cài đặt trong `src/engine/map.rs`. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống `.br_map.bazan` tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng, vị trí row-group/column-chunk của Parquet, checkpoint byte theo block dòng NDJSON/CSV/TSV và ordinal RecordBatch của Arrow IPC/Feather. Chỉ `.br_map.bazan` được load; `.br_map.ipc` bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
+Cài đặt trong `src/engine/map.rs`. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống `.br_map.bazan` tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng, vị trí row-group/column-chunk của Parquet, checkpoint byte theo block dòng NDJSON/CSV/TSV/PSV và ordinal RecordBatch của Arrow IPC/Feather. Chỉ `.br_map.bazan` được load; `.br_map.ipc` bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
 
 ---
 
@@ -47,13 +47,13 @@ stateDiagram-v2
 | `total_rows` | `UInt64` | Số dòng |
 | `stats_json` | `Utf8` | JSON: `{min, max, min_str, max_str}` từng cột kèm số dòng |
 | `first_global_row` | `UInt64` | Dòng bắt đầu khi sắp xếp file theo đường dẫn tương đối |
-| `row_groups_json` | `Utf8` | Vị trí row group Parquet, block dòng NDJSON/CSV/TSV hoặc RecordBatch Arrow IPC/Feather; `[]` với định dạng khác |
+| `row_groups_json` | `Utf8` | Vị trí row group Parquet, block dòng NDJSON/CSV/TSV/PSV hoặc RecordBatch Arrow IPC/Feather; `[]` với định dạng khác |
 
 Struct tổng hợp cũng mang theo `total_files`, `total_rows`, `total_bytes`.
 
 ## Phân giải vị trí
 
-Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry NDJSON/CSV/TSV còn khỏe, chúng seek tới block quote-safe chứa dòng yêu cầu rồi parse tiếp từ checkpoint đó. Với entry Arrow IPC/Feather còn khỏe, chúng tìm RecordBatch chứa dòng rồi gọi random-access index native của Arrow IPC trước khi đọc tiếp. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
+Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry NDJSON/CSV/TSV/PSV còn khỏe, chúng seek tới block quote-safe chứa dòng yêu cầu rồi parse tiếp từ checkpoint đó. Với entry Arrow IPC/Feather còn khỏe, chúng tìm RecordBatch chứa dòng rồi gọi random-access index native của Arrow IPC trước khi đọc tiếp. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
 
 ---
 
