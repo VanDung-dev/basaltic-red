@@ -11,7 +11,7 @@ use parquet::file::properties::WriterProperties;
 
 use basaltic_red::engine::map::{
     load_lake_map_ipc, resolve_arrow_ipc_range, resolve_csv_range, resolve_map_path,
-    resolve_ndjson_range, resolve_parquet_range, RowGroupLocation,
+    resolve_ndjson_range, resolve_parquet_range, resolve_tsv_range, RowGroupLocation,
 };
 use basaltic_red::engine::MatrixEngine;
 
@@ -119,6 +119,18 @@ fn create_sample_csv(path: &std::path::Path, rows: usize) {
             writeln!(file, "{},\"line one\nline two\",{}", value, value * 10).unwrap();
         } else {
             writeln!(file, "{},row{},{}", value, value, value * 10).unwrap();
+        }
+    }
+}
+
+fn create_sample_tsv(path: &std::path::Path, rows: usize) {
+    let mut file = File::create(path).unwrap();
+    writeln!(file, "id\tname\tvalue").unwrap();
+    for value in 0..rows {
+        if value == 65_535 {
+            writeln!(file, "{}\t\"line one\nline two\"\t{}", value, value * 10).unwrap();
+        } else {
+            writeln!(file, "{}\trow{}\t{}", value, value, value * 10).unwrap();
         }
     }
 }
@@ -523,4 +535,49 @@ fn test_lake_map_resolves_csv_quote_safe_blocks_for_slice() {
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(values.values(), &[655_360, 655_370]);
+}
+
+#[test]
+fn test_lake_map_resolves_tsv_quote_safe_blocks_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.tsv");
+    create_sample_tsv(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].row_count, 65_536);
+
+    let resolved = resolve_tsv_range(&file, 65_536, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 0);
+    assert_eq!(resolved.byte_offset, row_groups[1].first_byte.unwrap());
+
+    let batch = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_536, 2)
+        .unwrap();
+    let ids = batch
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(ids.value(0), "65536");
+    assert_eq!(ids.value(1), "65537");
+
+    let batch = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_536, 2)
+        .unwrap();
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(values.value(0), "655360");
+    assert_eq!(values.value(1), "655370");
 }
