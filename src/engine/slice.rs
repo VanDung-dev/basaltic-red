@@ -2,8 +2,10 @@ use arrow::array::RecordBatch;
 
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
-use crate::engine::formats::{read_ndjson_range, read_parquet_range_from_row_groups};
-use crate::engine::map::{resolve_ndjson_range, resolve_parquet_range};
+use crate::engine::formats::{
+    read_arrow_ipc_range, read_ndjson_range, read_parquet_range_from_row_groups,
+};
+use crate::engine::map::{resolve_arrow_ipc_range, resolve_ndjson_range, resolve_parquet_range};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -33,6 +35,17 @@ impl MatrixEngine {
                     DEFAULT_MAX_BATCH_SIZE,
                     &[],
                     &resolved.row_groups,
+                );
+            }
+        }
+
+        if matches!(ext.as_str(), "ipc" | "arrow" | "feather") {
+            if let Some(resolved) = resolve_arrow_ipc_range(path, offset, limit)? {
+                return read_arrow_ipc_range(
+                    file_path,
+                    resolved.batch_ordinal,
+                    resolved.offset,
+                    limit,
                 );
             }
         }
@@ -91,6 +104,25 @@ impl MatrixEngine {
                     DEFAULT_MAX_BATCH_SIZE,
                     selected_cols,
                     &resolved.row_groups,
+                )?;
+                let schema = batch.schema();
+                let mut indices = Vec::new();
+                for col_name in selected_cols {
+                    indices.push(schema.index_of(col_name).map_err(|_| {
+                        BazanError::Message(format!("Column '{}' not found in schema", col_name))
+                    })?);
+                }
+                return Ok(batch.project(&indices)?);
+            }
+        }
+
+        if matches!(ext.as_str(), "ipc" | "arrow" | "feather") {
+            if let Some(resolved) = resolve_arrow_ipc_range(path, offset, limit)? {
+                let batch = read_arrow_ipc_range(
+                    file_path,
+                    resolved.batch_ordinal,
+                    resolved.offset,
+                    limit,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();

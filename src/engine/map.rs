@@ -107,6 +107,12 @@ pub struct ResolvedNdjsonRange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedArrowIpcRange {
+    pub batch_ordinal: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobalRowLocation {
     pub rel_path: String,
     pub file_offset: usize,
@@ -469,6 +475,18 @@ fn is_ndjson_path(file_path: &Path) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("ndjson"))
 }
 
+fn is_arrow_ipc_path(file_path: &Path) -> bool {
+    file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "ipc" | "arrow" | "feather"
+            )
+        })
+}
+
 fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
     const NDJSON_BLOCK_ROWS: usize = 64 * 1024;
 
@@ -616,21 +634,25 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         ))
     })?;
 
-    let row_groups_json = if is_parquet_path(file_path) {
-        serde_json::to_string(&inspect_parquet_row_groups(file_path)?)?
-    } else if is_ndjson_path(file_path) {
-        serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
-    } else {
-        "[]".to_string()
-    };
-
     let source = handler.open(file_str, 64 * 1024)?;
     let mut total_rows = 0usize;
     let mut col_stats: HashMap<String, ColumnMinMax> = HashMap::new();
+    let mut arrow_row_groups = Vec::new();
 
     for batch_res in source.batches {
         let batch = batch_res?;
         let batch_rows = batch.num_rows();
+        if is_arrow_ipc_path(file_path) {
+            arrow_row_groups.push(RowGroupLocation {
+                ordinal: arrow_row_groups.len(),
+                first_row: total_rows,
+                row_count: batch_rows,
+                first_byte: None,
+                total_byte_size: 0,
+                compressed_size: 0,
+                columns: Vec::new(),
+            });
+        }
         total_rows += batch_rows;
 
         if batch_rows > 0 {
@@ -705,6 +727,16 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
             }
         }
     }
+
+    let row_groups_json = if is_parquet_path(file_path) {
+        serde_json::to_string(&inspect_parquet_row_groups(file_path)?)?
+    } else if is_ndjson_path(file_path) {
+        serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
+    } else if is_arrow_ipc_path(file_path) {
+        serde_json::to_string(&arrow_row_groups)?
+    } else {
+        "[]".to_string()
+    };
 
     let stats = FileStats {
         total_rows,
@@ -860,19 +892,8 @@ fn is_map_sidecar(path: &Path) -> bool {
     )
 }
 
-/// Resolve a file-local row range to the Parquet row groups that contain it.
-///
-/// Returns `None` when no compatible, healthy map is available so callers can
-/// preserve the normal streaming fallback for old maps and non-Parquet files.
-pub fn resolve_parquet_range(
-    file_path: &Path,
-    offset: usize,
-    limit: usize,
-) -> Result<Option<ResolvedParquetRange>, BazanError> {
-    if !is_parquet_path(file_path) || limit == 0 {
-        return Ok(None);
-    }
-
+/// Find the nearest healthy map entry for a data file.
+fn resolve_healthy_map_entry(file_path: &Path) -> Result<Option<LakeMapEntry>, BazanError> {
     let Some(mut map_root) = file_path.parent() else {
         return Ok(None);
     };
@@ -900,33 +921,7 @@ pub fn resolve_parquet_range(
                 return Ok(None);
             }
 
-            let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-            if row_groups.is_empty() || offset >= entry.total_rows {
-                return Ok(Some(ResolvedParquetRange {
-                    row_groups: Vec::new(),
-                    offset: 0,
-                }));
-            }
-
-            let end = offset.saturating_add(limit).min(entry.total_rows);
-            let selected: Vec<&RowGroupLocation> = row_groups
-                .iter()
-                .filter(|group| {
-                    let group_end = group.first_row.saturating_add(group.row_count);
-                    group.first_row < end && group_end > offset
-                })
-                .collect();
-            let Some(first_group) = selected.first() else {
-                return Ok(Some(ResolvedParquetRange {
-                    row_groups: Vec::new(),
-                    offset: 0,
-                }));
-            };
-
-            return Ok(Some(ResolvedParquetRange {
-                row_groups: selected.iter().map(|group| group.ordinal).collect(),
-                offset: offset.saturating_sub(first_group.first_row),
-            }));
+            return Ok(Some(entry.clone()));
         }
 
         let Some(parent) = map_root.parent() else {
@@ -941,6 +936,52 @@ pub fn resolve_parquet_range(
     Ok(None)
 }
 
+/// Resolve a file-local row range to the Parquet row groups that contain it.
+///
+/// Returns `None` when no compatible, healthy map is available so callers can
+/// preserve the normal streaming fallback for old maps and non-Parquet files.
+pub fn resolve_parquet_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedParquetRange>, BazanError> {
+    if !is_parquet_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() || offset >= entry.total_rows {
+        return Ok(Some(ResolvedParquetRange {
+            row_groups: Vec::new(),
+            offset: 0,
+        }));
+    }
+
+    let end = offset.saturating_add(limit).min(entry.total_rows);
+    let selected: Vec<&RowGroupLocation> = row_groups
+        .iter()
+        .filter(|group| {
+            let group_end = group.first_row.saturating_add(group.row_count);
+            group.first_row < end && group_end > offset
+        })
+        .collect();
+    let Some(first_group) = selected.first() else {
+        return Ok(Some(ResolvedParquetRange {
+            row_groups: Vec::new(),
+            offset: 0,
+        }));
+    };
+
+    Ok(Some(ResolvedParquetRange {
+        row_groups: selected.iter().map(|group| group.ordinal).collect(),
+        offset: offset.saturating_sub(first_group.first_row),
+    }))
+}
+
 /// Resolve an NDJSON row range to the byte checkpoint containing its first row.
 pub fn resolve_ndjson_range(
     file_path: &Path,
@@ -951,70 +992,64 @@ pub fn resolve_ndjson_range(
         return Ok(None);
     }
 
-    let Some(mut map_root) = file_path.parent() else {
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
         return Ok(None);
     };
 
-    loop {
-        let map_path = resolve_map_path(map_root);
-        if map_path.is_file() {
-            let map = load_lake_map_ipc(&map_path)?;
-            let Some(rel_path) = file_path.strip_prefix(map_root).ok() else {
-                return Ok(None);
-            };
-            let rel_path = rel_path.to_string_lossy();
-            let Some(entry) = map.entries.iter().find(|entry| entry.rel_path == rel_path) else {
-                return Ok(None);
-            };
-
-            let metadata = fs::metadata(file_path)?;
-            let mtime_ms = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis() as i64)
-                .unwrap_or(0);
-            if metadata.len() != entry.size_bytes || mtime_ms != entry.mtime_ms {
-                return Ok(None);
-            }
-
-            let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-            if row_groups.is_empty() {
-                return Ok(None);
-            }
-            if offset >= entry.total_rows {
-                return Ok(Some(ResolvedNdjsonRange {
-                    byte_offset: metadata.len(),
-                    offset: 0,
-                }));
-            }
-
-            let Some(group) = row_groups.iter().find(|group| {
-                offset >= group.first_row
-                    && offset < group.first_row.saturating_add(group.row_count)
-            }) else {
-                return Ok(None);
-            };
-            let Some(byte_offset) = group.first_byte else {
-                return Ok(None);
-            };
-
-            return Ok(Some(ResolvedNdjsonRange {
-                byte_offset,
-                offset: offset.saturating_sub(group.first_row),
-            }));
-        }
-
-        let Some(parent) = map_root.parent() else {
-            break;
-        };
-        if parent == map_root {
-            break;
-        }
-        map_root = parent;
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
+        return Ok(Some(ResolvedNdjsonRange {
+            byte_offset: entry.size_bytes,
+            offset: 0,
+        }));
     }
 
-    Ok(None)
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+    let Some(byte_offset) = group.first_byte else {
+        return Ok(None);
+    };
+
+    Ok(Some(ResolvedNdjsonRange {
+        byte_offset,
+        offset: offset.saturating_sub(group.first_row),
+    }))
+}
+
+/// Resolve an Arrow IPC / Feather row range to its first RecordBatch.
+pub fn resolve_arrow_ipc_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedArrowIpcRange>, BazanError> {
+    if !is_arrow_ipc_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+    if offset >= entry.total_rows {
+        return Ok(None);
+    }
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+
+    Ok(Some(ResolvedArrowIpcRange {
+        batch_ordinal: group.ordinal,
+        offset: offset.saturating_sub(group.first_row),
+    }))
 }
 
 /// Diagnose data lake map consistency and optionally auto-heal incremental drifts
