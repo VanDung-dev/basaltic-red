@@ -18,6 +18,18 @@ fn tsv_null_regex() -> &'static Regex {
     TSV_NULL_REGEX.get_or_init(|| Regex::new(r"^\\N$").expect("valid regex"))
 }
 
+fn infer_tsv_schema(file_path: &str) -> Result<Arc<Schema>, BazanError> {
+    let mut file = File::open(file_path)?;
+    let mut header_line = String::new();
+    BufReader::new(&mut file).read_line(&mut header_line)?;
+    let fields: Vec<Field> = header_line
+        .trim_end_matches(['\n', '\r'])
+        .split('\t')
+        .map(|name| Field::new(name, DataType::Utf8, true))
+        .collect();
+    Ok(Arc::new(Schema::new(fields)))
+}
+
 impl MatrixEngine {
     /// Helper method to iterate through RecordBatch reader and sum filter statistics
     pub(crate) fn process_reader<I, E>(
@@ -110,22 +122,33 @@ pub fn open_delimited_csv_columns(
 }
 
 /// Read a CSV row range starting at a quote-safe byte checkpoint.
-pub fn read_csv_range(
+pub fn read_delimited_range(
     file_path: &str,
     byte_offset: u64,
     offset: usize,
     limit: usize,
     batch_size: usize,
+    delimiter: u8,
+    force_utf8: bool,
 ) -> Result<RecordBatch, BazanError> {
-    let schema = Arc::new(infer_csv_schema(file_path, b',')?);
+    let schema = if force_utf8 {
+        infer_tsv_schema(file_path)?
+    } else {
+        Arc::new(infer_csv_schema(file_path, delimiter)?)
+    };
     let mut file = File::open(file_path)?;
     file.seek(SeekFrom::Start(byte_offset))?;
     let batch_size = clamp_batch_size(batch_size);
-    let reader = arrow_csv::ReaderBuilder::new(schema.clone())
-        .with_delimiter(b',')
+    let mut builder = arrow_csv::ReaderBuilder::new(schema.clone())
+        .with_delimiter(delimiter)
         .with_header(false)
-        .with_batch_size(batch_size)
-        .build(file)?;
+        .with_batch_size(batch_size);
+    if force_utf8 {
+        builder = builder
+            .with_null_regex(tsv_null_regex().clone())
+            .with_truncated_rows(true);
+    }
+    let reader = builder.build(file)?;
 
     read_range_from_source(
         OpenedSource {
@@ -134,6 +157,24 @@ pub fn read_csv_range(
         },
         offset,
         limit,
+    )
+}
+
+pub fn read_csv_range(
+    file_path: &str,
+    byte_offset: u64,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+) -> Result<RecordBatch, BazanError> {
+    read_delimited_range(
+        file_path,
+        byte_offset,
+        offset,
+        limit,
+        batch_size,
+        b',',
+        false,
     )
 }
 
@@ -163,26 +204,8 @@ pub struct TsvHandler;
 impl FormatHandler for TsvHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
-        let mut file = File::open(file_path)?;
-        let mut header_line = String::new();
-        {
-            let mut header_reader = BufReader::new(&mut file);
-            header_reader.read_line(&mut header_line)?;
-        }
-        let col_names: Vec<String> = header_line
-            .trim_end_matches(['\n', '\r'])
-            .split('\t')
-            .map(|s| s.to_string())
-            .collect();
-
-        // Force all columns as Utf8 — safest for raw/dirty TSV data
-        let fields: Vec<Field> = col_names
-            .iter()
-            .map(|name| Field::new(name, DataType::Utf8, true))
-            .collect();
-        let schema = Arc::new(Schema::new(fields));
-
-        let _ = file.rewind();
+        let schema = infer_tsv_schema(file_path)?;
+        let file = File::open(file_path)?;
         let reader = arrow_csv::ReaderBuilder::new(schema.clone())
             .with_header(true)
             .with_delimiter(b'\t')

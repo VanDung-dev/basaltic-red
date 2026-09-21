@@ -493,11 +493,12 @@ fn is_arrow_ipc_path(file_path: &Path) -> bool {
         })
 }
 
-fn is_csv_path(file_path: &Path) -> bool {
-    file_path
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("csv"))
+fn delimited_delimiter(file_path: &Path) -> Option<u8> {
+    match file_path.extension().and_then(|value| value.to_str()) {
+        Some(value) if value.eq_ignore_ascii_case("csv") => Some(b','),
+        Some(value) if value.eq_ignore_ascii_case("tsv") => Some(b'\t'),
+        _ => None,
+    }
 }
 
 fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
@@ -558,7 +559,7 @@ fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, 
     Ok(row_groups)
 }
 
-fn inspect_csv_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
     const CSV_BLOCK_ROWS: usize = 64 * 1024;
 
     let mut reader = io::BufReader::new(File::open(file_path)?);
@@ -835,8 +836,8 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
     } else if is_arrow_ipc_path(file_path) {
         serde_json::to_string(&arrow_row_groups)?
-    } else if is_csv_path(file_path) {
-        serde_json::to_string(&inspect_csv_row_groups(file_path)?)?
+    } else if delimited_delimiter(file_path).is_some() {
+        serde_json::to_string(&inspect_delimited_row_groups(file_path)?)?
     } else {
         "[]".to_string()
     };
@@ -1156,12 +1157,13 @@ pub fn resolve_arrow_ipc_range(
 }
 
 /// Resolve a CSV row range to the byte checkpoint containing its first record.
-pub fn resolve_csv_range(
+pub fn resolve_delimited_range(
     file_path: &Path,
     offset: usize,
     limit: usize,
+    delimiter: u8,
 ) -> Result<Option<ResolvedCsvRange>, BazanError> {
-    if !is_csv_path(file_path) || limit == 0 {
+    if delimited_delimiter(file_path) != Some(delimiter) || limit == 0 {
         return Ok(None);
     }
 
@@ -1193,6 +1195,22 @@ pub fn resolve_csv_range(
         byte_offset,
         offset: offset.saturating_sub(group.first_row),
     }))
+}
+
+pub fn resolve_csv_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedCsvRange>, BazanError> {
+    resolve_delimited_range(file_path, offset, limit, b',')
+}
+
+pub fn resolve_tsv_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedCsvRange>, BazanError> {
+    resolve_delimited_range(file_path, offset, limit, b'\t')
 }
 
 /// Diagnose data lake map consistency and optionally auto-heal incremental drifts

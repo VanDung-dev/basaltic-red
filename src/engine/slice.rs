@@ -3,10 +3,12 @@ use arrow::array::RecordBatch;
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::formats::{
-    read_arrow_ipc_range, read_csv_range, read_ndjson_range, read_parquet_range_from_row_groups,
+    read_arrow_ipc_range, read_csv_range, read_delimited_range, read_ndjson_range,
+    read_parquet_range_from_row_groups,
 };
 use crate::engine::map::{
-    resolve_arrow_ipc_range, resolve_csv_range, resolve_ndjson_range, resolve_parquet_range,
+    resolve_arrow_ipc_range, resolve_csv_range, resolve_delimited_range, resolve_ndjson_range,
+    resolve_parquet_range,
 };
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -60,6 +62,20 @@ impl MatrixEngine {
                     resolved.offset,
                     limit,
                     DEFAULT_MAX_BATCH_SIZE,
+                );
+            }
+        }
+
+        if ext == "tsv" {
+            if let Some(resolved) = resolve_delimited_range(path, offset, limit, b'\t')? {
+                return read_delimited_range(
+                    file_path,
+                    resolved.byte_offset,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                    b'\t',
+                    true,
                 );
             }
         }
@@ -157,6 +173,28 @@ impl MatrixEngine {
                     resolved.offset,
                     limit,
                     DEFAULT_MAX_BATCH_SIZE,
+                )?;
+                let schema = batch.schema();
+                let mut indices = Vec::new();
+                for col_name in selected_cols {
+                    indices.push(schema.index_of(col_name).map_err(|_| {
+                        BazanError::Message(format!("Column '{}' not found in schema", col_name))
+                    })?);
+                }
+                return Ok(batch.project(&indices)?);
+            }
+        }
+
+        if ext == "tsv" {
+            if let Some(resolved) = resolve_delimited_range(path, offset, limit, b'\t')? {
+                let batch = read_delimited_range(
+                    file_path,
+                    resolved.byte_offset,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                    b'\t',
+                    true,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
