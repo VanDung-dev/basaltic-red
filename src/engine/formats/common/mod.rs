@@ -2,6 +2,7 @@ pub mod csv;
 pub mod json;
 
 pub use csv::{
-    open_delimited_csv, open_delimited_csv_columns, CsvHandler, PsvHandler, TsvHandler, TxtHandler,
+    open_delimited_csv, open_delimited_csv_columns, read_csv_range, CsvHandler, PsvHandler,
+    TsvHandler, TxtHandler,
 };
 pub use json::{open_json_array, read_ndjson_range, JsonHandler, JsonlHandler, NdjsonHandler};

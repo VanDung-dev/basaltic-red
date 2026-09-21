@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -109,6 +109,12 @@ pub struct ResolvedNdjsonRange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedArrowIpcRange {
     pub batch_ordinal: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedCsvRange {
+    pub byte_offset: u64,
     pub offset: usize,
 }
 
@@ -487,6 +493,13 @@ fn is_arrow_ipc_path(file_path: &Path) -> bool {
         })
 }
 
+fn is_csv_path(file_path: &Path) -> bool {
+    file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("csv"))
+}
+
 fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
     const NDJSON_BLOCK_ROWS: usize = 64 * 1024;
 
@@ -540,6 +553,94 @@ fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, 
             compressed_size: 0,
             columns: Vec::new(),
         });
+    }
+
+    Ok(row_groups)
+}
+
+fn inspect_csv_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+    const CSV_BLOCK_ROWS: usize = 64 * 1024;
+
+    let mut reader = io::BufReader::new(File::open(file_path)?);
+    let mut buffer = [0u8; 64 * 1024];
+    let mut absolute_offset = 0u64;
+    let mut record_start = 0u64;
+    let mut header_seen = false;
+    let mut in_quotes = false;
+    let mut quote_pending = false;
+    let mut first_row = 0usize;
+    let mut row_count = 0usize;
+    let mut block_start = None;
+    let mut row_groups = Vec::new();
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        for &byte in &buffer[..bytes_read] {
+            absolute_offset += 1;
+
+            if quote_pending {
+                if byte == b'"' {
+                    quote_pending = false;
+                    continue;
+                }
+                in_quotes = false;
+                quote_pending = false;
+            }
+
+            if byte == b'"' {
+                if in_quotes {
+                    quote_pending = true;
+                } else {
+                    in_quotes = true;
+                }
+            } else if byte == b'\n' && !in_quotes {
+                let record_end = absolute_offset;
+                if header_seen {
+                    block_start.get_or_insert(record_start);
+                    row_count += 1;
+                    if row_count == CSV_BLOCK_ROWS {
+                        let first_byte = block_start.take().expect("CSV block has a row");
+                        row_groups.push(RowGroupLocation {
+                            ordinal: row_groups.len(),
+                            first_row,
+                            row_count,
+                            first_byte: Some(first_byte),
+                            total_byte_size: record_end.saturating_sub(first_byte),
+                            compressed_size: 0,
+                            columns: Vec::new(),
+                        });
+                        first_row = first_row.saturating_add(row_count);
+                        row_count = 0;
+                    }
+                } else {
+                    header_seen = true;
+                }
+                record_start = record_end;
+            }
+        }
+    }
+
+    if header_seen {
+        if record_start < absolute_offset {
+            block_start.get_or_insert(record_start);
+            row_count += 1;
+        }
+        if row_count > 0 {
+            let first_byte = block_start.expect("CSV block has a row");
+            row_groups.push(RowGroupLocation {
+                ordinal: row_groups.len(),
+                first_row,
+                row_count,
+                first_byte: Some(first_byte),
+                total_byte_size: absolute_offset.saturating_sub(first_byte),
+                compressed_size: 0,
+                columns: Vec::new(),
+            });
+        }
     }
 
     Ok(row_groups)
@@ -734,6 +835,8 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
     } else if is_arrow_ipc_path(file_path) {
         serde_json::to_string(&arrow_row_groups)?
+    } else if is_csv_path(file_path) {
+        serde_json::to_string(&inspect_csv_row_groups(file_path)?)?
     } else {
         "[]".to_string()
     };
@@ -1048,6 +1151,46 @@ pub fn resolve_arrow_ipc_range(
 
     Ok(Some(ResolvedArrowIpcRange {
         batch_ordinal: group.ordinal,
+        offset: offset.saturating_sub(group.first_row),
+    }))
+}
+
+/// Resolve a CSV row range to the byte checkpoint containing its first record.
+pub fn resolve_csv_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedCsvRange>, BazanError> {
+    if !is_csv_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
+        return Ok(Some(ResolvedCsvRange {
+            byte_offset: entry.size_bytes,
+            offset: 0,
+        }));
+    }
+
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+    let Some(byte_offset) = group.first_byte else {
+        return Ok(None);
+    };
+
+    Ok(Some(ResolvedCsvRange {
+        byte_offset,
         offset: offset.saturating_sub(group.first_row),
     }))
 }

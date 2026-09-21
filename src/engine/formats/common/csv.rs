@@ -1,11 +1,14 @@
+use arrow::array::RecordBatch;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::sync::{Arc, OnceLock};
 
 use arrow_schema::{DataType, Field, Schema};
 use regex::Regex;
 
-use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::engine::formats::{
+    clamp_batch_size, read_range_from_source, FormatHandler, OpenedSource,
+};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 
@@ -44,18 +47,21 @@ impl MatrixEngine {
 }
 
 /// Generic delimited reader with automatic schema inference
+fn infer_csv_schema(file_path: &str, delimiter: u8) -> Result<Schema, BazanError> {
+    let mut file = File::open(file_path)?;
+    let format = arrow_csv::reader::Format::default()
+        .with_delimiter(delimiter)
+        .with_header(true);
+    Ok(format.infer_schema(&mut file, Some(100))?.0)
+}
+
 pub fn open_delimited_csv(
     file_path: &str,
     batch_size: usize,
     delimiter: u8,
 ) -> Result<OpenedSource, BazanError> {
-    let mut file = File::open(file_path)?;
-    let format = arrow_csv::reader::Format::default()
-        .with_delimiter(delimiter)
-        .with_header(true);
-
-    let (schema, _) = format.infer_schema(&mut file, Some(100))?;
-    let _ = file.rewind();
+    let schema = infer_csv_schema(file_path, delimiter)?;
+    let file = File::open(file_path)?;
 
     let batch_size = clamp_batch_size(batch_size);
     let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
@@ -77,20 +83,15 @@ pub fn open_delimited_csv_columns(
     delimiter: u8,
     columns: &[String],
 ) -> Result<OpenedSource, BazanError> {
-    let mut file = File::open(file_path)?;
-    let format = arrow_csv::reader::Format::default()
-        .with_delimiter(delimiter)
-        .with_header(true);
-
-    let (schema, _) = format.infer_schema(&mut file, Some(100))?;
-    let _ = file.rewind();
+    let schema = infer_csv_schema(file_path, delimiter)?;
+    let file = File::open(file_path)?;
 
     let mut indices = Vec::new();
     for name in columns {
         indices.push(
-            schema
-                .index_of(name)
-                .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))?,
+            schema.index_of(name).map_err(|_| {
+                BazanError::Message(format!("Column '{}' not found in schema", name))
+            })?,
         );
     }
 
@@ -106,6 +107,34 @@ pub fn open_delimited_csv_columns(
         schema: Arc::new(schema),
         batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
     })
+}
+
+/// Read a CSV row range starting at a quote-safe byte checkpoint.
+pub fn read_csv_range(
+    file_path: &str,
+    byte_offset: u64,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+) -> Result<RecordBatch, BazanError> {
+    let schema = Arc::new(infer_csv_schema(file_path, b',')?);
+    let mut file = File::open(file_path)?;
+    file.seek(SeekFrom::Start(byte_offset))?;
+    let batch_size = clamp_batch_size(batch_size);
+    let reader = arrow_csv::ReaderBuilder::new(schema.clone())
+        .with_delimiter(b',')
+        .with_header(false)
+        .with_batch_size(batch_size)
+        .build(file)?;
+
+    read_range_from_source(
+        OpenedSource {
+            schema,
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        },
+        offset,
+        limit,
+    )
 }
 
 /// CSV Streaming In-Memory Reader with Schema Inference (Tier 2 Common)
