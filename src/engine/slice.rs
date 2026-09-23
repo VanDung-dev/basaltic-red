@@ -53,8 +53,12 @@ impl MatrixEngine {
             }
         }
 
-        if matches!(ext.as_str(), "csv" | "psv") {
-            let delimiter = if ext == "csv" { b',' } else { b'|' };
+        if matches!(ext.as_str(), "csv" | "psv" | "txt") {
+            let delimiter = match ext.as_str() {
+                "csv" => b',',
+                "psv" => b'|',
+                _ => b';',
+            };
             if let Some(resolved) = resolve_delimited_range(path, offset, limit, delimiter)? {
                 return read_delimited_range(
                     file_path,
@@ -167,8 +171,12 @@ impl MatrixEngine {
             }
         }
 
-        if matches!(ext.as_str(), "csv" | "psv") {
-            let delimiter = if ext == "csv" { b',' } else { b'|' };
+        if matches!(ext.as_str(), "csv" | "psv" | "txt") {
+            let delimiter = match ext.as_str() {
+                "csv" => b',',
+                "psv" => b'|',
+                _ => b';',
+            };
             if let Some(resolved) = resolve_delimited_range(path, offset, limit, delimiter)? {
                 let batch = read_delimited_range(
                     file_path,

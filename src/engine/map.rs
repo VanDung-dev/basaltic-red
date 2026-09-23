@@ -500,6 +500,7 @@ fn delimited_delimiter(file_path: &Path) -> Option<u8> {
         Some(value) if value.eq_ignore_ascii_case("csv") => Some(b','),
         Some(value) if value.eq_ignore_ascii_case("tsv") => Some(b'\t'),
         Some(value) if value.eq_ignore_ascii_case("psv") => Some(b'|'),
+        Some(value) if value.eq_ignore_ascii_case("txt") => Some(b';'),
         _ => None,
     }
 }
@@ -1222,6 +1223,14 @@ pub fn resolve_psv_range(
     limit: usize,
 ) -> Result<Option<ResolvedCsvRange>, BazanError> {
     resolve_delimited_range(file_path, offset, limit, b'|')
+}
+
+pub fn resolve_txt_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedCsvRange>, BazanError> {
+    resolve_delimited_range(file_path, offset, limit, b';')
 }
 
 /// Diagnose data lake map consistency and optionally auto-heal incremental drifts
