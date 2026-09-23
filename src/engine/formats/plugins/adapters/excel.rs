@@ -5,7 +5,9 @@ use calamine::{open_workbook, Data, Reader, Xlsx};
 use std::sync::Arc;
 
 use crate::engine::formats::plugins::base_templates::RowChunker;
-use crate::engine::formats::{clamp_batch_size, FormatHandler, OpenedSource};
+use crate::engine::formats::{
+    clamp_batch_size, read_range_from_source, FormatHandler, OpenedSource,
+};
 use crate::error::BazanError;
 
 /// Excel (.xlsx) Streaming Reader via Calamine (Tier 3 Adapter)
@@ -14,58 +16,75 @@ pub struct XlsxHandler;
 
 impl FormatHandler for XlsxHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
-        let batch_size = clamp_batch_size(batch_size);
-        let mut workbook: Xlsx<_> = open_workbook(file_path)?;
-
-        let range = match workbook.worksheet_range_at(0) {
-            Some(Ok(r)) => r,
-            _ => {
-                return Err(BazanError::Message(format!(
-                    "No sheet found in Excel workbook: {}",
-                    file_path
-                )))
-            }
-        };
-
-        // First row as Header
-        let header = match range.rows().next() {
-            Some(h) => h,
-            None => {
-                return Ok(OpenedSource {
-                    schema: Arc::new(Schema::empty()),
-                    batches: Box::new(std::iter::empty()),
-                })
-            }
-        };
-
-        let col_names: Vec<String> = header
-            .iter()
-            .map(|cell| match cell {
-                Data::String(s) => s.to_string(),
-                other => other.to_string(),
-            })
-            .collect();
-
-        let fields: Vec<Field> = col_names
-            .iter()
-            .map(|name| Field::new(name, DataType::Utf8, true))
-            .collect();
-        let schema = Arc::new(Schema::new(fields));
-
-        let data_rows = XlsxRows::new(range, 1); // skip the header row
-
-        let chunker = RowChunker::new(
-            data_rows.map(Ok),
-            batch_size,
-            schema.clone(),
-            string_rows_to_record_batch,
-        );
-
-        Ok(OpenedSource {
-            schema,
-            batches: Box::new(chunker),
-        })
+        open_xlsx_source(file_path, batch_size, 0)
     }
+}
+
+fn open_xlsx_source(
+    file_path: &str,
+    batch_size: usize,
+    row_offset: usize,
+) -> Result<OpenedSource, BazanError> {
+    let batch_size = clamp_batch_size(batch_size);
+    let mut workbook: Xlsx<_> = open_workbook(file_path)?;
+
+    let range = match workbook.worksheet_range_at(0) {
+        Some(Ok(r)) => r,
+        _ => {
+            return Err(BazanError::Message(format!(
+                "No sheet found in Excel workbook: {}",
+                file_path
+            )))
+        }
+    };
+
+    let Some(schema) = xlsx_schema(&range) else {
+        return Ok(OpenedSource {
+            schema: Arc::new(Schema::empty()),
+            batches: Box::new(std::iter::empty()),
+        });
+    };
+
+    let data_rows = XlsxRows::new(range, 1usize.saturating_add(row_offset));
+
+    let chunker = RowChunker::new(
+        data_rows.map(Ok),
+        batch_size,
+        schema.clone(),
+        string_rows_to_record_batch,
+    );
+
+    Ok(OpenedSource {
+        schema,
+        batches: Box::new(chunker),
+    })
+}
+
+fn xlsx_schema(range: &calamine::Range<Data>) -> Option<Arc<Schema>> {
+    let header = range.rows().next()?;
+    let col_names: Vec<String> = header
+        .iter()
+        .map(|cell| match cell {
+            Data::String(s) => s.to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+    let fields: Vec<Field> = col_names
+        .iter()
+        .map(|name| Field::new(name, DataType::Utf8, true))
+        .collect();
+    Some(Arc::new(Schema::new(fields)))
+}
+
+pub fn read_xlsx_range(
+    file_path: &str,
+    row_offset: usize,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+) -> Result<RecordBatch, BazanError> {
+    let source = open_xlsx_source(file_path, batch_size, row_offset)?;
+    read_range_from_source(source, offset, limit)
 }
 
 struct XlsxRows {
