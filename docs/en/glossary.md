@@ -46,7 +46,7 @@ Quick lookup only. For explanations, follow the linked component pages.
 | Bitmask chunk | 64 rules per `u64`; rule *i* → bit `i % 64` of chunk `i / 64` |
 | `audit_error_code` | `UInt64` bitmask of violated rules 0 to 63 on Trash rows |
 | `audit_violated_rules` | `List<UInt32>` of all violated indices (rules > 64 only) |
-| `.br_map.bazan` | Arrow IPC lake map payload at root: file metadata plus Parquet row-group, NDJSON/CSV/TSV/PSV row-block, and Arrow IPC/Feather batch locations (7 columns, see spec) |
+| `.br_map.bazan` | Arrow IPC lake map payload at root: file metadata plus Parquet row-group, NDJSON/JSONL and CSV/TSV/PSV row-block, and Arrow IPC/Feather batch locations (7 columns, see spec) |
 | Doctor status | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |
 | Drift classes | `modified_files`, `unindexed_files`, `missing_files` |
 | Partition filter | Hive-style subtree selector, e.g. `year=2026/month=08` |
