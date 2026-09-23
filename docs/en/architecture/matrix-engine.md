@@ -44,8 +44,8 @@ Implemented in `src/engine/slice.rs`; exposed through [`br.read.*`](../reference
 
 | Method | Behavior |
 | :--- | :--- |
-| `slice_rows(file_path, offset, limit)` | Parquet and ORC resolve healthy `.br_map.bazan` row groups/stripes; NDJSON/JSONL and JSON-array seek to indexed checkpoints; CSV/TSV/PSV/TXT seek to indexed row blocks; Arrow IPC/Feather seek to the indexed RecordBatch. These paths then apply the local offset/limit; other formats stream and skip batches. |
-| `slice_cols(file_path, selected_cols, offset, limit)` | Same location resolution. Parquet pushes projection into the reader; ORC, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT plus Arrow IPC/Feather read from the indexed boundary, then project the requested columns. |
+| `slice_rows(file_path, offset, limit)` | Parquet, ORC, and Avro resolve healthy `.br_map.bazan` native row groups/stripes/blocks; NDJSON/JSONL and JSON-array seek to indexed checkpoints; CSV/TSV/PSV/TXT seek to indexed row blocks; Arrow IPC/Feather seek to the indexed RecordBatch. These paths then apply the local offset/limit; other formats stream and skip batches. |
+| `slice_cols(file_path, selected_cols, offset, limit)` | Same location resolution. Parquet pushes projection into the reader; ORC, Avro, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT plus Arrow IPC/Feather read from the indexed boundary, then project the requested columns. |
 | `preview_sample(file_path, limit_rows)` | Opens the first batch only and runs the **static** threshold filter; returns `(clean_table, trash_table)`. |
 
 Both slice methods resolve the handler through the [format registry](formats.md), so they work on every supported format, not just Parquet.
