@@ -12,9 +12,9 @@ use parquet::file::properties::WriterProperties;
 
 use basaltic_red::engine::map::{
     load_lake_map_ipc, resolve_arrow_ipc_range, resolve_avro_range, resolve_csv_range,
-    resolve_json_array_range, resolve_map_path, resolve_ndjson_range, resolve_orc_range,
-    resolve_parquet_range, resolve_psv_range, resolve_tsv_range, resolve_txt_range,
-    RowGroupLocation,
+    resolve_json_array_range, resolve_map_path, resolve_msgpack_range, resolve_ndjson_range,
+    resolve_orc_range, resolve_parquet_range, resolve_psv_range, resolve_tsv_range,
+    resolve_txt_range, RowGroupLocation,
 };
 use basaltic_red::engine::MatrixEngine;
 
@@ -191,6 +191,17 @@ fn create_multi_block_avro(path: &std::path::Path, rows: usize) {
         }
     }
     writer.flush().unwrap();
+}
+
+fn create_multi_block_msgpack(path: &std::path::Path, rows: usize) {
+    let mut file = File::create(path).unwrap();
+    for value in 0..rows as i64 {
+        let row = rmpv::Value::Map(vec![
+            (rmpv::Value::from("id"), rmpv::Value::from(value)),
+            (rmpv::Value::from("value"), rmpv::Value::from(value * 10)),
+        ]);
+        rmpv::encode::write_value(&mut file, &row).unwrap();
+    }
 }
 
 fn create_sample_csv(path: &std::path::Path, rows: usize) {
@@ -753,6 +764,57 @@ fn test_lake_map_resolves_avro_blocks_for_slice() {
     let offset = group.first_row + 1;
     let resolved = resolve_avro_range(&file, offset, 2).unwrap().unwrap();
     assert_eq!(resolved.offset, 1);
+    assert_eq!(resolved.byte_offset, group.first_byte.unwrap());
+
+    let batch = engine
+        .slice_rows_native(file.to_str().unwrap(), offset, 2)
+        .unwrap();
+    let ids = batch
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(ids.values(), &[offset as i64, offset as i64 + 1]);
+
+    let batch = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], offset, 2)
+        .unwrap();
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(
+        values.values(),
+        &[offset as i64 * 10, (offset as i64 + 1) * 10]
+    );
+}
+
+#[test]
+fn test_lake_map_resolves_msgpack_blocks_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.msgpack");
+    create_multi_block_msgpack(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(map.total_rows, 70_000);
+    assert!(row_groups
+        .iter()
+        .all(|group| group.first_byte.is_some() && group.total_byte_size > 0));
+
+    let group = &row_groups[1];
+    let offset = group.first_row + 4;
+    let resolved = resolve_msgpack_range(&file, offset, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 4);
     assert_eq!(resolved.byte_offset, group.first_byte.unwrap());
 
     let batch = engine
