@@ -3,11 +3,11 @@ use arrow::array::RecordBatch;
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
 use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::formats::{
-    read_arrow_ipc_range, read_delimited_range, read_json_array_range, read_ndjson_range,
-    read_orc_range, read_parquet_range_from_row_groups,
+    read_arrow_ipc_range, read_avro_range, read_delimited_range, read_json_array_range,
+    read_ndjson_range, read_orc_range, read_parquet_range_from_row_groups,
 };
 use crate::engine::map::{
-    resolve_arrow_ipc_range, resolve_delimited_range, resolve_json_array_range,
+    resolve_arrow_ipc_range, resolve_avro_range, resolve_delimited_range, resolve_json_array_range,
     resolve_ndjson_range, resolve_orc_range, resolve_parquet_range,
 };
 use crate::engine::MatrixEngine;
@@ -46,6 +46,18 @@ impl MatrixEngine {
         if ext == "orc" {
             if let Some(resolved) = resolve_orc_range(path, offset, limit)? {
                 return read_orc_range(
+                    file_path,
+                    resolved.byte_offset,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                );
+            }
+        }
+
+        if ext == "avro" {
+            if let Some(resolved) = resolve_avro_range(path, offset, limit)? {
+                return read_avro_range(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
@@ -180,6 +192,26 @@ impl MatrixEngine {
         if ext == "orc" {
             if let Some(resolved) = resolve_orc_range(path, offset, limit)? {
                 let batch = read_orc_range(
+                    file_path,
+                    resolved.byte_offset,
+                    resolved.offset,
+                    limit,
+                    DEFAULT_MAX_BATCH_SIZE,
+                )?;
+                let schema = batch.schema();
+                let mut indices = Vec::new();
+                for col_name in selected_cols {
+                    indices.push(schema.index_of(col_name).map_err(|_| {
+                        BazanError::Message(format!("Column '{}' not found in schema", col_name))
+                    })?);
+                }
+                return Ok(batch.project(&indices)?);
+            }
+        }
+
+        if ext == "avro" {
+            if let Some(resolved) = resolve_avro_range(path, offset, limit)? {
+                let batch = read_avro_range(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
