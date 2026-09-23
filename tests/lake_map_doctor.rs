@@ -499,6 +499,38 @@ fn test_lake_map_resolves_ndjson_byte_blocks_for_slice() {
 }
 
 #[test]
+fn test_lake_map_resolves_jsonl_alias_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.jsonl");
+    create_sample_ndjson(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].row_count, 65_536);
+
+    let resolved = resolve_ndjson_range(&file, 65_536, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 0);
+    assert_eq!(resolved.byte_offset, row_groups[1].first_byte.unwrap());
+
+    let batch = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_536, 2)
+        .unwrap();
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(values.values(), &[655_360, 655_370]);
+}
+
+#[test]
 fn test_lake_map_resolves_csv_quote_safe_blocks_for_slice() {
     let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
     let temp_dir = tempfile::tempdir().unwrap();
