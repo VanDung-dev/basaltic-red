@@ -10,9 +10,9 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
 use basaltic_red::engine::map::{
-    load_lake_map_ipc, resolve_arrow_ipc_range, resolve_csv_range, resolve_map_path,
-    resolve_ndjson_range, resolve_parquet_range, resolve_psv_range, resolve_tsv_range,
-    resolve_txt_range, RowGroupLocation,
+    load_lake_map_ipc, resolve_arrow_ipc_range, resolve_csv_range, resolve_json_array_range,
+    resolve_map_path, resolve_ndjson_range, resolve_parquet_range, resolve_psv_range,
+    resolve_tsv_range, resolve_txt_range, RowGroupLocation,
 };
 use basaltic_red::engine::MatrixEngine;
 
@@ -83,6 +83,35 @@ fn create_sample_ndjson(path: &std::path::Path, rows: usize) {
     for value in 0..rows {
         writeln!(file, r#"{{"id":{},"value":{}}}"#, value, value * 10).unwrap();
     }
+}
+
+fn create_sample_json_array(path: &std::path::Path, rows: usize) {
+    let mut file = File::create(path).unwrap();
+    writeln!(file, "[").unwrap();
+    for value in 0..rows {
+        if value > 0 {
+            writeln!(file, ",").unwrap();
+        }
+        if value == 65_535 {
+            write!(
+                file,
+                r#"{{"id":{},"name":"brace {{ and }} and escaped \"quote\"","value":{}}}"#,
+                value,
+                value * 10
+            )
+            .unwrap();
+        } else {
+            write!(
+                file,
+                r#"{{"id":{},"name":"row{}","value":{}}}"#,
+                value,
+                value,
+                value * 10
+            )
+            .unwrap();
+        }
+    }
+    writeln!(file, "\n]").unwrap();
 }
 
 fn create_sample_arrow_ipc(path: &std::path::Path) {
@@ -540,6 +569,61 @@ fn test_lake_map_resolves_jsonl_alias_for_slice() {
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(values.values(), &[655_360, 655_370]);
+}
+
+#[test]
+fn test_lake_map_resolves_json_array_blocks_for_slice() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("mapped.json");
+    create_sample_json_array(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].row_count, 65_536);
+    assert!(row_groups[1].first_byte.unwrap() > row_groups[0].first_byte.unwrap());
+
+    let resolved = resolve_json_array_range(&file, 65_540, 2).unwrap().unwrap();
+    assert_eq!(resolved.offset, 4);
+    assert_eq!(resolved.byte_offset, row_groups[1].first_byte.unwrap());
+
+    let batch = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    let ids = batch
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(ids.values(), &[65_540, 65_541]);
+
+    let batch = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_540, 2)
+        .unwrap();
+    let values = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(values.values(), &[655_400, 655_410]);
+
+    let special = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_535, 1)
+        .unwrap();
+    let name = special
+        .column_by_name("name")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(name.value(0), "brace { and } and escaped \"quote\"");
 }
 
 #[test]
