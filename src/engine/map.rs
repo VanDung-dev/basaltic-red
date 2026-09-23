@@ -478,7 +478,9 @@ fn is_ndjson_path(file_path: &Path) -> bool {
     file_path
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("ndjson"))
+        .is_some_and(|value| {
+            value.eq_ignore_ascii_case("ndjson") || value.eq_ignore_ascii_case("jsonl")
+        })
 }
 
 fn is_arrow_ipc_path(file_path: &Path) -> bool {

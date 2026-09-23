@@ -82,7 +82,7 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "ndjson" {
+        if matches!(ext.as_str(), "ndjson" | "jsonl") {
             if let Some(resolved) = resolve_ndjson_range(path, offset, limit)? {
                 return read_ndjson_range(
                     file_path,
@@ -212,7 +212,7 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "ndjson" {
+        if matches!(ext.as_str(), "ndjson" | "jsonl") {
             if let Some(resolved) = resolve_ndjson_range(path, offset, limit)? {
                 let batch = read_ndjson_range(
                     file_path,
