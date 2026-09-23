@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Cài đặt trong `src/engine/map.rs`. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống `.br_map.bazan` tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng, vị trí row-group/column-chunk của Parquet, stripe ORC, block OCF của Avro, block object MsgPack, checkpoint byte theo block dòng NDJSON/JSONL, block object của mảng JSON, block dòng CSV/TSV/PSV/TXT và ordinal RecordBatch của Arrow IPC/Feather. Chỉ `.br_map.bazan` được load; `.br_map.ipc` bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
+Cài đặt trong `src/engine/map.rs`. Lake Map lưu một payload Arrow IPC đã biên dịch sẵn trong tệp hệ thống `.br_map.bazan` tại gốc hồ dữ liệu. Nó lưu metadata cho mọi định dạng, vị trí row-group/column-chunk của Parquet, stripe ORC, block OCF của Avro, block object MsgPack, block dòng logic XLSX, checkpoint byte theo block dòng NDJSON/JSONL, block object của mảng JSON, block dòng CSV/TSV/PSV/TXT và ordinal RecordBatch của Arrow IPC/Feather. Chỉ `.br_map.bazan` được load; `.br_map.ipc` bị bỏ qua như tên sidecar cũ. Lake Doctor vẫn kiểm tra metadata tệp hiện tại trên đĩa để phát hiện drift.
 
 ---
 
@@ -37,6 +37,7 @@ stateDiagram-v2
 - Với ORC, builder lấy ordinal, khoảng dòng, byte offset và kích thước stripe từ footer metadata của ORC. Khi slice, reader ORC dùng byte range để bỏ qua các stripe trước đó.
 - Với Avro, builder đọc header Object Container File và lưu khoảng dòng, byte offset, kích thước block vật lý và payload nén của từng data block. Khi slice, hệ thống phát lại header rồi seek reader Avro tới block tương ứng.
 - Với MsgPack, builder decode các object top-level để tìm boundary mỗi block 64K object và lưu checkpoint byte. Khi slice, hệ thống lấy schema từ map đầu tiên, seek tới checkpoint rồi decode tiếp.
+- Với XLSX, builder ghi block logic 64K dòng dữ liệu của worksheet đầu tiên. XML worksheet thường được nén Deflate trong ZIP nên checkpoint không có byte offset vật lý; khi slice, `XlsxRows` bắt đầu từ block logic đã chọn, nhưng Calamine vẫn materialize toàn bộ range worksheet trước đó.
 - Với Arrow IPC/Feather, builder lưu ordinal và khoảng dòng của từng RecordBatch. Khi đọc, hệ thống dùng random access batch index native của Arrow IPC thay vì offset cho từng dòng.
 - Với CSV, builder quét ranh giới record có hiểu quote và lưu block 64K dòng. Checkpoint không bao giờ cắt giữa quoted field hoặc newline bên trong field; cùng scanner được dùng cho TSV, PSV và TXT phân cách bằng dấu chấm phẩy.
 - `save_lake_map_ipc()` serialize bản đồ; `load_lake_map_ipc()` đọc ngược qua memory map.
@@ -51,13 +52,13 @@ stateDiagram-v2
 | `total_rows` | `UInt64` | Số dòng |
 | `stats_json` | `Utf8` | JSON: `{min, max, min_str, max_str}` từng cột kèm số dòng |
 | `first_global_row` | `UInt64` | Dòng bắt đầu khi sắp xếp file theo đường dẫn tương đối |
-| `row_groups_json` | `Utf8` | Vị trí row group Parquet, stripe ORC, block OCF Avro, block object MsgPack, block dòng NDJSON/JSONL/JSON-array và CSV/TSV/PSV/TXT hoặc RecordBatch Arrow IPC/Feather; `[]` với định dạng khác |
+| `row_groups_json` | `Utf8` | Vị trí row group Parquet, stripe ORC, block OCF Avro, block object MsgPack, block dòng logic XLSX, block dòng NDJSON/JSONL/JSON-array và CSV/TSV/PSV/TXT hoặc RecordBatch Arrow IPC/Feather; `[]` với định dạng khác |
 
 Struct tổng hợp cũng mang theo `total_files`, `total_rows`, `total_bytes`.
 
 ## Phân giải vị trí
 
-Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry ORC còn khỏe, chúng seek tới byte offset của stripe chứa dòng rồi để ORC reader đọc stripe đó và các stripe sau. Với entry Avro còn khỏe, chúng phát lại header OCF, seek tới byte offset của block chứa dòng rồi giải mã block đó và các block sau. Với entry MsgPack còn khỏe, chúng seek tới checkpoint block object và decode tiếp sau khi dùng lại schema từ map đầu tiên. Với entry NDJSON/JSONL và JSON-array còn khỏe, chúng seek tới checkpoint chứa dòng/object yêu cầu rồi parse tiếp. Với CSV/TSV/PSV/TXT, chúng seek tới block dòng quote-safe. Với entry Arrow IPC/Feather còn khỏe, chúng tìm RecordBatch chứa dòng rồi gọi random-access index native của Arrow IPC trước khi đọc tiếp. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
+Với entry Parquet còn khỏe, `slice_rows` và `slice_cols` tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry ORC còn khỏe, chúng seek tới byte offset của stripe chứa dòng rồi để ORC reader đọc stripe đó và các stripe sau. Với entry Avro còn khỏe, chúng phát lại header OCF, seek tới byte offset của block chứa dòng rồi giải mã block đó và các block sau. Với entry MsgPack còn khỏe, chúng seek tới checkpoint block object và decode tiếp sau khi dùng lại schema từ map đầu tiên. Với entry XLSX còn khỏe, chúng bắt đầu `XlsxRows` tại block dòng logic chứa offset; điều này bỏ qua vòng lặp dòng trước đó của adapter, nhưng Calamine đã materialize toàn bộ worksheet range, nên không phải seek byte vật lý trong ZIP. Với entry NDJSON/JSONL và JSON-array còn khỏe, chúng seek tới checkpoint chứa dòng/object yêu cầu rồi parse tiếp. Với CSV/TSV/PSV/TXT, chúng seek tới block dòng quote-safe. Với entry Arrow IPC/Feather còn khỏe, chúng tìm RecordBatch chứa dòng rồi gọi random-access index native của Arrow IPC trước khi đọc tiếp. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. `br.lake.locate_row()` phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.
 
 ---
 

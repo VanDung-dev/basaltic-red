@@ -6,7 +6,7 @@ icon: material/map
 
 # Binary Lake Map & Lake Doctor
 
-Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC payload in the system file `.br_map.bazan` at the root of the data lake. It contains file metadata for every supported format, Parquet row-group/column-chunk, ORC stripe, Avro OCF block, and MsgPack object-block locations, NDJSON/JSONL and JSON-array object-block checkpoints, CSV/TSV/PSV/TXT row-block byte checkpoints, and Arrow IPC/Feather RecordBatch ordinals. Only `.br_map.bazan` is loaded; `.br_map.ipc` is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.
+Implemented in `src/engine/map.rs`. The Lake Map stores a pre-compiled Arrow IPC payload in the system file `.br_map.bazan` at the root of the data lake. It contains file metadata for every supported format, Parquet row-group/column-chunk, ORC stripe, Avro OCF block, MsgPack object-block locations, XLSX logical row blocks, NDJSON/JSONL and JSON-array object-block checkpoints, CSV/TSV/PSV/TXT row-block byte checkpoints, and Arrow IPC/Feather RecordBatch ordinals. Only `.br_map.bazan` is loaded; `.br_map.ipc` is ignored as a legacy sidecar name. Lake Doctor still checks current file metadata on disk to detect drift.
 
 ---
 
@@ -37,6 +37,7 @@ stateDiagram-v2
 - For ORC, the builder records each stripe's ordinal, row range, byte offset, and physical stripe size from ORC footer metadata. Slicing uses ORC's native byte-range reader to skip earlier stripes.
 - For Avro, the builder parses the Object Container File header and records every data block's row range, block offset, physical block size, and compressed payload size. Slicing replays the header and seeks the Avro reader to the selected block.
 - For MsgPack, the builder decodes top-level objects only to find 64K-object boundaries and records their byte checkpoints. Slicing infers the schema from the first map, seeks to the selected checkpoint, and decodes forward.
+- For XLSX, the builder records 64K logical data-row blocks for the first worksheet. XLSX worksheet XML is normally Deflate-compressed inside a ZIP entry, so these checkpoints have no physical byte offset; slicing starts `XlsxRows` at the selected logical block, while Calamine still materializes the worksheet range first.
 - For Arrow IPC/Feather, the builder records each RecordBatch ordinal and row range. Reading uses Arrow IPC's native random-access batch index rather than a per-row byte offset.
 - For CSV, the builder scans quote-aware record boundaries and records 64K-row blocks. Checkpoints never split a quoted field or an embedded newline; the same scanner is used for TSV, PSV, and semicolon-separated TXT.
 - `save_lake_map_ipc()` serializes the map; `load_lake_map_ipc()` reads it back through a memory map.
@@ -51,13 +52,13 @@ stateDiagram-v2
 | `total_rows` | `UInt64` | Row count |
 | `stats_json` | `Utf8` | JSON blob: per-column `{min, max, min_str, max_str}` plus row count |
 | `first_global_row` | `UInt64` | Starting row when files are ordered by relative path |
-| `row_groups_json` | `Utf8` | Parquet row-group, ORC stripe, Avro OCF block, MsgPack object block, NDJSON/JSONL/JSON-array and CSV/TSV/PSV/TXT row-block, or Arrow IPC/Feather RecordBatch locations; `[]` for other formats |
+| `row_groups_json` | `Utf8` | Parquet row-group, ORC stripe, Avro OCF block, MsgPack object block, XLSX logical row block, NDJSON/JSONL/JSON-array and CSV/TSV/PSV/TXT row-block, or Arrow IPC/Feather RecordBatch locations; `[]` for other formats |
 
 The aggregate struct also carries `total_files`, `total_rows`, `total_bytes`.
 
 ## Location Resolution
 
-For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For healthy ORC entries, they seek to the containing stripe byte offset and let the ORC reader process that stripe and later stripes. For healthy Avro entries, they replay the OCF header, seek to the containing block byte offset, and decode that block and later blocks. For healthy MsgPack entries, they seek to the containing object-block checkpoint and decode forward after reusing the first-map schema. For healthy NDJSON/JSONL and JSON-array entries, they seek to the checkpoint containing the requested line/object and parse forward. CSV, TSV, PSV, and TXT entries seek to quote-safe row blocks. For a healthy Arrow IPC/Feather entry, they resolve the containing RecordBatch and call Arrow IPC's random-access index before reading forward. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.
+For a healthy Parquet entry, `slice_rows` and `slice_cols` resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For healthy ORC entries, they seek to the containing stripe byte offset and let the ORC reader process that stripe and later stripes. For healthy Avro entries, they replay the OCF header, seek to the containing block byte offset, and decode that block and later blocks. For healthy MsgPack entries, they seek to the containing object-block checkpoint and decode forward after reusing the first-map schema. For healthy XLSX entries, they start `XlsxRows` at the containing logical row block; this skips the adapter's earlier row iteration, but Calamine has already materialized the worksheet range, so it is not a physical ZIP byte seek. For healthy NDJSON/JSONL and JSON-array entries, they seek to the checkpoint containing the requested line/object and parse forward. CSV, TSV, PSV, and TXT entries seek to quote-safe row blocks. For a healthy Arrow IPC/Feather entry, they resolve the containing RecordBatch and call Arrow IPC's random-access index before reading forward. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. `br.lake.locate_row()` exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.
 
 ---
 
