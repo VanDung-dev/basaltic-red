@@ -16,7 +16,9 @@ use parquet::file::metadata::PageIndexPolicy;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::formats::{inspect_avro_blocks, resolve_handler_for_file};
+use crate::engine::formats::{
+    inspect_avro_blocks, inspect_msgpack_blocks, resolve_handler_for_file,
+};
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
 use crate::utils::discover_data_files;
@@ -121,6 +123,12 @@ pub struct ResolvedOrcRange {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedAvroRange {
+    pub byte_offset: u64,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedMsgpackRange {
     pub byte_offset: u64,
     pub offset: usize,
 }
@@ -523,6 +531,13 @@ fn is_avro_path(file_path: &Path) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("avro"))
 }
 
+fn is_msgpack_path(file_path: &Path) -> bool {
+    file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("msgpack"))
+}
+
 fn is_arrow_ipc_path(file_path: &Path) -> bool {
     file_path
         .extension()
@@ -740,6 +755,22 @@ fn inspect_avro_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, Ba
             first_byte: Some(block.first_byte),
             total_byte_size: block.total_byte_size,
             compressed_size: block.compressed_size,
+            columns: Vec::new(),
+        })
+        .collect())
+}
+
+fn inspect_msgpack_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+    Ok(inspect_msgpack_blocks(file_path)?
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, block)| RowGroupLocation {
+            ordinal,
+            first_row: block.first_row,
+            row_count: block.row_count,
+            first_byte: Some(block.first_byte),
+            total_byte_size: block.total_byte_size,
+            compressed_size: 0,
             columns: Vec::new(),
         })
         .collect())
@@ -1026,6 +1057,8 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         serde_json::to_string(&inspect_orc_row_groups(file_path)?)?
     } else if is_avro_path(file_path) {
         serde_json::to_string(&inspect_avro_row_groups(file_path)?)?
+    } else if is_msgpack_path(file_path) {
+        serde_json::to_string(&inspect_msgpack_row_groups(file_path)?)?
     } else if is_arrow_ipc_path(file_path) {
         serde_json::to_string(&arrow_row_groups)?
     } else if delimited_delimiter(file_path).is_some() {
@@ -1433,6 +1466,46 @@ pub fn resolve_avro_range(
     };
 
     Ok(Some(ResolvedAvroRange {
+        byte_offset,
+        offset: offset.saturating_sub(group.first_row),
+    }))
+}
+
+/// Resolve a MessagePack object range to the checkpoint containing its first object.
+pub fn resolve_msgpack_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedMsgpackRange>, BazanError> {
+    if !is_msgpack_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
+        return Ok(Some(ResolvedMsgpackRange {
+            byte_offset: entry.size_bytes,
+            offset: 0,
+        }));
+    }
+
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+    let Some(byte_offset) = group.first_byte else {
+        return Ok(None);
+    };
+
+    Ok(Some(ResolvedMsgpackRange {
         byte_offset,
         offset: offset.saturating_sub(group.first_row),
     }))
