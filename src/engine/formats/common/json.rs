@@ -88,6 +88,42 @@ pub fn read_ndjson_range(
     )
 }
 
+fn infer_json_array_schema(file_path: &str) -> Result<Schema, BazanError> {
+    let file = File::open(file_path)?;
+    let stream = JsonArrayStream::new(BufReader::new(file));
+    let deser = serde_json::Deserializer::from_reader(stream);
+    let values = deser
+        .into_iter::<serde_json::Value>()
+        .take(100)
+        .map(|r| r.map_err(|e| arrow::error::ArrowError::JsonError(e.to_string())));
+    Ok(arrow_json::reader::infer_json_schema_from_iterator(values)?)
+}
+
+pub fn read_json_array_range(
+    file_path: &str,
+    byte_offset: u64,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+) -> Result<RecordBatch, BazanError> {
+    let batch_size = clamp_batch_size(batch_size);
+    let schema = infer_json_array_schema(file_path)?;
+    let mut file = File::open(file_path)?;
+    file.seek(SeekFrom::Start(byte_offset))?;
+    let reader = arrow_json::ReaderBuilder::new(Arc::new(schema.clone()))
+        .with_batch_size(batch_size)
+        .build(BufReader::new(JsonArrayStream::from_offset(file)))?;
+
+    read_range_from_source(
+        OpenedSource {
+            schema: Arc::new(schema),
+            batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+        },
+        offset,
+        limit,
+    )
+}
+
 impl FormatHandler for NdjsonHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
@@ -132,6 +168,20 @@ impl<R: Read> JsonArrayStream<R> {
             filled: 0,
             pos: 0,
             started: false,
+            finished: false,
+            in_string: false,
+            escaped: false,
+            depth: 0,
+        }
+    }
+
+    pub(crate) fn from_offset(inner: R) -> Self {
+        Self {
+            inner,
+            buffer: [0; 8192],
+            filled: 0,
+            pos: 0,
+            started: true,
             finished: false,
             in_string: false,
             escaped: false,
@@ -258,15 +308,7 @@ impl<R: Read> Read for JsonArrayStream<R> {
 /// single-pass cursor. Memory is O(batch), independent of file size.
 pub fn open_json_array(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
     let batch_size = clamp_batch_size(batch_size);
-
-    let file = File::open(file_path)?;
-    let stream = JsonArrayStream::new(BufReader::new(file));
-    let deser = serde_json::Deserializer::from_reader(stream);
-    let values = deser
-        .into_iter::<serde_json::Value>()
-        .take(100)
-        .map(|r| r.map_err(|e| arrow::error::ArrowError::JsonError(e.to_string())));
-    let schema = arrow_json::reader::infer_json_schema_from_iterator(values)?;
+    let schema = infer_json_array_schema(file_path)?;
 
     if schema.fields().is_empty() {
         return Ok(OpenedSource {
