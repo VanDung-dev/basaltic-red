@@ -46,7 +46,7 @@ Chỉ dùng để tra nhanh. Muốn giải thích chi tiết, theo link sang tra
 | Khối bitmask | 64 quy tắc mỗi `u64`; quy tắc *i* → bit `i % 64` của khối `i / 64` |
 | `audit_error_code` | Bitmask `UInt64` các quy tắc 0 đến 63 bị vi phạm trên dòng Trash |
 | `audit_violated_rules` | `List<UInt32>` toàn bộ chỉ số vi phạm (chỉ khi >64 quy tắc) |
-| `.br_map.bazan` | Payload Lake map Arrow IPC tại gốc: metadata file cùng vị trí row-group Parquet, stripe ORC, block OCF Avro, block NDJSON/JSONL/JSON-array và block dòng CSV/TSV/PSV/TXT và batch Arrow IPC/Feather (7 cột, xem đặc tả) |
+| `.br_map.bazan` | Payload Lake map Arrow IPC tại gốc: metadata file cùng vị trí row-group Parquet, stripe ORC, block OCF Avro, block object MsgPack, block NDJSON/JSONL/JSON-array và block dòng CSV/TSV/PSV/TXT và batch Arrow IPC/Feather (7 cột, xem đặc tả) |
 | Trạng thái Doctor | `HEALTHY` / `DRIFT_DETECTED` / `HEALED` |
 | Nhóm drift | `modified_files`, `unindexed_files`, `missing_files` |
 | Partition filter | Bộ chọn cây phân vùng kiểu Hive, vd `year=2026/month=08` |
