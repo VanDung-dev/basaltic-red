@@ -1849,11 +1849,11 @@
 <tbody>
 <tr>
 <td style="text-align: left;"><code>slice_rows(file_path, offset, limit)</code></td>
-<td style="text-align: left;">Parquet resolves healthy <code>.br_map.bazan</code> row groups; NDJSON/CSV/TSV/PSV seek to indexed row blocks; Arrow IPC/Feather seek to the indexed RecordBatch. These paths then apply the local offset/limit; other formats stream and skip batches.</td>
+<td style="text-align: left;">Parquet, ORC, Avro, and MsgPack resolve healthy <code>.br_map.bazan</code> native row groups/stripes/blocks; XLSX starts <code>XlsxRows</code> at an indexed logical worksheet row block (Calamine still materializes the sheet); NDJSON/JSONL and JSON-array seek to indexed checkpoints; CSV/TSV/PSV/TXT seek to indexed row blocks; Arrow IPC/Feather seek to the indexed RecordBatch. These paths then apply the local offset/limit; other formats stream and skip batches.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
-<td style="text-align: left;">Same location resolution. Parquet pushes projection into the reader; NDJSON/CSV/TSV/PSV and Arrow IPC/Feather read from the indexed boundary, then project the requested columns.</td>
+<td style="text-align: left;">Same location resolution. Parquet pushes projection into the reader; XLSX, ORC, Avro, MsgPack, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT plus Arrow IPC/Feather read from the indexed boundary, then project the requested columns.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>preview_sample(file_path, limit_rows)</code></td>
