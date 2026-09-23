@@ -10,6 +10,7 @@ use arrow::array::{ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
+use orc_rust::ArrowReaderBuilder;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::file::metadata::PageIndexPolicy;
 use rayon::prelude::*;
@@ -108,6 +109,12 @@ pub struct ResolvedNdjsonRange {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedJsonArrayRange {
+    pub byte_offset: u64,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedOrcRange {
     pub byte_offset: u64,
     pub offset: usize,
 }
@@ -496,6 +503,13 @@ fn is_json_array_path(file_path: &Path) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("json"))
 }
 
+fn is_orc_path(file_path: &Path) -> bool {
+    file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("orc"))
+}
+
 fn is_arrow_ipc_path(file_path: &Path) -> bool {
     file_path
         .extension()
@@ -667,6 +681,36 @@ fn inspect_json_array_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocatio
             compressed_size: 0,
             columns: Vec::new(),
         });
+    }
+
+    Ok(row_groups)
+}
+
+fn inspect_orc_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
+    let file = File::open(file_path)?;
+    let reader = ArrowReaderBuilder::try_new(file)
+        .map_err(|e| BazanError::Message(format!("ORC error: {e}")))?;
+    let mut first_row = 0usize;
+    let mut row_groups = Vec::new();
+
+    for (ordinal, stripe) in reader.file_metadata().stripe_metadatas().iter().enumerate() {
+        let row_count = usize::try_from(stripe.number_of_rows()).map_err(|_| {
+            BazanError::Message(format!("Invalid ORC row count in stripe {ordinal}"))
+        })?;
+        let total_byte_size = stripe
+            .index_length()
+            .saturating_add(stripe.data_length())
+            .saturating_add(stripe.footer_length());
+        row_groups.push(RowGroupLocation {
+            ordinal,
+            first_row,
+            row_count,
+            first_byte: Some(stripe.offset()),
+            total_byte_size,
+            compressed_size: total_byte_size,
+            columns: Vec::new(),
+        });
+        first_row = first_row.saturating_add(row_count);
     }
 
     Ok(row_groups)
@@ -949,6 +993,8 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
     } else if is_json_array_path(file_path) {
         serde_json::to_string(&inspect_json_array_row_groups(file_path)?)?
+    } else if is_orc_path(file_path) {
+        serde_json::to_string(&inspect_orc_row_groups(file_path)?)?
     } else if is_arrow_ipc_path(file_path) {
         serde_json::to_string(&arrow_row_groups)?
     } else if delimited_delimiter(file_path).is_some() {
@@ -1276,6 +1322,46 @@ pub fn resolve_json_array_range(
     };
 
     Ok(Some(ResolvedJsonArrayRange {
+        byte_offset,
+        offset: offset.saturating_sub(group.first_row),
+    }))
+}
+
+/// Resolve an ORC row range to the stripe checkpoint containing its first row.
+pub fn resolve_orc_range(
+    file_path: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<Option<ResolvedOrcRange>, BazanError> {
+    if !is_orc_path(file_path) || limit == 0 {
+        return Ok(None);
+    }
+
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
+        return Ok(Some(ResolvedOrcRange {
+            byte_offset: entry.size_bytes,
+            offset: 0,
+        }));
+    }
+
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+    let Some(byte_offset) = group.first_byte else {
+        return Ok(None);
+    };
+
+    Ok(Some(ResolvedOrcRange {
         byte_offset,
         offset: offset.saturating_sub(group.first_row),
     }))

@@ -6,4 +6,4 @@ pub mod orc;
 pub use avro::AvroHandler;
 pub use excel::XlsxHandler;
 pub use msgpack::MsgpackHandler;
-pub use orc::OrcHandler;
+pub use orc::{read_orc_range, OrcHandler};
