@@ -1866,9 +1866,10 @@
 <p>Một <em>thư mục</em> đồng nhất extension đăng ký thành một ListingTable duy nhất, mở khóa predicate &amp; projection pushdown trên toàn bộ tệp.</p>
 </li>
 <li>
-<p><strong>MemTable dự phòng</strong>, cho định dạng không có reader DataFusion (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (<code>[...]</code>). Tệp được đọc qua <a href="../formats/">registry định dạng</a>, nạp vào MemTable rồi truy vấn trong RAM.</p>
+<p><strong>MemTable dự phòng</strong>, cho định dạng không có reader DataFusion (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, <code>txt</code>, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (<code>[...]</code>). Tệp được đọc qua <a href="../formats/">registry định dạng</a>, nạp vào MemTable rồi truy vấn trong RAM.</p>
 </li>
 </ol>
+<p>Reader <code>ListingTable</code> native dùng trực tiếp <code>FileFormat</code> của DataFusion, không tra registry <code>FormatHandler</code> động. Vì vậy, đăng ký handler cho extension native như <code>csv</code> không thay đổi cách <code>br.sql.*</code> đọc extension đó.</p>
 <div class="admonition note">
 <p class="admonition-title">JSON mảng ở tầng ngoài</p>
 <p><code>JsonFormat</code> của DataFusion kỳ vọng object phân tách bằng xuống dòng. Tệp bắt đầu bằng <code>[</code> được phát hiện qua byte đầu tiên khác whitespace và chuyển sang đường streaming handler.</p>

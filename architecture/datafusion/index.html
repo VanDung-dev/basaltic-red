@@ -1866,9 +1866,10 @@
 <p>A <em>directory</em> of homogeneous extension registers as one ListingTable, enabling predicate &amp; projection pushdown across all files.</p>
 </li>
 <li>
-<p><strong>Fallback MemTable</strong>, for formats without a native DataFusion reader (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, mixed directories) and for JSON files whose top level is an array (<code>[...]</code>). The file is read through the <a href="../formats/">format registry</a>, collected into a MemTable, then queried in memory.</p>
+<p><strong>Fallback MemTable</strong>, for formats without a native DataFusion reader (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, <code>txt</code>, mixed directories) and for JSON files whose top level is an array (<code>[...]</code>). The file is read through the <a href="../formats/">format registry</a>, collected into a MemTable, then queried in memory.</p>
 </li>
 </ol>
+<p>Native <code>ListingTable</code> readers use DataFusion's <code>FileFormat</code> directly and do not consult the dynamic <code>FormatHandler</code> registry. Registering a handler for a native extension such as <code>csv</code> therefore does not change how <code>br.sql.*</code> reads that extension.</p>
 <div class="admonition note">
 <p class="admonition-title">Top-level JSON arrays</p>
 <p>DataFusion's <code>JsonFormat</code> expects newline-delimited objects. Files starting with <code>[</code> are detected by inspecting the first non-whitespace byte and routed to the streaming handler instead.</p>

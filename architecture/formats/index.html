@@ -1916,7 +1916,7 @@
 </tr>
 </tbody>
 </table>
-<p>This is why files without any extension still open correctly.</p>
+<p>Routes that use <code>resolve_handler_for_file()</code> can also open extensionless files through magic-byte sniffing. <code>filter_files_parallel</code> currently looks up handlers by extension, so its input files need a registered extension.</p>
 <hr />
 <h2 id="dynamic-registration-from-python">Dynamic Registration from Python</h2>
 <p>The dynamic registry lives behind a <code>RwLock&lt;HashMap&lt;String, Arc&lt;dyn FormatHandler&gt;&gt;&gt;</code> and is manipulated via <a href="../../reference/python-api/#basaltic_redformats"><code>br.formats.*</code></a>:</p>
@@ -1927,7 +1927,7 @@
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">table</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">slice_rows</span><span class="p">(</span><span class="s2">"data/custom.dat"</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">br</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">unregister_format</span><span class="p">(</span><span class="s2">"dat"</span><span class="p">)</span>  <span class="c1"># returns True if it existed</span>
 </span></code></pre></div>
-<p>Registered handlers override built-ins for the same extension.</p>
+<p><code>handler_for()</code> prefers a registered handler over a built-in handler for the same extension. This applies only when a code path uses the dynamic registry. Map-backed slice fast paths and SQL's native DataFusion <code>ListingTable</code> readers use dedicated readers and do not apply dynamic overrides; see <a href="../datafusion/">DataFusion SQL</a>.</p>
 
 
 

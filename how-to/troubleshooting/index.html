@@ -1947,7 +1947,7 @@
 </ul>
 <h2 id="optimization-tips">Optimization Tips</h2>
 <ul>
-<li><strong>Partition pruning</strong>: keep Hive-style layouts (<code>year=.../month=.../</code>) and pass <code>partition_filter=</code> to skip whole directories before IO.</li>
+<li><strong>Partition pruning</strong>: keep Hive-style layouts (<code>year=.../month=.../</code>) and pass <code>partition_filter=</code> with a directory target to skip whole directories before IO. For <code>filter_files_parallel</code>, a single-file or glob target is not pruned by partition path.</li>
 <li><strong>RAM ceiling</strong>: raise/lower the budget with <code>BASALTIC_RED_MAX_RAM_GB</code> (default 2).</li>
 <li><strong>Parallel width</strong>: cap workers with <code>num_threads=</code> on <code>filter_files_parallel</code> to leave cores for other jobs.</li>
 <li><strong>Prefer Parquet</strong>: native ListingTable pushdown (predicate + projection) only applies to Parquet/delimited/JSON/IPC targets in SQL.</li>

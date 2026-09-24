@@ -1830,7 +1830,7 @@
 <li>Cắt lát: <code>slice_rows</code> và <code>slice_cols</code> chỉ đọc phần dữ liệu được yêu cầu.</li>
 <li>Lọc: quy tắc động theo định dạng <code>cột toán_tử giá_trị</code>; dòng lỗi mang <code>audit_error_code</code> (bitmask <code>u64</code>, chia chunk khi số quy tắc vượt quá 64).</li>
 <li>SQL: phiên DataFusion; <code>execute_sql_stream</code> trả về <code>PyBatchIterator</code>, <code>to_pyarrow()</code> bàn giao batch cho Polars hoặc DuckDB không qua sao chép.</li>
-<li>Định dạng: đăng ký định dạng phân cách tùy chỉnh qua <code>br.formats.register_delimited</code>; file không có đuôi được nhận diện bằng magic byte.</li>
+<li>Định dạng: đăng ký định dạng phân cách tùy chỉnh qua <code>br.formats.register_delimited</code>; các luồng phân giải định dạng có thể nhận diện tệp không có đuôi bằng magic byte, còn <code>filter_files_parallel</code> cần extension đã đăng ký.</li>
 </ul>
 <hr />
 <h2 id="ket-qua-o-trong-demo">Kết quả đo trong demo</h2>

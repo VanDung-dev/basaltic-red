@@ -1947,7 +1947,7 @@
 </ul>
 <h2 id="meo-toi-uu">Mẹo tối ưu</h2>
 <ul>
-<li><strong>Cắt tỉa phân vùng</strong>: giữ bố cục kiểu Hive (<code>year=.../month=.../</code>) và truyền <code>partition_filter=</code> để bỏ cả thư mục trước cả khi đọc IO.</li>
+<li><strong>Cắt tỉa phân vùng</strong>: giữ bố cục kiểu Hive (<code>year=.../month=.../</code>) và truyền <code>partition_filter=</code> cùng đích là thư mục để bỏ cả nhánh trước khi đọc dữ liệu. Với <code>filter_files_parallel</code>, đích là tệp đơn hoặc glob không được cắt tỉa theo đường dẫn phân vùng.</li>
 <li><strong>Trần RAM</strong>: nâng/hạ ngân sách bằng <code>BASALTIC_RED_MAX_RAM_GB</code> (mặc định 2).</li>
 <li><strong>Độ rộng song song</strong>: giới hạn worker bằng <code>num_threads=</code> trên <code>filter_files_parallel</code> để chừa lõi cho việc khác.</li>
 <li><strong>Ưu tiên Parquet</strong>: pushdown ListingTable thuần túy (predicate + projection) chỉ áp dụng cho đích Parquet/phân cách/JSON/IPC trong SQL.</li>

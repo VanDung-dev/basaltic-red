@@ -1818,8 +1818,8 @@
 <p>Filtering runs batch-by-batch so peak memory stays at <a href="#memory-behavior">batch budget</a>, not file size.</p>
 <h2 id="multi-file-parallel-filter-engineparallel_filterrs">Multi-File Parallel Filter (<code>engine/parallel_filter.rs</code>)</h2>
 <ol>
-<li><strong>Target collection</strong>, <code>collect_target_files()</code> accepts a single file path, a directory (walked recursively), or a glob pattern (<code>*</code>, <code>?</code>, <code>[...]</code>). Directories are walked with partition awareness.</li>
-<li><strong>Partition pruning</strong>, for Hive-style layouts (<code>year=2026/month=08/...</code>), <code>parse_path_partitions()</code> extracts key/value pairs from each path and <code>matches_partition_rules()</code> drops whole files before opening them. Pass an explicit filter like <code>"year=2026/month=08"</code> or rules on partition columns.</li>
+<li><strong>Target collection</strong>, <code>collect_target_files()</code> accepts a single file path, a directory (walked recursively), or a glob pattern (<code>*</code>, <code>?</code>, <code>[...]</code>). Only directory targets are walked with partition awareness; file and glob targets are used directly.</li>
+<li><strong>Partition pruning</strong>, for a directory target with a Hive-style layout (<code>year=2026/month=08/...</code>), <code>parse_path_partitions()</code> extracts key/value pairs and <code>matches_partition_rules()</code> skips non-matching branches before opening files. Pass an explicit filter like <code>"year=2026/month=08"</code> or rules on partition columns. A single-file or glob target does not apply path-level partition pruning; in particular, <code>partition_filter</code> does not narrow glob matches.</li>
 <li><strong>Rayon execution</strong>, surviving files are filtered across the global Rayon pool; optional <code>num_threads</code> overrides pool width.</li>
 <li><strong>Summary</strong>, counts are reduced into a dict:</li>
 </ol>

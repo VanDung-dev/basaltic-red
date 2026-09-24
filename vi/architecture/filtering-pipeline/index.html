@@ -1818,8 +1818,8 @@
 <p>Việc lọc chạy theo từng batch nên RAM đỉnh chỉ ở mức <a href="#hanh-vi-bo-nho">ngân sách batch</a>, không phụ thuộc dung lượng tệp.</p>
 <h2 id="bo-loc-song-song-a-tep-engineparallel_filterrs">Bộ lọc song song đa tệp (<code>engine/parallel_filter.rs</code>)</h2>
 <ol>
-<li><strong>Thu thập đích</strong>, <code>collect_target_files()</code> chấp nhận đường dẫn tệp đơn, thư mục (duyệt đệ quy), hoặc glob pattern (<code>*</code>, <code>?</code>, <code>[...]</code>). Thư mục được duyệt có ý thức phân vùng.</li>
-<li><strong>Cắt tỉa phân vùng</strong>, với bố cục kiểu Hive (<code>year=2026/month=08/...</code>), <code>parse_path_partitions()</code> trích cặp key/value từ từng đường dẫn và <code>matches_partition_rules()</code> loại cả tệp trước cả khi mở. Có thể truyền bộ lọc tường minh như <code>"year=2026/month=08"</code> hoặc quy tắc trên cột phân vùng.</li>
+<li><strong>Thu thập đích</strong>, <code>collect_target_files()</code> chấp nhận đường dẫn tệp đơn, thư mục (duyệt đệ quy), hoặc glob pattern (<code>*</code>, <code>?</code>, <code>[...]</code>). Chỉ đích là thư mục mới được duyệt có ý thức phân vùng; đích là tệp hoặc glob được dùng trực tiếp.</li>
+<li><strong>Cắt tỉa phân vùng</strong>, với đích là thư mục có bố cục kiểu Hive (<code>year=2026/month=08/...</code>), <code>parse_path_partitions()</code> trích cặp key/value và <code>matches_partition_rules()</code> bỏ qua nhánh không khớp trước khi mở tệp. Có thể truyền bộ lọc tường minh như <code>"year=2026/month=08"</code> hoặc quy tắc trên cột phân vùng. Đích là tệp đơn hoặc glob không cắt tỉa theo đường dẫn; cụ thể, <code>partition_filter</code> không thu hẹp các kết quả khớp glob.</li>
 <li><strong>Thực thi Rayon</strong>, các tệp sống sót được lọc trên pool Rayon toàn cục; tham số <code>num_threads</code> tuỳ chọn ghi đè độ rộng pool.</li>
 <li><strong>Tổng kết</strong>, số liệu được reduce thành dict:</li>
 </ol>

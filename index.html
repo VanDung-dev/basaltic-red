@@ -1830,7 +1830,7 @@
 <li>Slicing: <code>slice_rows</code> and <code>slice_cols</code> read only the requested rows and columns.</li>
 <li>Filtering: dynamic rules evaluated per batch; invalid rows carry an <code>audit_error_code</code> (<code>u64</code> bitmask, chunked when rules exceed 64).</li>
 <li>SQL: DataFusion session; <code>execute_sql_stream</code> returns a <code>PyBatchIterator</code> whose <code>to_pyarrow()</code> method hands batches to Polars or DuckDB without copying.</li>
-<li>Formats: custom delimited formats via <code>br.formats.register_delimited</code>; extension-less files are identified by magic-byte sniffing.</li>
+<li>Formats: custom delimited formats via <code>br.formats.register_delimited</code>; format-resolution paths can identify extension-less files by magic-byte sniffing, while <code>filter_files_parallel</code> requires a registered extension.</li>
 </ul>
 <hr />
 <h2 id="demo-measurements">Demo measurements</h2>
