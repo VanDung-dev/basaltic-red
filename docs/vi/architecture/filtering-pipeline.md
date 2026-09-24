@@ -39,8 +39,8 @@ Việc lọc chạy theo từng batch nên RAM đỉnh chỉ ở mức [ngân s�
 
 ## Bộ lọc song song đa tệp (`engine/parallel_filter.rs`)
 
-1. **Thu thập đích**, `collect_target_files()` chấp nhận đường dẫn tệp đơn, thư mục (duyệt đệ quy), hoặc glob pattern (`*`, `?`, `[...]`). Thư mục được duyệt có ý thức phân vùng.
-2. **Cắt tỉa phân vùng**, với bố cục kiểu Hive (`year=2026/month=08/...`), `parse_path_partitions()` trích cặp key/value từ từng đường dẫn và `matches_partition_rules()` loại cả tệp trước cả khi mở. Có thể truyền bộ lọc tường minh như `"year=2026/month=08"` hoặc quy tắc trên cột phân vùng.
+1. **Thu thập đích**, `collect_target_files()` chấp nhận đường dẫn tệp đơn, thư mục (duyệt đệ quy), hoặc glob pattern (`*`, `?`, `[...]`). Chỉ đích là thư mục mới được duyệt có ý thức phân vùng; đích là tệp hoặc glob được dùng trực tiếp.
+2. **Cắt tỉa phân vùng**, với đích là thư mục có bố cục kiểu Hive (`year=2026/month=08/...`), `parse_path_partitions()` trích cặp key/value và `matches_partition_rules()` bỏ qua nhánh không khớp trước khi mở tệp. Có thể truyền bộ lọc tường minh như `"year=2026/month=08"` hoặc quy tắc trên cột phân vùng. Đích là tệp đơn hoặc glob không cắt tỉa theo đường dẫn; cụ thể, `partition_filter` không thu hẹp các kết quả khớp glob.
 3. **Thực thi Rayon**, các tệp sống sót được lọc trên pool Rayon toàn cục; tham số `num_threads` tuỳ chọn ghi đè độ rộng pool.
 4. **Tổng kết**, số liệu được reduce thành dict:
 

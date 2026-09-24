@@ -32,7 +32,9 @@ Before planning, the engine registers the `FROM` target as a table named `br_tar
 
     A *directory* of homogeneous extension registers as one ListingTable, enabling predicate & projection pushdown across all files.
 
-2. **Fallback MemTable**, for formats without a native DataFusion reader (`xlsx`, `avro`, `orc`, `msgpack`, mixed directories) and for JSON files whose top level is an array (`[...]`). The file is read through the [format registry](formats.md), collected into a MemTable, then queried in memory.
+2. **Fallback MemTable**, for formats without a native DataFusion reader (`xlsx`, `avro`, `orc`, `msgpack`, `txt`, mixed directories) and for JSON files whose top level is an array (`[...]`). The file is read through the [format registry](formats.md), collected into a MemTable, then queried in memory.
+
+Native `ListingTable` readers use DataFusion's `FileFormat` directly and do not consult the dynamic `FormatHandler` registry. Registering a handler for a native extension such as `csv` therefore does not change how `br.sql.*` reads that extension.
 
 !!! note "Top-level JSON arrays"
 

@@ -35,7 +35,7 @@ graph LR
 - Slicing: `slice_rows` and `slice_cols` read only the requested rows and columns.
 - Filtering: dynamic rules evaluated per batch; invalid rows carry an `audit_error_code` (`u64` bitmask, chunked when rules exceed 64).
 - SQL: DataFusion session; `execute_sql_stream` returns a `PyBatchIterator` whose `to_pyarrow()` method hands batches to Polars or DuckDB without copying.
-- Formats: custom delimited formats via `br.formats.register_delimited`; extension-less files are identified by magic-byte sniffing.
+- Formats: custom delimited formats via `br.formats.register_delimited`; format-resolution paths can identify extension-less files by magic-byte sniffing, while `filter_files_parallel` requires a registered extension.
 
 ---
 

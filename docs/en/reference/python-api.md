@@ -34,6 +34,8 @@ Signatures below match `src/pyapi/*.rs`. All functions return PyArrow objects (`
 | `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)`, dynamic rules; Trash gains audit columns |
 | `filter_files_parallel(path_pattern: str, rules: list[str], partition_filter: str \| None = None, num_threads: int \| None = None)` | `dict` with keys `total_files`, `pruned_dirs`, `total_rows`, `clean_rows`, `trash_rows` |
 
+Partition pruning in `filter_files_parallel` runs only when `path_pattern` is a directory. A single-file or glob target is enumerated directly, and `partition_filter` does not narrow those targets.
+
 ## `basaltic_red.lake`
 
 | Function | Returns |

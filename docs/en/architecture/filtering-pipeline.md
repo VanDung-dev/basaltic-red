@@ -39,8 +39,8 @@ Filtering runs batch-by-batch so peak memory stays at [batch budget](#memory-beh
 
 ## Multi-File Parallel Filter (`engine/parallel_filter.rs`)
 
-1. **Target collection**, `collect_target_files()` accepts a single file path, a directory (walked recursively), or a glob pattern (`*`, `?`, `[...]`). Directories are walked with partition awareness.
-2. **Partition pruning**, for Hive-style layouts (`year=2026/month=08/...`), `parse_path_partitions()` extracts key/value pairs from each path and `matches_partition_rules()` drops whole files before opening them. Pass an explicit filter like `"year=2026/month=08"` or rules on partition columns.
+1. **Target collection**, `collect_target_files()` accepts a single file path, a directory (walked recursively), or a glob pattern (`*`, `?`, `[...]`). Only directory targets are walked with partition awareness; file and glob targets are used directly.
+2. **Partition pruning**, for a directory target with a Hive-style layout (`year=2026/month=08/...`), `parse_path_partitions()` extracts key/value pairs and `matches_partition_rules()` skips non-matching branches before opening files. Pass an explicit filter like `"year=2026/month=08"` or rules on partition columns. A single-file or glob target does not apply path-level partition pruning; in particular, `partition_filter` does not narrow glob matches.
 3. **Rayon execution**, surviving files are filtered across the global Rayon pool; optional `num_threads` overrides pool width.
 4. **Summary**, counts are reduced into a dict:
 

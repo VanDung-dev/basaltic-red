@@ -35,7 +35,7 @@ icon: material/wrench
 
 ## Optimization Tips
 
-- **Partition pruning**: keep Hive-style layouts (`year=.../month=.../`) and pass `partition_filter=` to skip whole directories before IO.
+- **Partition pruning**: keep Hive-style layouts (`year=.../month=.../`) and pass `partition_filter=` with a directory target to skip whole directories before IO. For `filter_files_parallel`, a single-file or glob target is not pruned by partition path.
 - **RAM ceiling**: raise/lower the budget with `BASALTIC_RED_MAX_RAM_GB` (default 2).
 - **Parallel width**: cap workers with `num_threads=` on `filter_files_parallel` to leave cores for other jobs.
 - **Prefer Parquet**: native ListingTable pushdown (predicate + projection) only applies to Parquet/delimited/JSON/IPC targets in SQL.

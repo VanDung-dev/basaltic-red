@@ -35,7 +35,7 @@ icon: material/wrench
 
 ## Mẹo tối ưu
 
-- **Cắt tỉa phân vùng**: giữ bố cục kiểu Hive (`year=.../month=.../`) và truyền `partition_filter=` để bỏ cả thư mục trước cả khi đọc IO.
+- **Cắt tỉa phân vùng**: giữ bố cục kiểu Hive (`year=.../month=.../`) và truyền `partition_filter=` cùng đích là thư mục để bỏ cả nhánh trước khi đọc dữ liệu. Với `filter_files_parallel`, đích là tệp đơn hoặc glob không được cắt tỉa theo đường dẫn phân vùng.
 - **Trần RAM**: nâng/hạ ngân sách bằng `BASALTIC_RED_MAX_RAM_GB` (mặc định 2).
 - **Độ rộng song song**: giới hạn worker bằng `num_threads=` trên `filter_files_parallel` để chừa lõi cho việc khác.
 - **Ưu tiên Parquet**: pushdown ListingTable thuần túy (predicate + projection) chỉ áp dụng cho đích Parquet/phân cách/JSON/IPC trong SQL.

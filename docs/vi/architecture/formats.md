@@ -67,7 +67,7 @@ Các biến thể phân cách dùng chung một template (`plugins/base_template
 | byte không phải space đầu tiên là `{` | `ndjson` |
 | dòng UTF-8 chứa `\t` / `\|` / `;` / `,` | `tsv` / `psv` / `txt` / `csv` |
 
-Đây là lý do tệp không có extension vẫn mở đúng.
+Các luồng dùng `resolve_handler_for_file()` cũng có thể mở tệp không phần mở rộng nhờ nhận diện magic byte. `filter_files_parallel` hiện tra handler theo extension, nên tệp đầu vào cần có extension đã đăng ký.
 
 ---
 
@@ -84,4 +84,4 @@ table = br.read.slice_rows("data/custom.dat", offset=0, limit=50)
 br.formats.unregister_format("dat")  # trả True nếu từng tồn tại
 ```
 
-Handler đăng ký động sẽ đè built-in cùng extension.
+`handler_for()` ưu tiên handler đã đăng ký hơn built-in cùng extension. Điều này chỉ áp dụng cho luồng có dùng registry động. Các nhánh slice tối ưu theo map và reader DataFusion `ListingTable` của SQL dùng reader riêng nên không áp dụng override động; xem [SQL DataFusion](datafusion.md).

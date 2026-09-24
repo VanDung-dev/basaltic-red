@@ -35,7 +35,7 @@ graph LR
 - Cắt lát: `slice_rows` và `slice_cols` chỉ đọc phần dữ liệu được yêu cầu.
 - Lọc: quy tắc động theo định dạng `cột toán_tử giá_trị`; dòng lỗi mang `audit_error_code` (bitmask `u64`, chia chunk khi số quy tắc vượt quá 64).
 - SQL: phiên DataFusion; `execute_sql_stream` trả về `PyBatchIterator`, `to_pyarrow()` bàn giao batch cho Polars hoặc DuckDB không qua sao chép.
-- Định dạng: đăng ký định dạng phân cách tùy chỉnh qua `br.formats.register_delimited`; file không có đuôi được nhận diện bằng magic byte.
+- Định dạng: đăng ký định dạng phân cách tùy chỉnh qua `br.formats.register_delimited`; các luồng phân giải định dạng có thể nhận diện tệp không có đuôi bằng magic byte, còn `filter_files_parallel` cần extension đã đăng ký.
 
 ---
 

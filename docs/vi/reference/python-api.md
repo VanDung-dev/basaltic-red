@@ -34,6 +34,8 @@ Chữ ký dưới đây khớp với `src/pyapi/*.rs`. Mọi hàm trả về đ�
 | `filter_matrix(file_path: str, rules: list[str])` | `(pyarrow.Table, pyarrow.Table)`, quy tắc động; Trash có thêm cột kiểm toán |
 | `filter_files_parallel(path_pattern: str, rules: list[str], partition_filter: str \| None = None, num_threads: int \| None = None)` | `dict` với khóa `total_files`, `pruned_dirs`, `total_rows`, `clean_rows`, `trash_rows` |
 
+`filter_files_parallel` chỉ cắt tỉa phân vùng khi `path_pattern` là thư mục. Đích là một tệp hoặc glob được liệt kê trực tiếp; `partition_filter` không thu hẹp các đích đó.
+
 ## `basaltic_red.lake`
 
 | Hàm | Trả về |

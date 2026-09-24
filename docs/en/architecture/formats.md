@@ -67,7 +67,7 @@ Delimited variants share one template (`plugins/base_templates/delimited.rs`) di
 | first non-space byte `{` | `ndjson` |
 | UTF-8 text line containing `\t` / `\|` / `;` / `,` | `tsv` / `psv` / `txt` / `csv` |
 
-This is why files without any extension still open correctly.
+Routes that use `resolve_handler_for_file()` can also open extensionless files through magic-byte sniffing. `filter_files_parallel` currently looks up handlers by extension, so its input files need a registered extension.
 
 ---
 
@@ -84,4 +84,4 @@ table = br.read.slice_rows("data/custom.dat", offset=0, limit=50)
 br.formats.unregister_format("dat")  # returns True if it existed
 ```
 
-Registered handlers override built-ins for the same extension.
+`handler_for()` prefers a registered handler over a built-in handler for the same extension. This applies only when a code path uses the dynamic registry. Map-backed slice fast paths and SQL's native DataFusion `ListingTable` readers use dedicated readers and do not apply dynamic overrides; see [DataFusion SQL](datafusion.md).

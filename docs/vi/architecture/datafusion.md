@@ -32,7 +32,9 @@ Trước khi lập kế hoạch, engine đăng ký đích `FROM` thành bảng t
 
     Một *thư mục* đồng nhất extension đăng ký thành một ListingTable duy nhất, mở khóa predicate & projection pushdown trên toàn bộ tệp.
 
-2. **MemTable dự phòng**, cho định dạng không có reader DataFusion (`xlsx`, `avro`, `orc`, `msgpack`, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (`[...]`). Tệp được đọc qua [registry định dạng](formats.md), nạp vào MemTable rồi truy vấn trong RAM.
+2. **MemTable dự phòng**, cho định dạng không có reader DataFusion (`xlsx`, `avro`, `orc`, `msgpack`, `txt`, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (`[...]`). Tệp được đọc qua [registry định dạng](formats.md), nạp vào MemTable rồi truy vấn trong RAM.
+
+Reader `ListingTable` native dùng trực tiếp `FileFormat` của DataFusion, không tra registry `FormatHandler` động. Vì vậy, đăng ký handler cho extension native như `csv` không thay đổi cách `br.sql.*` đọc extension đó.
 
 !!! note "JSON mảng ở tầng ngoài"
 
