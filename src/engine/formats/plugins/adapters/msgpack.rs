@@ -3,7 +3,7 @@ use arrow_array::*;
 use arrow_schema::{DataType, Field, Schema};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -19,6 +19,52 @@ pub(crate) struct MsgpackBlockLocation {
     pub row_count: usize,
     pub first_byte: u64,
     pub total_byte_size: u64,
+}
+
+struct MsgpackValues<R> {
+    reader: R,
+    done: bool,
+}
+
+impl<R> MsgpackValues<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader,
+            done: false,
+        }
+    }
+}
+
+impl<R: BufRead> Iterator for MsgpackValues<R> {
+    type Item = Result<rmpv::Value, BazanError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        match self.reader.fill_buf() {
+            Ok([]) => {
+                self.done = true;
+                None
+            }
+            Ok(_) => {
+                let value = rmpv::decode::read_value(&mut self.reader).map_err(|error| {
+                    BazanError::Message(format!("MessagePack decode error: {error}"))
+                });
+                if value.is_err() {
+                    self.done = true;
+                }
+                Some(value)
+            }
+            Err(error) => {
+                self.done = true;
+                Some(Err(BazanError::Message(format!(
+                    "MessagePack read error: {error}"
+                ))))
+            }
+        }
+    }
 }
 
 fn msgpack_schema_from_map(entries: &[(rmpv::Value, rmpv::Value)]) -> Arc<Schema> {
@@ -39,22 +85,21 @@ fn msgpack_schema_from_map(entries: &[(rmpv::Value, rmpv::Value)]) -> Arc<Schema
 }
 
 fn infer_msgpack_schema(file_path: &Path) -> Result<Arc<Schema>, BazanError> {
-    let mut file = BufReader::new(File::open(file_path)?);
-    loop {
-        match rmpv::decode::read_value(&mut file) {
-            Ok(rmpv::Value::Map(entries)) => return Ok(msgpack_schema_from_map(&entries)),
-            Ok(_) => {}
-            Err(_) => return Ok(Arc::new(Schema::empty())),
+    for value in MsgpackValues::new(BufReader::new(File::open(file_path)?)) {
+        match value? {
+            rmpv::Value::Map(entries) => return Ok(msgpack_schema_from_map(&entries)),
+            _ => {}
         }
     }
+    Ok(Arc::new(Schema::empty()))
 }
 
 pub(crate) fn inspect_msgpack_blocks(
     file_path: &Path,
+    checkpoint_stride_rows: usize,
 ) -> Result<Vec<MsgpackBlockLocation>, BazanError> {
-    const MSGPACK_BLOCK_ROWS: usize = 64 * 1024;
-
     let mut file = File::open(file_path)?;
+    let file_size = file.metadata()?.len();
     let mut first_byte = None;
     let mut first_row = 0usize;
     let mut row_count = 0usize;
@@ -64,10 +109,11 @@ pub(crate) fn inspect_msgpack_blocks(
 
     loop {
         let object_start = file.stream_position()?;
-        let value = match rmpv::decode::read_value(&mut file) {
-            Ok(value) => value,
-            Err(_) => break,
-        };
+        if object_start >= file_size {
+            break;
+        }
+        let value = rmpv::decode::read_value(&mut file)
+            .map_err(|error| BazanError::Message(format!("MessagePack decode error: {error}")))?;
         last_valid_end = file.stream_position()?;
         if !found_schema {
             if !matches!(value, rmpv::Value::Map(_)) {
@@ -78,7 +124,7 @@ pub(crate) fn inspect_msgpack_blocks(
 
         first_byte.get_or_insert(object_start);
         row_count += 1;
-        if row_count == MSGPACK_BLOCK_ROWS {
+        if row_count == checkpoint_stride_rows {
             let start = first_byte.take().expect("MsgPack block has a row");
             row_groups.push(MsgpackBlockLocation {
                 first_row,
@@ -115,7 +161,7 @@ pub fn read_msgpack_range(
     let schema = infer_msgpack_schema(path)?;
     let mut file = File::open(path)?;
     file.seek(SeekFrom::Start(byte_offset.min(file.metadata()?.len())))?;
-    let rows = std::iter::from_fn(move || rmpv::decode::read_value(&mut file).ok()).map(Ok);
+    let rows = MsgpackValues::new(BufReader::new(file));
     let chunker = RowChunker::new(
         rows,
         clamp_batch_size(batch_size),
@@ -141,14 +187,13 @@ impl FormatHandler for MsgpackHandler {
     fn open(&self, file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let file = BufReader::new(File::open(file_path)?);
-        let mut read = file;
-
-        let mut values = std::iter::from_fn(move || rmpv::decode::read_value(&mut read).ok());
+        let mut values = MsgpackValues::new(file);
 
         // Schema is inferred from the first Map row; rows before it are dropped.
         let mut schema: Option<Arc<Schema>> = None;
         let mut first: Option<rmpv::Value> = None;
         for val in values.by_ref() {
+            let val = val?;
             if let rmpv::Value::Map(ref entries) = val {
                 schema = Some(msgpack_schema_from_map(entries));
                 first = Some(val);
@@ -157,7 +202,7 @@ impl FormatHandler for MsgpackHandler {
         }
 
         let schema = schema.unwrap_or_else(|| Arc::new(Schema::empty()));
-        let rows = first.into_iter().chain(values).map(Ok);
+        let rows = first.into_iter().map(Ok).chain(values);
         let chunker = RowChunker::new(
             rows,
             batch_size,

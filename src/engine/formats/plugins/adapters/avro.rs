@@ -1,5 +1,6 @@
 use apache_avro::types::Value;
 use apache_avro::Reader as AvroReader;
+use apache_avro::Schema as AvroSchema;
 use arrow_array::builder::*;
 use arrow_array::*;
 use arrow_schema::{DataType, Field, Schema};
@@ -155,21 +156,51 @@ pub(crate) fn inspect_avro_blocks(file_path: &Path) -> Result<Vec<AvroBlockLocat
     Ok(blocks)
 }
 
-fn avro_schema_to_arrow(avro_schema: &apache_avro::Schema) -> Arc<Schema> {
+fn avro_schema_to_arrow_type(schema: &AvroSchema) -> DataType {
+    match schema {
+        AvroSchema::Long => DataType::Int64,
+        AvroSchema::Int => DataType::Int32,
+        AvroSchema::Double => DataType::Float64,
+        AvroSchema::Boolean => DataType::Boolean,
+        AvroSchema::Union(union) => {
+            let non_null = union
+                .variants()
+                .iter()
+                .filter(|variant| !matches!(variant, AvroSchema::Null))
+                .collect::<Vec<_>>();
+            if non_null.len() == 1 {
+                avro_schema_to_arrow_type(non_null[0])
+            } else {
+                DataType::Utf8
+            }
+        }
+        _ => DataType::Utf8,
+    }
+}
+
+fn avro_schema_to_arrow(avro_schema: &AvroSchema) -> Arc<Schema> {
     let mut fields = Vec::new();
     if let apache_avro::Schema::Record(record) = avro_schema {
         for field in &record.fields {
-            let data_type = match &field.schema {
-                apache_avro::Schema::Long => DataType::Int64,
-                apache_avro::Schema::Int => DataType::Int32,
-                apache_avro::Schema::Double => DataType::Float64,
-                apache_avro::Schema::Boolean => DataType::Boolean,
-                _ => DataType::Utf8,
-            };
+            let data_type = avro_schema_to_arrow_type(&field.schema);
             fields.push(Field::new(&field.name, data_type, true));
         }
     }
     Arc::new(Schema::new(fields))
+}
+
+fn avro_field_value(value: &Value, column: usize) -> Option<&Value> {
+    fn unwrap_union(value: &Value) -> &Value {
+        match value {
+            Value::Union(_, inner) => unwrap_union(inner),
+            value => value,
+        }
+    }
+
+    match value {
+        Value::Record(fields) => fields.get(column).map(|(_, value)| unwrap_union(value)),
+        _ => None,
+    }
 }
 
 pub fn read_avro_range(
@@ -242,79 +273,50 @@ fn avro_values_to_record_batch(
             DataType::Int64 => {
                 let mut builder = Int64Builder::with_capacity(n);
                 for v in values {
-                    if let Some((_, Value::Long(num))) = match v {
-                        Value::Record(fields) => fields.get(col_idx),
-                        _ => None,
-                    } {
-                        builder.append_value(*num);
-                        continue;
+                    match avro_field_value(v, col_idx) {
+                        Some(Value::Long(num)) => builder.append_value(*num),
+                        _ => builder.append_null(),
                     }
-                    builder.append_null();
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             DataType::Int32 => {
                 let mut builder = Int32Builder::with_capacity(n);
                 for v in values {
-                    if let Some((_, Value::Int(num))) = match v {
-                        Value::Record(fields) => fields.get(col_idx),
-                        _ => None,
-                    } {
-                        builder.append_value(*num);
-                        continue;
+                    match avro_field_value(v, col_idx) {
+                        Some(Value::Int(num)) => builder.append_value(*num),
+                        _ => builder.append_null(),
                     }
-                    builder.append_null();
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             DataType::Float64 => {
                 let mut builder = Float64Builder::with_capacity(n);
                 for v in values {
-                    if let Some((_, Value::Double(num))) = match v {
-                        Value::Record(fields) => fields.get(col_idx),
-                        _ => None,
-                    } {
-                        builder.append_value(*num);
-                        continue;
+                    match avro_field_value(v, col_idx) {
+                        Some(Value::Double(num)) => builder.append_value(*num),
+                        _ => builder.append_null(),
                     }
-                    builder.append_null();
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             DataType::Boolean => {
                 let mut builder = BooleanBuilder::with_capacity(n);
                 for v in values {
-                    if let Some((_, Value::Boolean(b))) = match v {
-                        Value::Record(fields) => fields.get(col_idx),
-                        _ => None,
-                    } {
-                        builder.append_value(*b);
-                        continue;
+                    match avro_field_value(v, col_idx) {
+                        Some(Value::Boolean(value)) => builder.append_value(*value),
+                        _ => builder.append_null(),
                     }
-                    builder.append_null();
                 }
                 columns.push(Arc::new(builder.finish()));
             }
             _ => {
                 let mut builder = StringBuilder::with_capacity(n, n * 20);
                 for v in values {
-                    if let Value::Record(ref fields) = v {
-                        if let Some((_, val)) = fields.get(col_idx) {
-                            match val {
-                                Value::String(s) => builder.append_value(s),
-                                Value::Union(_, box_val) => {
-                                    if let Value::String(s) = &**box_val {
-                                        builder.append_value(s);
-                                    } else {
-                                        builder.append_null();
-                                    }
-                                }
-                                _ => builder.append_null(),
-                            }
-                            continue;
-                        }
+                    match avro_field_value(v, col_idx) {
+                        Some(Value::String(value)) => builder.append_value(value),
+                        _ => builder.append_null(),
                     }
-                    builder.append_null();
                 }
                 columns.push(Arc::new(builder.finish()));
             }
