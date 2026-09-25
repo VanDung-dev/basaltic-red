@@ -193,14 +193,23 @@ impl FormatHandler for StaticRefHandler {
         batch_size: usize,
         columns: &[String],
     ) -> Result<RecordBatch, BazanError> {
-        self.0.read_range_columns(file_path, offset, limit, batch_size, columns)
+        self.0
+            .read_range_columns(file_path, offset, limit, batch_size, columns)
     }
 }
 
-static DYNAMIC_HANDLERS: OnceLock<RwLock<HashMap<String, Arc<dyn FormatHandler>>>> = OnceLock::new();
+static DYNAMIC_HANDLERS: OnceLock<RwLock<HashMap<String, Arc<dyn FormatHandler>>>> =
+    OnceLock::new();
 
 fn dynamic_registry() -> &'static RwLock<HashMap<String, Arc<dyn FormatHandler>>> {
     DYNAMIC_HANDLERS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+pub(crate) fn is_dynamic_format(ext: &str) -> bool {
+    dynamic_registry()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains_key(&ext.to_lowercase())
 }
 
 /// Register a custom format handler dynamically at runtime.
