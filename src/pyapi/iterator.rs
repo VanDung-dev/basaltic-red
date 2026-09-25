@@ -34,6 +34,17 @@ impl PyBatchIterator {
             total_rows: 0,
         }
     }
+
+    fn try_source_lock(&self) -> PyResult<std::sync::MutexGuard<'_, PyBatchSource>> {
+        self.source.try_lock().map_err(|err| match err {
+            std::sync::TryLockError::WouldBlock => pyo3::exceptions::PyRuntimeError::new_err(
+                "PyBatchIterator is already being consumed by another call",
+            ),
+            std::sync::TryLockError::Poisoned(err) => {
+                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
+            }
+        })
+    }
 }
 
 #[pymethods]
@@ -53,10 +64,7 @@ impl PyBatchIterator {
     pub fn __next__<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         use arrow::pyarrow::ToPyArrow;
         use futures::StreamExt;
-        let mut guard = self
-            .source
-            .lock()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let mut guard = self.try_source_lock()?;
         match &mut *guard {
             PyBatchSource::Eager(iter) => {
                 if let Some(batch) = iter.next() {
@@ -86,10 +94,7 @@ impl PyBatchIterator {
     pub fn to_pyarrow<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         use arrow::pyarrow::ToPyArrow;
         use futures::StreamExt;
-        let mut guard = self
-            .source
-            .lock()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let mut guard = self.try_source_lock()?;
         let pyarrow = py.import("pyarrow")?;
         let mut py_batches = Vec::new();
         match &mut *guard {
