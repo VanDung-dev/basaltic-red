@@ -463,6 +463,42 @@ def test_create_map_with_progress(tmp_path):
     assert report["healthy_count"] == 5
 
 
+def test_create_map_accepts_keyword_options(tmp_path):
+    import json
+
+    import pyarrow as pa
+
+    lake_dir = tmp_path / "configured_lake"
+    lake_dir.mkdir()
+    (lake_dir / "rows.ndjson").write_text(
+        '{"id":1,"label":"a"}\n{"id":2,"label":"b"}\n',
+        encoding="utf-8",
+    )
+
+    map_path = basaltic_red.lake.create_map(
+        str(lake_dir),
+        show_progress=False,
+        checkpoint_stride_rows=1,
+        fingerprint="blake3",
+        stats_columns=[],
+    )
+
+    with pa.memory_map(map_path, "r") as source:
+        reader = pa.ipc.open_file(source)
+        assert reader.schema.metadata[b"bazan.map_schema"] == b"3"
+        assert reader.schema.metadata[b"bazan.checkpoint_stride_rows"] == b"1"
+        assert reader.schema.metadata[b"bazan.fingerprint"] == b"blake3"
+        table = reader.read_all()
+
+    assert table["content_hash"][0].as_py()
+    entry_stats = json.loads(table["stats_json"][0].as_py())
+    assert entry_stats["total_rows"] == 2
+    assert entry_stats["columns"] == {}
+    locations = json.loads(table["row_groups_json"][0].as_py())
+    assert len(locations) == 2
+    assert [item["row_count"] for item in locations] == [1, 1]
+
+
 def test_sql_with_string_literal_before_from(tmp_path):
     p = _write_format(tmp_path, "parquet")
     # Verifies string literal 'active' before FROM clause is not parsed as file path
