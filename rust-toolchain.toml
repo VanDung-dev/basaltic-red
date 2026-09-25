@@ -1,0 +1,4 @@
+[toolchain]
+# LLVM before 22.1.8 can emit misaligned Mach-O LINKEDIT string pools on macOS.
+channel = "1.98.1"
+profile = "minimal"
