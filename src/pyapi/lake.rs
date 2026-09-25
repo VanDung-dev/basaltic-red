@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use crate::engine::map::LakeMapOptions;
+
 use super::default_engine;
 
 #[pyfunction]
@@ -64,9 +66,20 @@ fn ingest(
 }
 
 #[pyfunction]
-#[pyo3(signature = (dir_path, show_progress=true))]
-fn create_map(py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<String> {
-    default_engine().create_map(py, dir_path, show_progress)
+#[pyo3(signature = (dir_path, show_progress=true, *, checkpoint_stride_rows=65536, fingerprint="metadata", stats_columns=None))]
+fn create_map(
+    py: Python<'_>,
+    dir_path: &str,
+    show_progress: bool,
+    checkpoint_stride_rows: usize,
+    fingerprint: &str,
+    stats_columns: Option<Vec<String>>,
+) -> PyResult<String> {
+    let options = LakeMapOptions::new(checkpoint_stride_rows, fingerprint, stats_columns)
+        .map_err(super::bazan_to_pyerr)?;
+    let dir = dir_path.to_string();
+    py.detach(|| default_engine().create_lake_map_native_with_options(&dir, show_progress, options))
+        .map_err(super::bazan_to_pyerr)
 }
 
 #[pyfunction]

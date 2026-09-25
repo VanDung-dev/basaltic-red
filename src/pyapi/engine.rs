@@ -3,6 +3,7 @@ use pyo3::types::{PyAny, PyDict};
 use pyo3::Py;
 
 use super::bazan_to_pyerr;
+use crate::engine::map::LakeMapOptions;
 use crate::engine::MatrixEngine;
 use crate::pyapi::iterator::PyBatchIterator;
 
@@ -33,7 +34,11 @@ impl MatrixEngine {
     /// Native files stream lazily from DataFusion; non-native files still collect
     /// into a MemTable during registration, but no 0-row error is raised.
     #[pyo3(name = "execute_sql_stream")]
-    pub fn execute_sql_stream_py<'py>(&self, _py: Python<'py>, query: &str) -> PyResult<PyBatchIterator> {
+    pub fn execute_sql_stream_py<'py>(
+        &self,
+        _py: Python<'py>,
+        query: &str,
+    ) -> PyResult<PyBatchIterator> {
         let stream = crate::engine::memory::global_runtime()
             .block_on(self.execute_sql_stream_inner(query))
             .map_err(bazan_to_pyerr)?;
@@ -111,10 +116,21 @@ impl MatrixEngine {
     }
 
     /// Create or rebuild a Bazaltic Red lake map (.br_map.bazan) for a data directory
-    #[pyo3(signature = (dir_path, show_progress=true))]
-    pub fn create_map(&self, py: Python<'_>, dir_path: &str, show_progress: bool) -> PyResult<String> {
+    #[pyo3(signature = (dir_path, show_progress=true, *, checkpoint_stride_rows=65536, fingerprint="metadata", stats_columns=None))]
+    pub fn create_map(
+        &self,
+        py: Python<'_>,
+        dir_path: &str,
+        show_progress: bool,
+        checkpoint_stride_rows: usize,
+        fingerprint: &str,
+        stats_columns: Option<Vec<String>>,
+    ) -> PyResult<String> {
         let dir = dir_path.to_string();
-        let map_path = py.detach(|| self.create_lake_map_native(&dir, show_progress));
+        let options = LakeMapOptions::new(checkpoint_stride_rows, fingerprint, stats_columns)
+            .map_err(bazan_to_pyerr)?;
+        let map_path =
+            py.detach(|| self.create_lake_map_native_with_options(&dir, show_progress, options));
         match map_path {
             Ok(p) => Ok(p),
             Err(e) => Err(bazan_to_pyerr(e)),
@@ -187,15 +203,17 @@ impl MatrixEngine {
         let trash_dir = trash_output_dir.to_string();
         let filter_str = partition_filter.map(|s| s.to_string());
 
-        let stats = py.detach(|| -> Result<(usize, usize, usize, usize), crate::error::BazanError> {
-            self.process_and_write_lake_native(
-                &in_dir,
-                &clean_dir,
-                &trash_dir,
-                filter_str.as_deref(),
-                batch_size,
-            )
-        });
+        let stats = py.detach(
+            || -> Result<(usize, usize, usize, usize), crate::error::BazanError> {
+                self.process_and_write_lake_native(
+                    &in_dir,
+                    &clean_dir,
+                    &trash_dir,
+                    filter_str.as_deref(),
+                    batch_size,
+                )
+            },
+        );
 
         match stats {
             Ok(res) => Ok(res),
@@ -275,14 +293,16 @@ impl MatrixEngine {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let summary: ParallelFilterSummary = py
-            .detach(|| -> Result<ParallelFilterSummary, crate::error::BazanError> {
-                self.filter_files_parallel_native(
-                    &path,
-                    &parsed_rules,
-                    filter_str.as_deref(),
-                    num_threads,
-                )
-            })
+            .detach(
+                || -> Result<ParallelFilterSummary, crate::error::BazanError> {
+                    self.filter_files_parallel_native(
+                        &path,
+                        &parsed_rules,
+                        filter_str.as_deref(),
+                        num_threads,
+                    )
+                },
+            )
             .map_err(bazan_to_pyerr)?;
 
         let dict = PyDict::new(py);
@@ -372,7 +392,11 @@ impl MatrixEngine {
                         fields.push(
                             Field::new(
                                 "audit_violated_rules",
-                                DataType::List(Arc::new(Field::new("item", DataType::UInt32, true))),
+                                DataType::List(Arc::new(Field::new(
+                                    "item",
+                                    DataType::UInt32,
+                                    true,
+                                ))),
                                 true,
                             )
                             .into(),
@@ -414,15 +438,17 @@ impl MatrixEngine {
         let ver_str = table_version.to_string();
         let filter_str = partition_filter.map(|s| s.to_string());
 
-        let res = py.detach(|| -> Result<(usize, usize, String), crate::error::BazanError> {
-            self.generate_gold_table_native(
-                &in_dir,
-                &gold_dir,
-                &ver_str,
-                filter_str.as_deref(),
-                batch_size,
-            )
-        });
+        let res = py.detach(
+            || -> Result<(usize, usize, String), crate::error::BazanError> {
+                self.generate_gold_table_native(
+                    &in_dir,
+                    &gold_dir,
+                    &ver_str,
+                    filter_str.as_deref(),
+                    batch_size,
+                )
+            },
+        );
 
         match res {
             Ok(val) => Ok(val),
@@ -471,18 +497,23 @@ impl MatrixEngine {
             .to_lowercase();
 
         let (clean_b, trash_b) = py
-            .detach(|| -> Result<(RecordBatch, RecordBatch), crate::error::BazanError> {
-                let handler = crate::engine::formats::handler_for(&ext)
-                    .ok_or_else(|| crate::error::BazanError::UnsupportedFormat(ext.clone()))?;
-                let mut source = handler.open(&path, limit_rows)?;
-                if let Some(batch_res) = source.batches.next() {
-                    let batch = batch_res?;
-                    let rows = batch.num_rows();
-                    Ok(self.filter_batch_native(&batch, rows))
-                } else {
-                    Err(crate::error::BazanError::Message(format!(".{} file is empty", ext)))
-                }
-            })
+            .detach(
+                || -> Result<(RecordBatch, RecordBatch), crate::error::BazanError> {
+                    let handler = crate::engine::formats::handler_for(&ext)
+                        .ok_or_else(|| crate::error::BazanError::UnsupportedFormat(ext.clone()))?;
+                    let mut source = handler.open(&path, limit_rows)?;
+                    if let Some(batch_res) = source.batches.next() {
+                        let batch = batch_res?;
+                        let rows = batch.num_rows();
+                        Ok(self.filter_batch_native(&batch, rows))
+                    } else {
+                        Err(crate::error::BazanError::Message(format!(
+                            ".{} file is empty",
+                            ext
+                        )))
+                    }
+                },
+            )
             .map_err(bazan_to_pyerr)?;
 
         Ok((
@@ -559,7 +590,8 @@ impl MatrixEngine {
                 reader.schema().clone()
             } else if ext == "parquet" || ext == "pq" {
                 let file = std::fs::File::open(&sample_file_path)?;
-                let builder = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)?;
+                let builder =
+                    parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)?;
                 builder.schema().clone()
             } else {
                 let file = std::fs::File::open(&sample_file_path)?;
