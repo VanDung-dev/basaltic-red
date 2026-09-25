@@ -6,12 +6,28 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'tools/**'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'basaltic_sql.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
       - '.github/workflows/test.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main, master, develop]
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'tools/**'
+      - '**/Cargo.toml'
+      - 'Cargo.lock'
+      - 'basaltic_sql.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
       - '.github/workflows/test.yml'
 
 jobs:
@@ -30,7 +46,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run Cargo tests (src & tests)
-        run: cargo test --verbose 2>&1 | tee rust-test-results.txt
+        shell: bash
+        run: cargo test --workspace --verbose 2>&1 | tee rust-test-results.txt
 
       - name: Upload Rust test results
         if: always()
