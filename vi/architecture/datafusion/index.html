@@ -1863,7 +1863,7 @@
 </tr>
 </tbody>
 </table>
-<p>Một <em>thư mục</em> đồng nhất extension đăng ký thành một ListingTable duy nhất, mở khóa predicate &amp; projection pushdown trên toàn bộ tệp.</p>
+<p>Một <em>thư mục</em> đồng nhất extension đăng ký thành một ListingTable duy nhất, cho phép DataFusion áp dụng predicate và projection pruning mà reader hỗ trợ trên các file. Mức IO tiết kiệm được tùy định dạng và query plan.</p>
 </li>
 <li>
 <p><strong>MemTable dự phòng</strong>, cho định dạng không có reader DataFusion (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, <code>txt</code>, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (<code>[...]</code>). Tệp được đọc qua <a href="../formats/">registry định dạng</a>, nạp vào MemTable rồi truy vấn trong RAM.</p>
@@ -1909,10 +1909,10 @@
 <li><code>stream.to_pyarrow()</code> → PyArrow Table đầy đủ</li>
 <li><code>repr(stream)</code> → <code>PyBatchIterator(batches=N, rows=M)</code> (biết ngay với nguồn eager; điền dần khi tiêu thụ với nguồn lazy)</li>
 </ul>
-<p>Kết quả nạp thẳng vào Polars / DuckDB không copy, xem <a href="../../how-to/integrate-polars-duckdb/">Tích hợp Polars &amp; DuckDB</a>.</p>
+<p>Arrow C Data Interface có thể dùng chung buffer tương thích khi bàn giao kết quả cho Polars hoặc DuckDB. DataFusion vẫn giải mã dữ liệu đầu vào và consumer có thể materialize hoặc copy kết quả; xem <a href="../../how-to/integrate-polars-duckdb/">Tích hợp Polars &amp; DuckDB</a>.</p>
 <hr />
 <h2 id="nhung-gi-uoc-ay-xuong">Những gì được đẩy xuống</h2>
-<p>Trên ListingTable thuần túy, DataFusion chỉ giải mã đúng row group và cột mà kế hoạch truy vấn cần:</p>
+<p>Với ListingTable Parquet, DataFusion có thể cắt tỉa row group và tránh đọc column chunk không được chọn khi query plan và metadata file cho phép. Định dạng native khác có thể dùng hỗ trợ projection hoặc filter của reader, nhưng không nhất thiết bỏ qua physical input theo cùng cách.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Chỉ đọc column chunk passenger_count + fare_amount, cắt tỉa row group theo predicate</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">br</span><span class="o">.</span><span class="n">sql</span><span class="o">.</span><span class="n">execute_sql_stream</span><span class="p">(</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="s2">"SELECT passenger_count, AVG(fare_amount) "</span>

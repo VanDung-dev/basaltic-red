@@ -1773,7 +1773,7 @@
 <p>The <code>demo.ipynb</code> notebook runs the full pipeline on the NYC Yellow Taxi 2009 to 2025 dataset (204 Parquet files, 29.66 GB, 1,826,960,642 rows, configurable <code>start_year</code>/<code>end_year</code> in the downloader cell):</p>
 <ol>
 <li><strong>Step 0</strong>: Environment setup, Maturing build, workspace cleanup, configurable <code>target_year</code> downloader.</li>
-<li><strong>Step 1</strong>: Lake Doctor initialization &amp; zero-copy schema extraction.</li>
+<li><strong>Step 1</strong>: Lake Doctor initialization &amp; Arrow schema extraction.</li>
 <li><strong>Step 2</strong>: Slicing &amp; DataFusion SQL streaming.</li>
 <li><strong>Step 3</strong>: Rayon SIMD parallel data quality filter.</li>
 <li><strong>Step 4</strong>: DataFusion analytics &amp; publication Seaborn charts.</li>

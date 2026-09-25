@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Chu trình vận hành kiểm tra toàn vẹn và phục hồi dữ liệu trôi dạt">
+        <meta name="description" content="Quy trình kiểm tra metadata lệch khỏi catalog và đồng bộ lại">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -1175,6 +1175,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#kiem-tra-fingerprint-noi-dung" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Kiểm tra fingerprint nội dung
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1737,6 +1748,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#kiem-tra-fingerprint-noi-dung" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Kiểm tra fingerprint nội dung
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1770,17 +1792,19 @@
 
 <h1 id="luong-bac-si-data-lake-tu-phuc-hoi">Luồng Bác sĩ Data Lake &amp; Tự phục hồi</h1>
 <h2 id="chu-trinh-van-hanh-chuan">Chu trình vận hành chuẩn</h2>
-<p>Bác sĩ Data Lake là điểm bắt đầu và điểm kết thúc bắt buộc trong mọi pipeline xử lý dữ liệu:</p>
+<p>Dùng Lake Doctor để kiểm tra catalog và tùy chọn sửa metadata bị lệch. So sánh drift discovery file theo extension hỗ trợ rồi đối chiếu đường dẫn, dung lượng và thời gian sửa đổi; công cụ không checksum byte hay đối chiếu nội dung với baseline bên ngoài. <code>auto_heal=True</code> đọc lại file mới hoặc đã sửa để dựng lại entry map. File đọc trực tiếp được nhưng không có extension nằm ngoài phạm vi thư mục này. Hãy đăng ký dynamic handler trong process trước khi chạy nếu muốn tính extension đó vào kết quả.</p>
 <pre class="mermaid"><code>sequenceDiagram
     autonumber
     participant P as Pipeline dữ liệu
     participant D as Lake Doctor
 
-    P-&gt;&gt;D: kiểm tra đầu vào: doctor("data", auto_heal=True)
-    D--&gt;&gt;P: chuẩn HEALTHY · bản đồ sẵn sàng
+    P-&gt;&gt;D: kiểm tra đầu vào: doctor("data", auto_heal=False)
+    D--&gt;&gt;P: HEALTHY hoặc DRIFT_DETECTED
+    P-&gt;&gt;D: tùy chọn sửa: doctor("data", auto_heal=True)
+    D--&gt;&gt;P: HEALED nếu đã lập chỉ mục lại
     P-&gt;&gt;P: ingest · cắt lát · lọc SIMD · SQL
-    P-&gt;&gt;D: kiểm tra đầu ra: doctor("data", auto_heal=True)
-    D--&gt;&gt;P: toàn vẹn 100% · không để lại trạng thái rác</code></pre>
+    P-&gt;&gt;D: tùy chọn kiểm tra đầu ra: doctor("data", auto_heal=False)
+    D--&gt;&gt;P: trạng thái metadata của catalog</code></pre>
 <h2 id="code-mau">Code mẫu</h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
@@ -1788,8 +1812,17 @@
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">if</span> <span class="n">status</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"HEALTHY"</span><span class="p">:</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">"Phát hiện sai lệch! Đang tự phục hồi..."</span><span class="p">)</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span></code></pre></div>
+<p><code>HEALED</code> nghĩa là lần gọi này đã dựng lại entry map cho phần sai lệch; chạy Doctor lần nữa để xác nhận catalog chuyển sang <code>HEALTHY</code>. <code>HEALTHY</code> chỉ có nghĩa đường dẫn, dung lượng và thời gian sửa đổi của file đã discovery khớp với map; Doctor không phát hiện đổi nội dung cùng dung lượng nếu mtime được giữ nguyên.</p>
+<h2 id="kiem-tra-fingerprint-noi-dung">Kiểm tra fingerprint nội dung</h2>
+<p>Mặc định map dùng <code>fingerprint="metadata"</code>. Để Doctor phát hiện thay đổi nội dung dù dung lượng và thời gian sửa đổi của file không đổi, hãy tạo map với fingerprint BLAKE3:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">create_map</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">fingerprint</span><span class="o">=</span><span class="s2">"blake3"</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">if</span> <span class="n">status</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"HEALTHY"</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Map lưu cấu hình của nó và Doctor giữ nguyên cấu hình đó khi tự phục hồi, nên các entry được dựng lại tiếp tục dùng BLAKE3. Slice không hash lại nội dung file; hãy chạy Doctor trước khi slice nếu cần xác minh drift bằng BLAKE3. Nếu Doctor báo drift, dùng <code>auto_heal=True</code> trước khi dựa vào kết quả slice qua map.</p>
 
 
 

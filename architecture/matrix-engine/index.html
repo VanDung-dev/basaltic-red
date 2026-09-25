@@ -1853,7 +1853,7 @@
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
-<td style="text-align: left;">Same location resolution. Parquet pushes projection into the reader; XLSX, ORC, Avro, MsgPack, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT plus Arrow IPC/Feather read from the indexed boundary, then project the requested columns.</td>
+<td style="text-align: left;">Same location resolution. Parquet, Arrow IPC/Feather, and ORC pass projection to their readers. Mapped delimited reads parse selected columns but still read each selected record's bytes; other row formats generally decode the selected rows, then project. When no locator applies, the handler may stream and skip rows first. Output columns follow <code>selected_cols</code> order.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>preview_sample(file_path, limit_rows)</code></td>
@@ -1861,7 +1861,7 @@
 </tr>
 </tbody>
 </table>
-<p>Both slice methods resolve the handler through the <a href="../formats/">format registry</a>, so they work on every supported format, not just Parquet.</p>
+<p>Both slice methods resolve a handler through the <a href="../formats/">format registry</a>, so they support registered formats beyond Parquet. A map locator is format-specific, and a fallback handler may stream and skip from the beginning. XLSX starts at an indexed logical row after Calamine has materialized the worksheet.</p>
 <hr />
 <h2 id="error-taxonomy">Error Taxonomy</h2>
 <p>All engine failures flow through one enum, <code>BazanError</code> in <code>src/error.rs</code>, mapped to Python by a single function (<code>src/pyapi/mod.rs</code>):</p>

@@ -1863,7 +1863,7 @@
 </tr>
 </tbody>
 </table>
-<p>A <em>directory</em> of homogeneous extension registers as one ListingTable, enabling predicate &amp; projection pushdown across all files.</p>
+<p>A <em>directory</em> of homogeneous extension registers as one ListingTable, allowing DataFusion to apply supported predicate and projection pruning across files. The resulting IO savings depend on the file format and query plan.</p>
 </li>
 <li>
 <p><strong>Fallback MemTable</strong>, for formats without a native DataFusion reader (<code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code>, <code>txt</code>, mixed directories) and for JSON files whose top level is an array (<code>[...]</code>). The file is read through the <a href="../formats/">format registry</a>, collected into a MemTable, then queried in memory.</p>
@@ -1909,10 +1909,10 @@
 <li><code>stream.to_pyarrow()</code> → complete PyArrow Table</li>
 <li><code>repr(stream)</code> → <code>PyBatchIterator(batches=N, rows=M)</code> (counts known eagerly; filled during consumption for lazy streams)</li>
 </ul>
-<p>The output feeds directly into Polars / DuckDB with no copy, see <a href="../../how-to/integrate-polars-duckdb/">Integrate with Polars &amp; DuckDB</a>.</p>
+<p>The Arrow C Data Interface can share compatible buffers when passing results to Polars or DuckDB. DataFusion still decodes input and a consumer may materialize or copy results; see <a href="../../how-to/integrate-polars-duckdb/">Integrate with Polars &amp; DuckDB</a>.</p>
 <hr />
 <h2 id="what-gets-pushed-down">What Gets Pushed Down</h2>
-<p>On native ListingTables, DataFusion decodes only the row groups and columns your plan needs:</p>
+<p>For Parquet ListingTables, DataFusion can prune row groups and avoid reading unselected column chunks when the query plan and file metadata allow it. Other native formats can use the projection or filter support provided by their reader, but do not necessarily skip physical input in the same way.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Reads only passenger_count + fare_amount column chunks, prunes row groups by predicate</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">br</span><span class="o">.</span><span class="n">sql</span><span class="o">.</span><span class="n">execute_sql_stream</span><span class="p">(</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="s2">"SELECT passenger_count, AVG(fare_amount) "</span>

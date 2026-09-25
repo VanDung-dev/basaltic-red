@@ -1832,16 +1832,18 @@
     Drift --&gt; Healed: doctor(auto_heal=True)
     Healed --&gt; Healthy: catalog in sync again</code></pre>
 <ul>
-<li><code>build_lake_map()</code> walks the directory (via <code>discover_data_files</code>), reads each file's schema/row count and full-file min/max stats for supported numeric/string columns.</li>
+<li><code>build_lake_map()</code> walks the directory (via <code>discover_data_files</code>), reads each file's schema/row count and full-file min/max stats. Supported types and numeric precision are listed in the <a href="../../reference/lake-map-spec/#aggregate-totals">Lake Map specification</a>.</li>
+<li>Row-oriented checkpoint spacing is configurable with <code>checkpoint_stride_rows</code> when creating a map; it defaults to <code>65,536</code> and must be greater than zero. For example, <code>br.lake.create_map("data", checkpoint_stride_rows=16_384)</code>. The setting affects NDJSON/JSON line and array checkpoints, delimited files, MsgPack blocks, and XLSX logical row blocks. It does not split native Parquet row groups, ORC stripes, Avro OCF blocks, or Arrow IPC batches.</li>
+<li>Lake Map creation and Lake Doctor share that extension-based discovery set: built-in extensions and currently registered dynamic extensions are included, while extensionless files are excluded. A file can still be read directly by magic-byte sniffing, but it is outside map/doctor directory scope. Dynamic handlers must be registered for map creation and doctor runs; without one, its files are not discovered and existing entries appear missing (auto-heal removes them from the map).</li>
 <li>For Parquet, the builder also reads the footer and records each row group's row range, compressed byte range, and per-column chunk ranges. This is metadata work; it does not create one byte offset per logical row.</li>
-<li>For NDJSON, the builder records 64K-row blocks with their first logical row, first byte, and byte length. It does not create one byte offset per line.</li>
-<li>For <code>.json</code>, the builder scans a top-level array and records 64K-object blocks. The scanner tracks nesting, quoted strings, and escapes, so checkpoints start at complete objects rather than bytes inside an object.</li>
+<li>For NDJSON, the builder records row blocks at the configured stride with their first logical row, first byte, and byte length. It does not create one byte offset per line.</li>
+<li>For <code>.json</code> and <code>.jsonl</code>, the first non-whitespace byte selects the map locator: <code>[</code> records top-level array-object blocks at the configured stride; otherwise the map records line checkpoints at that stride. The array scanner tracks nesting, quoted strings, and escapes. <code>.ndjson</code> always uses line checkpoints.</li>
 <li>For ORC, the builder records each stripe's ordinal, row range, byte offset, and physical stripe size from ORC footer metadata. Slicing uses ORC's native byte-range reader to skip earlier stripes.</li>
 <li>For Avro, the builder parses the Object Container File header and records every data block's row range, block offset, physical block size, and compressed payload size. Slicing replays the header and seeks the Avro reader to the selected block.</li>
-<li>For MsgPack, the builder decodes top-level objects only to find 64K-object boundaries and records their byte checkpoints. Slicing infers the schema from the first map, seeks to the selected checkpoint, and decodes forward.</li>
-<li>For XLSX, the builder records 64K logical data-row blocks for the first worksheet. XLSX worksheet XML is normally Deflate-compressed inside a ZIP entry, so these checkpoints have no physical byte offset; slicing starts <code>XlsxRows</code> at the selected logical block, while Calamine still materializes the worksheet range first.</li>
+<li>For MsgPack, the builder decodes top-level objects only to find object-block boundaries at the configured stride and records their byte checkpoints. Slicing infers the schema from the first map, seeks to the selected checkpoint, and decodes forward.</li>
+<li>For XLSX, the builder records logical data-row blocks at the configured stride for the first worksheet. XLSX worksheet XML is normally Deflate-compressed inside a ZIP entry, so these checkpoints have no physical byte offset; slicing starts <code>XlsxRows</code> at the selected logical block, while Calamine still materializes the worksheet range first.</li>
 <li>For Arrow IPC/Feather, the builder records each RecordBatch ordinal and row range. Reading uses Arrow IPC's native random-access batch index rather than a per-row byte offset.</li>
-<li>For CSV, the builder scans quote-aware record boundaries and records 64K-row blocks. Checkpoints never split a quoted field or an embedded newline; the same scanner is used for TSV, PSV, and semicolon-separated TXT.</li>
+<li>For CSV, the builder scans quote-aware record boundaries and records row blocks at the configured stride. Checkpoints never split a quoted field or an embedded newline; the same scanner is used for TSV, PSV, and semicolon-separated TXT.</li>
 <li><code>save_lake_map_ipc()</code> serializes the map; <code>load_lake_map_ipc()</code> reads it back through a memory map.</li>
 </ul>
 <h2 id="on-disk-schema">On-Disk Schema</h2>
@@ -1889,11 +1891,18 @@
 <td style="text-align: left;"><code>Utf8</code></td>
 <td style="text-align: left;">Parquet row-group, ORC stripe, Avro OCF block, MsgPack object block, XLSX logical row block, NDJSON/JSONL/JSON-array and CSV/TSV/PSV/TXT row-block, or Arrow IPC/Feather RecordBatch locations; <code>[]</code> for other formats</td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>content_hash</code></td>
+<td style="text-align: left;"><code>Utf8</code> (nullable)</td>
+<td style="text-align: left;">BLAKE3 digest when the map was built with <code>fingerprint="blake3"</code>; null otherwise</td>
+</tr>
 </tbody>
 </table>
-<p>The aggregate struct also carries <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>.</p>
+<p>The aggregate struct also carries <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>. The chosen checkpoint stride and fingerprint policy are stored in the Arrow schema metadata.</p>
 <h2 id="location-resolution">Location Resolution</h2>
-<p>For a healthy Parquet entry, <code>slice_rows</code> and <code>slice_cols</code> resolve the row-group ranges, select only the intersecting row groups, and pass their ordinals to the Parquet reader. For healthy ORC entries, they seek to the containing stripe byte offset and let the ORC reader process that stripe and later stripes. For healthy Avro entries, they replay the OCF header, seek to the containing block byte offset, and decode that block and later blocks. For healthy MsgPack entries, they seek to the containing object-block checkpoint and decode forward after reusing the first-map schema. For healthy XLSX entries, they start <code>XlsxRows</code> at the containing logical row block; this skips the adapter's earlier row iteration, but Calamine has already materialized the worksheet range, so it is not a physical ZIP byte seek. For healthy NDJSON/JSONL and JSON-array entries, they seek to the checkpoint containing the requested line/object and parse forward. CSV, TSV, PSV, and TXT entries seek to quote-safe row blocks. For a healthy Arrow IPC/Feather entry, they resolve the containing RecordBatch and call Arrow IPC's random-access index before reading forward. When the source contains a Parquet OffsetIndex, the map records page locations and the reader can skip pages before the requested offset. <code>br.lake.locate_row()</code> exposes the global-row resolution without decoding data. A missing or stale map falls back to the normal streaming reader; it is never used to read a modified file.</p>
+<p>For a healthy Parquet entry, <code>slice_rows</code> and <code>slice_cols</code> resolve the row-group ranges and pass only intersecting row groups to the reader. If the source has an OffsetIndex, the Parquet Arrow reader can use the index loaded from that source to skip pages within the selected groups; page locations serialized in the map are not passed to the reader. Mapped <code>slice_cols</code> pushes selected columns into Parquet, Arrow IPC/Feather, and ORC readers. Mapped delimited readers apply selected columns while parsing, but still read each selected record's bytes to find field boundaries. Other row readers (Avro, MsgPack, JSON-family, and XLSX) decode the selected rows before projecting columns.</p>
+<p>For healthy ORC entries, slicing seeks to the containing stripe byte offset and lets the ORC reader process that stripe and later stripes. For Avro entries, it replays the OCF header, seeks to the containing block byte offset, and decodes forward. MsgPack slicing seeks to the containing object-block checkpoint and decodes forward using the first-map schema. XLSX slicing starts <code>XlsxRows</code> at the containing logical row block, but Calamine has already materialized the first worksheet, so this is not a physical ZIP byte seek.</p>
+<p>NDJSON uses line checkpoints. <code>.json</code> and <code>.jsonl</code> use array-object checkpoints when the first non-whitespace byte is <code>[</code> and line checkpoints otherwise. Delimited formats seek to quote-safe row checkpoints. Arrow IPC/Feather resolves the containing RecordBatch through Arrow IPC's native batch index. These block, stripe, row-group, and batch locators still require the reader to decode rows forward within the selected range. <code>br.lake.locate_row()</code> resolves a global row from the saved map without decoding source data, but does not check whether that map is fresh. Run Lake Doctor after source files are added, removed, or changed; use BLAKE3 fingerprinting and Doctor when same-size, same-mtime content changes must be detected. Slice freshness checks compare file size and modification time; slices do not rehash the full file. A dynamic handler override uses that registered handler with no built-in locator; a missing or stale map falls back to the normal reader and is never used to read a file whose checked metadata changed.</p>
 <hr />
 <h2 id="lake-doctor">Lake Doctor</h2>
 <p><code>doctor_lake_map(dir_path, auto_heal)</code> compares the on-disk reality against the catalog:</p>
@@ -1915,11 +1924,11 @@
 </tr>
 <tr>
 <td style="text-align: left;"><code>healthy_count</code></td>
-<td style="text-align: left;">Entries matching the catalog exactly (path + size + mtime)</td>
+<td style="text-align: left;">Entries matching the catalog checks (path + size + mtime; content hash too when <code>fingerprint="blake3"</code>)</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>modified_files</code></td>
-<td style="text-align: left;">Known paths whose size/mtime changed</td>
+<td style="text-align: left;">Known paths that fail the configured freshness checks (size/mtime, plus BLAKE3 when enabled)</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>unindexed_files</code></td>
@@ -1935,6 +1944,7 @@
 </tr>
 </tbody>
 </table>
+<p>With the default <code>fingerprint="metadata"</code>, drift classification compares discovered path, size, and modification time; it does not detect same-size content changes that preserve the recorded modification time. With <code>fingerprint="blake3"</code>, Lake Doctor also verifies each stored BLAKE3 content hash. Slice resolution checks path, size, and modification time only; it does not hash the full source file. With <code>auto_heal=True</code>, modified and new files are reread to rebuild map entries. <code>HEALTHY</code> means the configured checks match, not that the file matches an external content-integrity baseline.</p>
 <p><strong>Healing</strong> rebuilds the entry list from what still exists (dropping <code>missing_files</code>, refreshing stats for modified/unindexed entries) and rewrites <code>.br_map.bazan</code>. Any file inspection error aborts the operation instead of producing a partial catalog. Status becomes <code>"HEALED"</code>. Without <code>auto_heal=True</code> the report is purely diagnostic.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>

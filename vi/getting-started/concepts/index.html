@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Tìm hiểu cấu trúc bộ nhớ Apache Arrow, cờ bitmask SIMD và bản đồ nhị phân">
+        <meta name="description" content="Trao đổi dữ liệu Apache Arrow, bitmask SIMD và bản đồ nhị phân">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -681,10 +681,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-kien-truc-zero-copy-apache-arrow" class="md-nav__link">
+  <a href="#1-trao-oi-du-lieu-apache-arrow" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Kiến trúc Zero-Copy Apache Arrow
+        1. Trao đổi dữ liệu Apache Arrow
       </span>
     </span>
   </a>
@@ -1727,10 +1727,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-kien-truc-zero-copy-apache-arrow" class="md-nav__link">
+  <a href="#1-trao-oi-du-lieu-apache-arrow" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Kiến trúc Zero-Copy Apache Arrow
+        1. Trao đổi dữ liệu Apache Arrow
       </span>
     </span>
   </a>
@@ -1793,8 +1793,8 @@
 <h1 id="cac-khai-niem-co-ban">Các khái niệm cơ bản</h1>
 <p>Hiểu rõ nền tảng kiến trúc của <code>basaltic-red</code>.</p>
 <hr />
-<h2 id="1-kien-truc-zero-copy-apache-arrow">1. Kiến trúc Zero-Copy Apache Arrow</h2>
-<p><code>basaltic-red</code> sử dụng định dạng bộ nhớ cột tiêu chuẩn của Apache Arrow cho mọi tác vụ. Khi đọc tệp Parquet hoặc IPC, dữ liệu nhị phân thô được phân tích trực tiếp thành cấu trúc <code>RecordBatch</code>. Khi chuyển tiếp sang Polars, PyArrow hay DuckDB, hệ thống chỉ hoán đổi con trỏ qua Arrow C Data Interface mà không copy byte dữ liệu.</p>
+<h2 id="1-trao-oi-du-lieu-apache-arrow">1. Trao đổi dữ liệu Apache Arrow</h2>
+<p><code>basaltic-red</code> sử dụng định dạng bộ nhớ cột tiêu chuẩn Apache Arrow trong các thao tác. Reader giải mã Parquet, IPC và định dạng hỗ trợ khác thành <code>RecordBatch</code>; đọc file nén hoặc mã hóa không phải zero-copy từ ổ đĩa. Ở ranh giới Rust/Python, Arrow C Data Interface có thể chuyển buffer Arrow tương thích mà không copy. Thư viện phía sau vẫn có thể copy nếu cần chuyển đổi hoặc layout không tương thích.</p>
 <pre class="mermaid"><code>sequenceDiagram
     participant D as Ổ đĩa (Parquet / IPC)
     participant R as Rust Arrow RecordBatch
@@ -1802,10 +1802,10 @@
     participant PL as Polars DataFrame
     participant DB as DuckDB Relation
 
-    D-&gt;&gt;R: parse qua memmap / FileReader
-    R-&gt;&gt;A: PyCapsule qua Arrow C Data Interface
-    A--&gt;&gt;PL: view zero-copy
-    A--&gt;&gt;DB: view zero-copy</code></pre>
+    D-&gt;&gt;R: giải mã file thành Arrow array
+    R-&gt;&gt;A: Arrow C Data Interface
+    A--&gt;&gt;PL: dùng chung buffer tương thích
+    A--&gt;&gt;DB: trao đổi Arrow</code></pre>
 <hr />
 <h2 id="2-nhan-simd-bitmask-a-khoi-multi-chunk">2. Nhân SIMD Bitmask Đa Khối (Multi-Chunk)</h2>
 <p>Thay vì tạo các mảng boolean trung gian gây tốn RAM, <code>basaltic-red</code> cập nhật trực tiếp cờ bit trên bộ nhớ liên tục <code>Vec&lt;u64&gt;</code>:
@@ -1815,8 +1815,8 @@
 <h2 id="3-ban-o-nhi-phan-br_mapbazan-bac-si-data-lake">3. Bản đồ nhị phân (<code>.br_map.bazan</code>) &amp; Bác sĩ Data Lake</h2>
 <p>Thay vì dựng lại số dòng và thống kê từ đầu, <code>basaltic-red</code> duy trì catalog <code>.br_map.bazan</code>:
 - Chứa đường dẫn tương đối, dung lượng, thời gian sửa đổi, số dòng và thống kê min/max từng cột.
-- Load catalog warm qua <code>memmap2</code> (sub-mili-giây trong <code>demo.ipynb</code>; thực tế tùy phần cứng/hệ thống file). Doctor đầy đủ vẫn kiểm tra metadata file hiện tại.
-- <code>br.lake.doctor</code> phát hiện drift (thiếu/sửa/chưa index) và tự động chữa lành catalog.</p>
+- Load catalog đã tồn tại dùng <code>memmap2</code> (khoảng 0.5 ms trong lần chạy <code>demo.ipynb</code> đã ghi; thực tế tùy phần cứng/hệ thống file). Doctor vẫn discovery file hiện tại và kiểm tra đường dẫn, dung lượng, thời gian sửa đổi.
+- <code>br.lake.doctor</code> phát hiện file đã discovery bị thiếu index, sửa đổi hoặc mất tích và có thể lập chỉ mục lại catalog. So sánh drift dựa trên path, dung lượng và thời gian sửa đổi thay vì hash nội dung; khi chữa lành, công cụ đọc lại file mới hoặc đã sửa để dựng entry map.</p>
 
 
 

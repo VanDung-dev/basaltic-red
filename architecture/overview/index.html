@@ -1872,7 +1872,7 @@
 <tr>
 <td style="text-align: left;">Slicing</td>
 <td style="text-align: left;"><code>engine/slice.rs</code></td>
-<td style="text-align: left;">Zero-copy row/column reads, sample preview</td>
+<td style="text-align: left;">Row/column range reads, sample preview</td>
 <td style="text-align: left;"><a href="../matrix-engine/#slicing-primitives">MatrixEngine Core</a></td>
 </tr>
 <tr>
@@ -1935,12 +1935,12 @@
     ENG-&gt;&gt;FMT: handler_for(ext) or magic-byte sniff
     FMT--&gt;&gt;ENG: OpenedSource (batch stream)
     ENG--&gt;&gt;API: Arrow RecordBatch
-    API--&gt;&gt;PY: pyarrow.Table (zero-copy)</code></pre>
+    API--&gt;&gt;PY: pyarrow.Table via Arrow C Data Interface</code></pre>
 <ol>
 <li><strong>Python boundary (<code>pyapi/</code>)</strong>, converts arguments, maps <a href="../matrix-engine/#error-taxonomy"><code>BazanError</code></a> to <code>PyValueError</code> / <code>PyRuntimeError</code> / <code>PyIOError</code>, and releases the GIL around native work via <code>py.detach</code>.</li>
 <li><strong>Engine core (<code>engine/</code>)</strong>, owns all logic: format resolution, streaming reads, filtering, SQL planning.</li>
 <li><strong>Format layer (<code>formats/</code>)</strong>, every file access resolves to a <code>FormatHandler</code> (extension lookup first, then magic-byte sniffing).</li>
-<li><strong>Interop boundary</strong>, results cross back as PyArrow objects through Arrow's zero-copy interface; see <a href="../datafusion/">DataFusion SQL Layer</a>.</li>
+<li><strong>Interop boundary</strong>, Arrow-returning APIs cross back through Arrow's C Data Interface; compatible buffers may be shared, while file readers still decode on-disk data. See <a href="../datafusion/">DataFusion SQL Layer</a>.</li>
 </ol>
 <hr />
 <h2 id="shared-engine-instance">Shared Engine Instance</h2>

@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Zero-copy integration patterns between basaltic-red, Polars, and DuckDB">
+        <meta name="description" content="Arrow interchange patterns between basaltic-red, Polars, and DuckDB">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -1769,11 +1769,12 @@
 
 
 <h1 id="integrate-with-polars-duckdb">Integrate with Polars &amp; DuckDB</h1>
+<p>File readers decode input into Arrow batches. At the Arrow/Python boundary, compatible buffers may be shared through Arrow interchange; this does not make file reads, slicing, or SQL execution zero-copy.</p>
 <h2 id="integration-pattern-with-polars">Integration Pattern with Polars</h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Zero-copy slicing</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Map-assisted row-range read</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">arrow_table</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">slice_rows</span><span class="p">(</span><span class="s2">"data/yellow_tripdata_2025-01.parquet"</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">arrow_table</span><span class="p">)</span>
 </span></code></pre></div>
@@ -1781,7 +1782,7 @@
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">duckdb</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># DataFusion SQL execution to PyArrow Table</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># DataFusion SQL stream collected as a PyArrow Table</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">stream</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">sql</span><span class="o">.</span><span class="n">execute_sql_stream</span><span class="p">(</span><span class="s2">"SELECT * FROM 'data/yellow_tripdata_2025-01.parquet'"</span><span class="p">)</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">duck_df</span> <span class="o">=</span> <span class="n">duckdb</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">stream</span><span class="o">.</span><span class="n">to_pyarrow</span><span class="p">())</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
 </span></code></pre></div>

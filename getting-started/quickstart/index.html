@@ -652,10 +652,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#step-1-initialize-data-lake-with-lake-doctor" class="md-nav__link">
+  <a href="#step-1-create-or-repair-the-lake-map" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 1: Initialize Data Lake with Lake Doctor
+        Step 1: Create or Repair the Lake Map
       </span>
     </span>
   </a>
@@ -663,10 +663,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-zero-copy-sample-slicing" class="md-nav__link">
+  <a href="#step-2-read-a-row-range" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 2: Zero-Copy Sample Slicing
+        Step 2: Read a Row Range
       </span>
     </span>
   </a>
@@ -685,10 +685,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-4-zero-copy-sql-analytics-with-datafusion" class="md-nav__link">
+  <a href="#step-4-streaming-sql-analytics-with-datafusion" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 4: Zero-Copy SQL Analytics with DataFusion
+        Step 4: Streaming SQL Analytics with DataFusion
       </span>
     </span>
   </a>
@@ -1738,10 +1738,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#step-1-initialize-data-lake-with-lake-doctor" class="md-nav__link">
+  <a href="#step-1-create-or-repair-the-lake-map" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 1: Initialize Data Lake with Lake Doctor
+        Step 1: Create or Repair the Lake Map
       </span>
     </span>
   </a>
@@ -1749,10 +1749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-zero-copy-sample-slicing" class="md-nav__link">
+  <a href="#step-2-read-a-row-range" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 2: Zero-Copy Sample Slicing
+        Step 2: Read a Row Range
       </span>
     </span>
   </a>
@@ -1771,10 +1771,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-4-zero-copy-sql-analytics-with-datafusion" class="md-nav__link">
+  <a href="#step-4-streaming-sql-analytics-with-datafusion" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Step 4: Zero-Copy SQL Analytics with DataFusion
+        Step 4: Streaming SQL Analytics with DataFusion
       </span>
     </span>
   </a>
@@ -1813,24 +1813,24 @@
 
 
 <h1 id="5-minute-quickstart-guide">5-Minute Quickstart Guide</h1>
-<p>This guide walks you through the core workflow of <code>basaltic-red</code>: initializing a Data Lake, slicing data zero-copy, applying dynamic SIMD quality filters, and querying with SQL.</p>
+<p>This guide walks through a core <code>basaltic-red</code> workflow: creating or repairing a Lake Map, reading a row range, applying dynamic quality filters, and querying with SQL.</p>
 <hr />
-<h2 id="step-1-initialize-data-lake-with-lake-doctor">Step 1: Initialize Data Lake with Lake Doctor</h2>
-<p>Always run <code>br.lake.doctor</code> when starting to work with a data directory:</p>
+<h2 id="step-1-create-or-repair-the-lake-map">Step 1: Create or Repair the Lake Map</h2>
+<p><code>doctor(auto_heal=True)</code> creates a missing catalog or repairs detected drift for files discovered by supported extension. Drift detection compares file paths, sizes, and modification times rather than file-content hashes; auto-heal rereads new or modified files to rebuild their entries.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Diagnose lake and generate .br_map.bazan catalog automatically</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Create the catalog if missing, or reindex detected metadata drift</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">health</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"Lake Health Report:"</span><span class="p">)</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">health</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  - </span><span class="si">{</span><span class="n">k</span><span class="si">:</span><span class="s2">18s</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </span></code></pre></div>
 <hr />
-<h2 id="step-2-zero-copy-sample-slicing">Step 2: Zero-Copy Sample Slicing</h2>
-<p>Read row and column slices from large Parquet files in microseconds:</p>
+<h2 id="step-2-read-a-row-range">Step 2: Read a Row Range</h2>
+<p>With a healthy Lake Map, supported Parquet slices use row-group locations to avoid unrelated groups. The reader still decodes the requested values, and latency depends on the file layout and cache state.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># Slice rows [0..100] without reading the entire dataset</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># Read 100 rows through the map-assisted slice API</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">arrow_table</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">slice_rows</span><span class="p">(</span><span class="s2">"data/yellow_tripdata_2025-01.parquet"</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">arrow_table</span><span class="p">)</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># (100, 20)</span>
@@ -1858,14 +1858,14 @@
 </span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Trash rows : </span><span class="si">{</span><span class="n">trash_df</span><span class="o">.</span><span class="n">height</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </span></code></pre></div>
 <hr />
-<h2 id="step-4-zero-copy-sql-analytics-with-datafusion">Step 4: Zero-Copy SQL Analytics with DataFusion</h2>
+<h2 id="step-4-streaming-sql-analytics-with-datafusion">Step 4: Streaming SQL Analytics with DataFusion</h2>
 <p>Stream query execution pushdown directly into Polars or DuckDB:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">duckdb</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># DataFusion SQL execution stream</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">stream</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">sql</span><span class="o">.</span><span class="n">execute_sql_stream</span><span class="p">(</span><span class="s2">"SELECT passenger_count, AVG(fare_amount) AS avg_fare FROM 'data/output/clean_trips.parquet' GROUP BY passenger_count"</span><span class="p">)</span>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># Zero-copy handoff to DuckDB or Polars</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># Arrow handoff to DuckDB or Polars</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">duck_df</span> <span class="o">=</span> <span class="n">duckdb</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">stream</span><span class="o">.</span><span class="n">to_pyarrow</span><span class="p">())</span><span class="o">.</span><span class="n">df</span><span class="p">()</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">duck_df</span><span class="p">)</span>
 </span></code></pre></div>

@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Step-by-step workflow for data lake integrity verification and drift remediation">
+        <meta name="description" content="Step-by-step workflow for checking catalog metadata drift and repairing it">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -1175,6 +1175,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#content-fingerprint-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Content Fingerprint Checks
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1737,6 +1748,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#content-fingerprint-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Content Fingerprint Checks
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1770,17 +1792,19 @@
 
 <h1 id="lake-doctor-self-healing-workflow">Lake Doctor &amp; Self-Healing Workflow</h1>
 <h2 id="operational-life-cycle">Operational Life Cycle</h2>
-<p>The Lake Doctor is the mandatory entrypoint and exit point for robust data lake pipelines:</p>
+<p>Use Lake Doctor to check the catalog and optionally repair metadata drift. Its drift comparison discovers files by supported extension and compares path, size, and modification time; it does not checksum bytes or compare file contents against an external baseline. <code>auto_heal=True</code> re-inspects modified and new files to rebuild their map entries. Directly readable extensionless files are outside its directory scope. Register dynamic handlers in the process before running it if their extensions should be included.</p>
 <pre class="mermaid"><code>sequenceDiagram
     autonumber
     participant P as Data Pipeline
     participant D as Lake Doctor
 
-    P-&gt;&gt;D: entry check: doctor("data", auto_heal=True)
-    D--&gt;&gt;P: HEALTHY baseline · catalog ready
+    P-&gt;&gt;D: entry check: doctor("data", auto_heal=False)
+    D--&gt;&gt;P: HEALTHY or DRIFT_DETECTED
+    P-&gt;&gt;D: optional repair: doctor("data", auto_heal=True)
+    D--&gt;&gt;P: HEALED when drift was reindexed
     P-&gt;&gt;P: ingest · slicing · SIMD filters · SQL
-    P-&gt;&gt;D: exit check: doctor("data", auto_heal=True)
-    D--&gt;&gt;P: 100% integrity · zero orphaned state</code></pre>
+    P-&gt;&gt;D: optional exit check: doctor("data", auto_heal=False)
+    D--&gt;&gt;P: catalog metadata status</code></pre>
 <h2 id="example-code">Example Code</h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
@@ -1788,8 +1812,17 @@
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">if</span> <span class="n">status</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"HEALTHY"</span><span class="p">:</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">"Drift detected! Healing lake..."</span><span class="p">)</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span></code></pre></div>
+<p><code>HEALED</code> means this call rebuilt the map entries for the detected drift; run Doctor again to confirm the resulting catalog reports <code>HEALTHY</code>. <code>HEALTHY</code> only means the discovered file paths, sizes, and modification times match the map; Doctor does not detect same-size content changes that preserve the recorded modification time.</p>
+<h2 id="content-fingerprint-checks">Content Fingerprint Checks</h2>
+<p>Maps use <code>fingerprint="metadata"</code> by default. To have Doctor detect content changes that preserve both file size and modification time, create the map with BLAKE3 fingerprinting:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">create_map</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">fingerprint</span><span class="o">=</span><span class="s2">"blake3"</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">if</span> <span class="n">status</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"HEALTHY"</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">status</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">lake</span><span class="o">.</span><span class="n">doctor</span><span class="p">(</span><span class="s2">"data"</span><span class="p">,</span> <span class="n">auto_heal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The map stores its options, and Doctor preserves them when auto-healing, so rebuilt entries continue to use BLAKE3. Slicing does not rehash file contents; run Doctor before slicing when BLAKE3 drift verification is required. If Doctor reports drift, use <code>auto_heal=True</code> before relying on the map-backed slice.</p>
 
 
 

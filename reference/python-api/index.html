@@ -1957,7 +1957,7 @@
 
 
 <h1 id="python-api-reference">Python API Reference</h1>
-<p>Signatures below match <code>src/pyapi/*.rs</code>. All functions return PyArrow objects (<code>Table</code> / <code>RecordBatch</code>) through the zero-copy bridge.</p>
+<p>Signatures below match <code>src/pyapi/*.rs</code>. Functions returning <code>Table</code> or <code>RecordBatch</code> cross the PyO3 boundary through Arrow's C Data Interface; the other functions return the scalars, tuples, or dictionaries shown below.</p>
 <hr />
 <h2 id="top-level-exports">Top-level exports</h2>
 <table>
@@ -2001,6 +2001,7 @@
 </tr>
 </tbody>
 </table>
+<p>Slice calls return the requested row range; <code>slice_cols</code> returns columns in <code>selected_cols</code> order. Parquet, Arrow IPC/Feather, and ORC pass column projection to their readers. Mapped delimited reads project while parsing, but still read the bytes of each selected record; Avro, MsgPack, JSON-family, and XLSX may project after decoding the selected rows. Fallback reads may stream and skip from the start when no applicable Lake Map locator is available. Direct file reads can sniff some extensionless or unknown-extension files; directory discovery for maps and Lake Doctor is extension-based and includes only extensions with an active handler.</p>
 <h2 id="basaltic_redfilter"><code>basaltic_red.filter</code></h2>
 <table>
 <thead>
@@ -2055,7 +2056,7 @@
 <td style="text-align: left;"><code>(files_read, gold_rows, manifest_path)</code></td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>create_map(dir_path: str, show_progress: bool = True)</code></td>
+<td style="text-align: left;"><code>create_map(dir_path: str, show_progress: bool = True, *, checkpoint_stride_rows: int = 65536, fingerprint: str = "metadata", stats_columns: list[str] \| None = None)</code></td>
 <td style="text-align: left;">path to the written <code>.br_map.bazan</code> (<code>str</code>)</td>
 </tr>
 <tr>
@@ -2068,6 +2069,8 @@
 </tr>
 </tbody>
 </table>
+<p><code>checkpoint_stride_rows</code> must be positive and controls checkpoints for row-oriented formats; native Parquet row groups, ORC stripes, Avro blocks, Arrow batches, and XLSX logical blocks keep their format boundaries. <code>fingerprint</code> accepts <code>"metadata"</code> (default) or <code>"blake3"</code>. <code>stats_columns=None</code> computes all currently supported statistics, <code>[]</code> disables them, and a list limits statistics to those named columns. Disabling statistics still reads the file to count rows and build locators.</p>
+<p><code>locate_row</code> resolves from the saved map and does not check source freshness. Run <code>doctor</code> after source files are added, removed, or changed; in BLAKE3 mode, Doctor can detect content changes that preserve size and modification time. <code>create_map</code> and <code>doctor</code> discover files by supported extension; directly readable extensionless files are outside that directory scope. Dynamic extensions must be registered for each process that creates or checks a map. Map schema 3 stores these options and optional per-file BLAKE3 hashes; older five-column and schema 2 maps load with the previous defaults. Slicing keeps the fast size/mtime check and does not rehash the entire file for every range.</p>
 <h2 id="basaltic_redsql"><code>basaltic_red.sql</code></h2>
 <table>
 <thead>

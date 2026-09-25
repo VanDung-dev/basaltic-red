@@ -1814,7 +1814,7 @@
 
 <hr />
 <h2 id="overview">Overview</h2>
-<p><code>basaltic-red</code> is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (<code>.br_map.bazan</code>), row and column slicing without full reads, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as <code>pyarrow.Table</code> or <code>RecordBatch</code> objects for use with Polars, DuckDB, or pandas.</p>
+<p><code>basaltic-red</code> is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (<code>.br_map.bazan</code>), format-aware row and column slicing, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as <code>pyarrow.Table</code> or <code>RecordBatch</code> objects for use with Polars, DuckDB, or pandas.</p>
 <p>Demo in <a href="https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb"><code>demo.ipynb</code></a>: NYC TLC Yellow Taxi 2009 to 2025, with 204 Parquet files, 29.66 GB, and 1,826,960,642 rows by 20 columns.</p>
 <pre class="mermaid"><code>graph LR
     A["Raw files (204 Parquet / 29.66 GB)"] --&gt; B["Rust core"]
@@ -1827,10 +1827,10 @@
 <h2 id="what-it-does">What it does</h2>
 <ul>
 <li>Catalog (<code>.br_map.bazan</code>): one Arrow IPC payload at the lake root; warm reads via <code>memmap2</code> avoid traversing directory trees. Doctor reports <code>HEALTHY</code>, <code>DRIFT_DETECTED</code>, or <code>HEALED</code>.</li>
-<li>Slicing: <code>slice_rows</code> and <code>slice_cols</code> read only the requested rows and columns.</li>
+<li>Slicing: <code>slice_rows</code> and <code>slice_cols</code> return the requested range. A healthy map lets supported readers skip unrelated blocks; some formats still decode extra data, and XLSX materializes the worksheet through Calamine.</li>
 <li>Filtering: dynamic rules evaluated per batch; invalid rows carry an <code>audit_error_code</code> (<code>u64</code> bitmask, chunked when rules exceed 64).</li>
-<li>SQL: DataFusion session; <code>execute_sql_stream</code> returns a <code>PyBatchIterator</code> whose <code>to_pyarrow()</code> method hands batches to Polars or DuckDB without copying.</li>
-<li>Formats: custom delimited formats via <code>br.formats.register_delimited</code>; format-resolution paths can identify extension-less files by magic-byte sniffing, while <code>filter_files_parallel</code> requires a registered extension.</li>
+<li>SQL: DataFusion session; <code>execute_sql_stream</code> returns a <code>PyBatchIterator</code> whose <code>to_pyarrow()</code> method hands Arrow batches to Polars or DuckDB. Compatible buffers may be shared at the Arrow interop boundary; readers and downstream conversions can still decode or materialize data.</li>
+<li>Formats: custom delimited formats via <code>br.formats.register_delimited</code>; direct single-file reads can identify some extension-less files by magic-byte sniffing. Directory discovery for Lake Map, Lake Doctor, and <code>filter_files_parallel</code> is extension-based and requires an active handler.</li>
 </ul>
 <hr />
 <h2 id="demo-measurements">Demo measurements</h2>

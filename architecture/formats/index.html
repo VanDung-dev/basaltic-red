@@ -1832,37 +1832,95 @@
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">read_range_columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="cm">/* ... */</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">RecordBatch</span><span class="p">,</span><span class="w"> </span><span class="n">BazanError</span><span class="o">&gt;</span><span class="p">;</span>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>Handlers return a lazy <code>OpenedSource</code>, an Arrow schema plus a streaming batch iterator. Row-based formats (CSV, JSONL, XLSX) chunk their rows through shared templates in <code>plugins/base_templates/row_chunker.rs</code>; columnar formats (Parquet, IPC) stream natively.</p>
+<p>Handlers return a lazy <code>OpenedSource</code>, an Arrow schema plus a streaming batch iterator. The CSV/JSON readers and columnar Parquet/IPC readers yield Arrow batches directly; the Avro, MessagePack, and XLSX adapters use <code>plugins/base_templates/row_chunker.rs</code> to convert decoded rows into batches.</p>
 <hr />
 <h2 id="built-in-formats">Built-in Formats</h2>
-<p>Static table <code>HANDLERS</code> maps extensions to handlers:</p>
+<p><code>HANDLERS</code> in <code>formats/mod.rs</code> currently registers 16 extensions. Rows below group aliases that share one handler.
+Locator inspection and slice routing live in <a href="../../../../src/engine/map.rs"><code>map.rs</code></a> and <a href="../../../../src/engine/slice.rs"><code>slice.rs</code></a>.</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Tier</th>
-<th style="text-align: left;">Extensions</th>
-<th style="text-align: left;">Handler source</th>
+<th style="text-align: left;">Extension(s)</th>
+<th style="text-align: left;">Schema, header, nulls, and read errors</th>
+<th style="text-align: left;">Row slicing and Lake Map</th>
+<th style="text-align: left;">Column slicing</th>
+<th style="text-align: left;">Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>1, Core</strong></td>
-<td style="text-align: left;"><code>parquet</code>, <code>pq</code>, <code>feather</code>, <code>arrow</code>, <code>ipc</code></td>
-<td style="text-align: left;"><code>formats/core/parquet.rs</code>, <code>formats/core/arrow_ipc.rs</code></td>
+<td style="text-align: left;"><code>.parquet</code>, <code>.pq</code></td>
+<td style="text-align: left;">Stored Parquet Arrow schema/types; Arrow nulls preserved; invalid files or reads error.</td>
+<td style="text-align: left;">Physical row-group checkpoints; missing/stale/nonmatching map uses the normal reader.</td>
+<td style="text-align: left;">Parquet <code>ProjectionMask</code> on mapped and fallback paths.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/core/parquet.rs">parquet.rs</a></td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>2, Common</strong></td>
-<td style="text-align: left;"><code>csv</code>, <code>tsv</code>, <code>psv</code>, <code>txt</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code></td>
-<td style="text-align: left;"><code>formats/common/csv.rs</code>, <code>formats/common/json.rs</code></td>
+<td style="text-align: left;"><code>.feather</code>, <code>.arrow</code>, <code>.ipc</code></td>
+<td style="text-align: left;">Arrow IPC <strong>file</strong> schema/types; Arrow nulls preserved; invalid files or reads error.</td>
+<td style="text-align: left;">Record-batch ordinal and row span; starts at that batch and skips locally, with no byte seek.</td>
+<td style="text-align: left;">Selected field indices passed to the IPC reader on mapped and fallback paths.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/core/arrow_ipc.rs">arrow_ipc.rs</a></td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>3, Pluggable adapters</strong></td>
-<td style="text-align: left;"><code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code></td>
-<td style="text-align: left;"><code>formats/plugins/adapters/</code></td>
+<td style="text-align: left;"><code>.csv</code>, <code>.psv</code>, <code>.txt</code></td>
+<td style="text-align: left;">First row header; delimiters <code>,</code>, <code>|</code>, <code>;</code>; Arrow infers types from up to 100 records and uses default null handling. No custom null token; parser/type errors propagate.</td>
+<td style="text-align: left;">Quote-aware byte checkpoints at the configured stride; empty physical lines skipped.</td>
+<td style="text-align: left;">Mapped reads parse selected columns but still read each selected record's bytes; fallback can project in Arrow CSV.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/csv.rs">csv.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.tsv</code></td>
+<td style="text-align: left;">First row header; all columns nullable UTF-8; exact <code>\N</code> is null. Short rows pad with nulls; extra fields/parser errors fail.</td>
+<td style="text-align: left;">Quote-aware byte checkpoints at the configured stride; empty physical lines skipped.</td>
+<td style="text-align: left;">Mapped reads parse selected columns but still read each selected record's bytes; fallback can project in Arrow CSV.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/csv.rs">csv.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.json</code>, <code>.jsonl</code></td>
+<td style="text-align: left;">Newline-delimited objects or a top-level array of object rows; schema inferred from up to 100 records; missing/null values become null. Invalid JSON, incompatible values, or non-object array elements error.</td>
+<td style="text-align: left;">Configured-stride row blocks: object-start byte checkpoints for arrays, line checkpoints otherwise.</td>
+<td style="text-align: left;">Reads the row range then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/json.rs">json.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.ndjson</code></td>
+<td style="text-align: left;">Expected shape: one object per line; schema inferred from up to 100 records; missing/null values become null. Invalid JSON or incompatible values error; final record may omit newline.</td>
+<td style="text-align: left;">Byte checkpoints at the configured stride of nonblank records.</td>
+<td style="text-align: left;">Reads the row range then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/json.rs">json.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.orc</code></td>
+<td style="text-align: left;">Arrow schema/types; Arrow nulls preserved; ORC open/decode errors propagate.</td>
+<td style="text-align: left;">Physical stripe checkpoints; starts at the stripe containing the first requested row and skips locally.</td>
+<td style="text-align: left;">Reads full columns for the range, then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/orc.rs">orc.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.avro</code></td>
+<td style="text-align: left;">Record fields nullable; <code>long</code>/<code>int</code>/<code>double</code>/<code>boolean</code> → <code>Int64</code>/<code>Int32</code>/<code>Float64</code>/<code>Boolean</code>; one non-null union branch uses its mapping. Other types are UTF-8 but only strings convert; unsupported/null values become null. Invalid OCF/schema/data errors.</td>
+<td style="text-align: left;">Avro Object Container File block checkpoints; starts at the containing block and skips locally.</td>
+<td style="text-align: left;">Reads full rows for the range, then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/avro.rs">avro.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.msgpack</code></td>
+<td style="text-align: left;">No header. First map defines fields/types (string keys name/populate fields; other keys fall back to <code>col</code> and do not populate fields) and is the first row; earlier values ignored. Integer/F32/F64/Boolean → <code>Int64</code>/<code>Float64</code>/<code>Boolean</code>; other types infer UTF-8, preserving strings only. Missing/incompatible values and non-map rows become null; extra keys ignored; truncated tails error.</td>
+<td style="text-align: left;">Byte checkpoints at the configured stride of top-level rows from the first map; schema is inferred from that map before reading the range.</td>
+<td style="text-align: left;">Reads full rows for the range, then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/msgpack.rs">msgpack.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.xlsx</code></td>
+<td style="text-align: left;">First worksheet; first row is header; all data columns UTF-8; empty cells null. No readable first sheet errors; no header row yields an empty schema.</td>
+<td style="text-align: left;">Configured-stride logical data-row blocks; Calamine still materializes the worksheet range.</td>
+<td style="text-align: left;">Reads the row range, then projects.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/excel.rs">excel.rs</a></td>
 </tr>
 </tbody>
 </table>
-<p>Delimited variants share one template (<code>plugins/base_templates/delimited.rs</code>) differing only in delimiter byte and header flag.</p>
+<p>All <code>slice_cols</code> calls preserve requested order and error if a field is missing. Parquet, Arrow IPC/Feather, and ORC push projection into their readers; mapped CSV/TSV/PSV/TXT parses selected columns while reading complete selected record bytes. JSON, Avro, MsgPack, and XLSX map paths decode the selected row range then project. Map entries require matching file size and modification time. Missing/stale entries or entries for another file fall back; an unreadable sidecar returns an error. Dynamic handlers for built-in extensions bypass built-in locators. Dynamic delimited handlers use <code>plugins/base_templates/delimited.rs</code> with registration-selected delimiter/header.</p>
 <hr />
 <h2 id="handler-resolution-order">Handler Resolution Order</h2>
 <p><code>resolve_handler_for_file()</code> tries, in order:</p>
@@ -1927,7 +1985,7 @@
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">table</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">slice_rows</span><span class="p">(</span><span class="s2">"data/custom.dat"</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">br</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">unregister_format</span><span class="p">(</span><span class="s2">"dat"</span><span class="p">)</span>  <span class="c1"># returns True if it existed</span>
 </span></code></pre></div>
-<p><code>handler_for()</code> prefers a registered handler over a built-in handler for the same extension. This applies only when a code path uses the dynamic registry. Map-backed slice fast paths and SQL's native DataFusion <code>ListingTable</code> readers use dedicated readers and do not apply dynamic overrides; see <a href="../datafusion/">DataFusion SQL</a>.</p>
+<p><code>handler_for()</code> prefers a registered handler over a built-in handler for the same extension. Slice APIs honor that override even when a Lake Map exists; the map records no built-in locator for the overridden extension and slicing falls back to the registered handler. SQL's native DataFusion <code>ListingTable</code> readers use their own format readers and do not apply dynamic overrides; see <a href="../datafusion/">DataFusion SQL</a>.</p>
 
 
 

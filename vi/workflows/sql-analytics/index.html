@@ -33,7 +33,7 @@
     
     
       
-        <title>Phân tích SQL Zero-Copy - Basaltic-Red Docs</title>
+        <title>Phân tích SQL qua Arrow Interop - Basaltic-Red Docs</title>
       
     
     
@@ -89,7 +89,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#luong-phan-tich-sql-zero-copy" class="md-skip">
+        <a href="#luong-phan-tich-sql-qua-arrow-interop" class="md-skip">
           Bỏ qua
         </a>
       
@@ -123,7 +123,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Phân tích SQL Zero-Copy
+              Phân tích SQL qua Arrow Interop
             
           </span>
         </div>
@@ -1746,7 +1746,7 @@
   
 
 
-<h1 id="luong-phan-tich-sql-zero-copy">Luồng phân tích SQL Zero-Copy</h1>
+<h1 id="luong-phan-tich-sql-qua-arrow-interop">Luồng phân tích SQL qua Arrow Interop</h1>
 <h2 id="tich-hop-truyen-luong-ket-qua">Tích hợp truyền luồng kết quả</h2>
 <p>Chạy các truy vấn tổng hợp SQL trực tiếp trên tệp Parquet sạch và chuyển tiếp sang Polars:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
@@ -1764,7 +1764,7 @@
 </span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="s2">    ORDER BY total_trips DESC</span>
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="s2">"""</span><span class="p">)</span>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># Chuyển đổi sang Polars DataFrame không qua copy bộ nhớ</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># Chuyển Arrow sang Polars; buffer tương thích có thể được dùng chung tại ranh giới interop</span>
 </span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">stream</span><span class="o">.</span><span class="n">to_pyarrow</span><span class="p">())</span>
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
 </span></code></pre></div>

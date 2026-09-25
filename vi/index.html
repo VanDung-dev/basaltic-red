@@ -1814,7 +1814,7 @@
 
 <hr />
 <h2 id="tong-quan">Tổng quan</h2>
-<p><code>basaltic-red</code> là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (<code>.br_map.bazan</code>), cắt lát dòng và cột không cần đọc toàn bộ file, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về <code>pyarrow.Table</code> hoặc <code>RecordBatch</code> để sử dụng trực tiếp với Polars, DuckDB, hoặc pandas.</p>
+<p><code>basaltic-red</code> là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (<code>.br_map.bazan</code>), cắt lát dòng và cột theo khả năng của từng định dạng, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về <code>pyarrow.Table</code> hoặc <code>RecordBatch</code> để sử dụng với Polars, DuckDB hoặc pandas.</p>
 <p>Demo trong <a href="https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb"><code>demo.ipynb</code></a>: NYC TLC Yellow Taxi từ năm 2009 đến 2025, gồm 204 file Parquet, dung lượng 29.66 GB, 1,826,960,642 dòng nhân 20 cột.</p>
 <pre class="mermaid"><code>graph LR
     A["File thô (204 Parquet / 29.66 GB)"] --&gt; B["Lõi Rust"]
@@ -1827,10 +1827,10 @@
 <h2 id="chuc-nang-chinh">Chức năng chính</h2>
 <ul>
 <li>Catalog (<code>.br_map.bazan</code>): một payload Arrow IPC ở gốc lake; đọc warm qua <code>memmap2</code> tránh duyệt cây thư mục. Doctor trả về <code>HEALTHY</code>, <code>DRIFT_DETECTED</code>, hoặc <code>HEALED</code>.</li>
-<li>Cắt lát: <code>slice_rows</code> và <code>slice_cols</code> chỉ đọc phần dữ liệu được yêu cầu.</li>
+<li>Cắt lát: <code>slice_rows</code> và <code>slice_cols</code> trả về khoảng dữ liệu được yêu cầu. Map khỏe cho phép reader hỗ trợ bỏ qua block không liên quan; một số định dạng vẫn phải giải mã thêm dữ liệu, còn XLSX materialize worksheet qua Calamine.</li>
 <li>Lọc: quy tắc động theo định dạng <code>cột toán_tử giá_trị</code>; dòng lỗi mang <code>audit_error_code</code> (bitmask <code>u64</code>, chia chunk khi số quy tắc vượt quá 64).</li>
-<li>SQL: phiên DataFusion; <code>execute_sql_stream</code> trả về <code>PyBatchIterator</code>, <code>to_pyarrow()</code> bàn giao batch cho Polars hoặc DuckDB không qua sao chép.</li>
-<li>Định dạng: đăng ký định dạng phân cách tùy chỉnh qua <code>br.formats.register_delimited</code>; các luồng phân giải định dạng có thể nhận diện tệp không có đuôi bằng magic byte, còn <code>filter_files_parallel</code> cần extension đã đăng ký.</li>
+<li>SQL: phiên DataFusion; <code>execute_sql_stream</code> trả về <code>PyBatchIterator</code>, <code>to_pyarrow()</code> bàn giao Arrow batch cho Polars hoặc DuckDB. Buffer tương thích có thể được dùng chung ở ranh giới Arrow interop; reader và bước chuyển đổi phía sau vẫn có thể giải mã hoặc materialize dữ liệu.</li>
+<li>Định dạng: đăng ký định dạng phân cách tùy chỉnh qua <code>br.formats.register_delimited</code>; đọc trực tiếp một file có thể nhận diện một số file không có extension bằng magic byte. Discovery thư mục của Lake Map, Lake Doctor và <code>filter_files_parallel</code> dựa trên extension và cần handler đang hoạt động.</li>
 </ul>
 <hr />
 <h2 id="ket-qua-o-trong-demo">Kết quả đo trong demo</h2>

@@ -1957,7 +1957,7 @@
 
 
 <h1 id="tai-lieu-tham-chieu-python-api">Tài liệu tham chiếu Python API</h1>
-<p>Chữ ký dưới đây khớp với <code>src/pyapi/*.rs</code>. Mọi hàm trả về đối tượng PyArrow (<code>Table</code> / <code>RecordBatch</code>) qua cầu nối zero-copy.</p>
+<p>Chữ ký dưới đây khớp với <code>src/pyapi/*.rs</code>. Các hàm trả về <code>Table</code> hoặc <code>RecordBatch</code> đi qua ranh giới PyO3 bằng Arrow C Data Interface; các hàm khác trả về scalar, tuple hoặc dictionary như liệt kê bên dưới.</p>
 <hr />
 <h2 id="export-cap-cao-nhat">Export cấp cao nhất</h2>
 <table>
@@ -2001,6 +2001,7 @@
 </tr>
 </tbody>
 </table>
+<p>Lệnh slice trả về khoảng dòng được yêu cầu; <code>slice_cols</code> trả cột theo thứ tự <code>selected_cols</code>. Parquet, Arrow IPC/Feather và ORC chuyển phép chiếu cột xuống reader. Delimited trên đường mapped project cột khi parse nhưng vẫn đọc byte của từng record được chọn; Avro, MsgPack, họ JSON và XLSX có thể chiếu sau khi decode các dòng được chọn. Khi không có locator Lake Map phù hợp, fallback có thể stream rồi bỏ qua từ đầu. Đọc trực tiếp một file có thể sniff một số file không có extension hoặc extension lạ; discovery thư mục của map và Lake Doctor dựa trên extension và chỉ gồm extension có handler đang hoạt động.</p>
 <h2 id="basaltic_redfilter"><code>basaltic_red.filter</code></h2>
 <table>
 <thead>
@@ -2055,7 +2056,7 @@
 <td style="text-align: left;"><code>(files_read, gold_rows, manifest_path)</code></td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>create_map(dir_path: str, show_progress: bool = True)</code></td>
+<td style="text-align: left;"><code>create_map(dir_path: str, show_progress: bool = True, *, checkpoint_stride_rows: int = 65536, fingerprint: str = "metadata", stats_columns: list[str] \| None = None)</code></td>
 <td style="text-align: left;">đường dẫn tới <code>.br_map.bazan</code> vừa ghi (<code>str</code>)</td>
 </tr>
 <tr>
@@ -2068,6 +2069,8 @@
 </tr>
 </tbody>
 </table>
+<p><code>checkpoint_stride_rows</code> phải lớn hơn 0 và điều khiển checkpoint cho định dạng theo dòng; row group Parquet, stripe ORC, block Avro, batch Arrow và block logic XLSX vẫn theo ranh giới riêng của định dạng. <code>fingerprint</code> nhận <code>"metadata"</code> (mặc định) hoặc <code>"blake3"</code>. <code>stats_columns=None</code> tính mọi thống kê hiện được hỗ trợ, <code>[]</code> tắt thống kê, còn danh sách tên giới hạn cột được thống kê. Tắt thống kê vẫn cần đọc tệp để đếm dòng và tạo locator.</p>
+<p><code>locate_row</code> phân giải từ map đã lưu và không kiểm tra độ mới của file nguồn. Hãy chạy <code>doctor</code> sau khi thêm, xóa hoặc sửa file; với BLAKE3, Doctor có thể phát hiện nội dung đổi nhưng giữ nguyên dung lượng và mtime. <code>create_map</code> và <code>doctor</code> discovery theo extension được hỗ trợ; file không có extension nhưng đọc trực tiếp được nằm ngoài phạm vi thư mục này. Extension động phải được đăng ký trong mỗi process chạy tạo hoặc kiểm tra map. Map schema 3 lưu các tùy chọn này và hash BLAKE3 tùy chọn cho từng file; map 5 cột cũ và schema 2 được nạp với mặc định trước đây. Slice vẫn chỉ kiểm size/mtime để không hash lại toàn file ở mỗi range.</p>
 <h2 id="basaltic_redsql"><code>basaltic_red.sql</code></h2>
 <table>
 <thead>

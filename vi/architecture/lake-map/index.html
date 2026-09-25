@@ -1832,16 +1832,18 @@
     Drift --&gt; Healed: doctor(auto_heal=True)
     Healed --&gt; Healthy: danh mục đồng bộ trở lại</code></pre>
 <ul>
-<li><code>build_lake_map()</code> duyệt thư mục (qua <code>discover_data_files</code>), đọc schema/số dòng và thống kê min/max toàn file cho các cột số/chuỗi được hỗ trợ.</li>
+<li><code>build_lake_map()</code> duyệt thư mục (qua <code>discover_data_files</code>), đọc schema/số dòng và thống kê min/max toàn file. Kiểu được hỗ trợ và độ chính xác số được ghi trong <a href="../../reference/lake-map-spec/#tong-hop">đặc tả Lake Map</a>.</li>
+<li>Khoảng cách checkpoint theo dòng cấu hình bằng <code>checkpoint_stride_rows</code> khi tạo map; mặc định là <code>65,536</code> và phải lớn hơn 0. Ví dụ: <code>br.lake.create_map("data", checkpoint_stride_rows=16_384)</code>. Thiết lập này áp dụng cho checkpoint dòng/object NDJSON/JSON, file delimited, block MsgPack và block dòng logic XLSX. Nó không chia nhỏ row group native của Parquet, stripe ORC, block OCF Avro hoặc batch Arrow IPC.</li>
+<li>Tạo Lake Map và Lake Doctor dùng chung tập file được discovery theo extension: gồm extension built-in và dynamic extension đang được đăng ký, bỏ qua file không có extension. Có thể đọc trực tiếp file extensionless bằng magic-byte sniffing, nhưng file đó nằm ngoài phạm vi map/doctor theo thư mục. Dynamic handler cần được đăng ký khi tạo map và chạy doctor; nếu không, file dùng extension đó sẽ không được discovery, entry cũ bị báo thiếu và auto-heal sẽ loại khỏi map.</li>
 <li>Với Parquet, builder còn đọc footer và lưu khoảng dòng, khoảng byte nén của từng row group cùng khoảng byte của từng column chunk. Đây không phải một byte offset cho từng dòng logic.</li>
-<li>Với NDJSON, builder lưu block 64K dòng cùng dòng logic đầu tiên, byte đầu tiên và độ dài byte. Nó không tạo offset cho từng dòng.</li>
-<li>Với <code>.json</code>, builder quét một mảng top-level và lưu block 64K object. Scanner hiểu nesting, chuỗi quote và escape để checkpoint luôn bắt đầu tại object hoàn chỉnh.</li>
+<li>Với NDJSON, builder lưu block dòng theo stride đã cấu hình cùng dòng logic đầu tiên, byte đầu tiên và độ dài byte. Nó không tạo offset cho từng dòng.</li>
+<li>Với <code>.json</code> và <code>.jsonl</code>, byte đầu tiên không phải whitespace chọn locator: <code>[</code> lưu block object top-level trong mảng theo stride đã cấu hình; các trường hợp khác lưu checkpoint dòng theo stride đó. Scanner mảng hiểu nesting, chuỗi quote và escape. <code>.ndjson</code> luôn dùng checkpoint dòng.</li>
 <li>Với ORC, builder lấy ordinal, khoảng dòng, byte offset và kích thước stripe từ footer metadata của ORC. Khi slice, reader ORC dùng byte range để bỏ qua các stripe trước đó.</li>
 <li>Với Avro, builder đọc header Object Container File và lưu khoảng dòng, byte offset, kích thước block vật lý và payload nén của từng data block. Khi slice, hệ thống phát lại header rồi seek reader Avro tới block tương ứng.</li>
-<li>Với MsgPack, builder decode các object top-level để tìm boundary mỗi block 64K object và lưu checkpoint byte. Khi slice, hệ thống lấy schema từ map đầu tiên, seek tới checkpoint rồi decode tiếp.</li>
-<li>Với XLSX, builder ghi block logic 64K dòng dữ liệu của worksheet đầu tiên. XML worksheet thường được nén Deflate trong ZIP nên checkpoint không có byte offset vật lý; khi slice, <code>XlsxRows</code> bắt đầu từ block logic đã chọn, nhưng Calamine vẫn materialize toàn bộ range worksheet trước đó.</li>
+<li>Với MsgPack, builder decode các object top-level để tìm boundary block theo stride đã cấu hình và lưu checkpoint byte. Khi slice, hệ thống lấy schema từ map đầu tiên, seek tới checkpoint rồi decode tiếp.</li>
+<li>Với XLSX, builder ghi block dòng dữ liệu logic theo stride đã cấu hình cho worksheet đầu tiên. XML worksheet thường được nén Deflate trong ZIP nên checkpoint không có byte offset vật lý; khi slice, <code>XlsxRows</code> bắt đầu từ block logic đã chọn, nhưng Calamine vẫn materialize toàn bộ range worksheet trước đó.</li>
 <li>Với Arrow IPC/Feather, builder lưu ordinal và khoảng dòng của từng RecordBatch. Khi đọc, hệ thống dùng random access batch index native của Arrow IPC thay vì offset cho từng dòng.</li>
-<li>Với CSV, builder quét ranh giới record có hiểu quote và lưu block 64K dòng. Checkpoint không bao giờ cắt giữa quoted field hoặc newline bên trong field; cùng scanner được dùng cho TSV, PSV và TXT phân cách bằng dấu chấm phẩy.</li>
+<li>Với CSV, builder quét ranh giới record có hiểu quote và lưu block dòng theo stride đã cấu hình. Checkpoint không bao giờ cắt giữa quoted field hoặc newline bên trong field; cùng scanner được dùng cho TSV, PSV và TXT phân cách bằng dấu chấm phẩy.</li>
 <li><code>save_lake_map_ipc()</code> serialize bản đồ; <code>load_lake_map_ipc()</code> đọc ngược qua memory map.</li>
 </ul>
 <h2 id="schema-tren-ia">Schema trên đĩa</h2>
@@ -1889,11 +1891,18 @@
 <td style="text-align: left;"><code>Utf8</code></td>
 <td style="text-align: left;">Vị trí row group Parquet, stripe ORC, block OCF Avro, block object MsgPack, block dòng logic XLSX, block dòng NDJSON/JSONL/JSON-array và CSV/TSV/PSV/TXT hoặc RecordBatch Arrow IPC/Feather; <code>[]</code> với định dạng khác</td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>content_hash</code></td>
+<td style="text-align: left;"><code>Utf8</code> (nullable)</td>
+<td style="text-align: left;">Digest BLAKE3 khi tạo map với <code>fingerprint="blake3"</code>; nếu không thì null</td>
+</tr>
 </tbody>
 </table>
-<p>Struct tổng hợp cũng mang theo <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>.</p>
+<p>Struct tổng hợp cũng mang theo <code>total_files</code>, <code>total_rows</code>, <code>total_bytes</code>. Stride checkpoint và chính sách fingerprint đã chọn được lưu trong metadata schema Arrow.</p>
 <h2 id="phan-giai-vi-tri">Phân giải vị trí</h2>
-<p>Với entry Parquet còn khỏe, <code>slice_rows</code> và <code>slice_cols</code> tìm các row group giao với khoảng cần đọc, chỉ truyền ordinal của chúng cho Parquet reader, rồi áp dụng offset/limit cục bộ. Với entry ORC còn khỏe, chúng seek tới byte offset của stripe chứa dòng rồi để ORC reader đọc stripe đó và các stripe sau. Với entry Avro còn khỏe, chúng phát lại header OCF, seek tới byte offset của block chứa dòng rồi giải mã block đó và các block sau. Với entry MsgPack còn khỏe, chúng seek tới checkpoint block object và decode tiếp sau khi dùng lại schema từ map đầu tiên. Với entry XLSX còn khỏe, chúng bắt đầu <code>XlsxRows</code> tại block dòng logic chứa offset; điều này bỏ qua vòng lặp dòng trước đó của adapter, nhưng Calamine đã materialize toàn bộ worksheet range, nên không phải seek byte vật lý trong ZIP. Với entry NDJSON/JSONL và JSON-array còn khỏe, chúng seek tới checkpoint chứa dòng/object yêu cầu rồi parse tiếp. Với CSV/TSV/PSV/TXT, chúng seek tới block dòng quote-safe. Với entry Arrow IPC/Feather còn khỏe, chúng tìm RecordBatch chứa dòng rồi gọi random-access index native của Arrow IPC trước khi đọc tiếp. Nếu file Parquet có OffsetIndex, map lưu thêm vị trí page để reader bỏ qua page trước offset. <code>br.lake.locate_row()</code> phơi ra phép phân giải global-row mà không giải mã dữ liệu. Map thiếu hoặc map stale sẽ fallback về streaming và không bao giờ được dùng cho file đã thay đổi.</p>
+<p>Với entry Parquet còn khỏe, <code>slice_rows</code> và <code>slice_cols</code> tìm row group giao với khoảng cần đọc rồi truyền các group đó cho reader. Nếu file nguồn có OffsetIndex, Parquet Arrow reader có thể dùng index nạp từ file để bỏ qua page bên trong các group được chọn; page location đã serialize trong map không được truyền vào reader. Mapped <code>slice_cols</code> chuyển cột được chọn xuống Parquet, Arrow IPC/Feather và ORC reader. Reader delimited trên đường mapped áp dụng cột được chọn khi parse, nhưng vẫn phải đọc byte của từng record được chọn để tìm ranh giới field. Các row reader khác (Avro, MsgPack, họ JSON và XLSX) decode các dòng được chọn trước rồi mới project cột.</p>
+<p>Slice ORC seek tới byte offset của stripe chứa dòng rồi để ORC reader đọc stripe đó và các stripe sau. Slice Avro phát lại header OCF, seek tới byte offset của block chứa dòng rồi decode tiếp. Slice MsgPack seek tới checkpoint block object và decode tiếp bằng schema từ map đầu tiên. Slice XLSX bắt đầu <code>XlsxRows</code> tại block dòng logic chứa offset, nhưng Calamine đã materialize worksheet đầu tiên nên đây không phải seek byte vật lý trong ZIP.</p>
+<p>NDJSON dùng checkpoint dòng. <code>.json</code> và <code>.jsonl</code> dùng checkpoint object mảng khi byte đầu tiên không phải whitespace là <code>[</code> và dùng checkpoint dòng trong các trường hợp khác. Định dạng Delimited seek tới checkpoint dòng hiểu quote. Arrow IPC/Feather tìm RecordBatch chứa dòng qua native batch index. Các locator block, stripe, row-group và batch này vẫn cần reader decode tiếp các dòng trong range được chọn. <code>br.lake.locate_row()</code> phân giải global-row từ map đã lưu mà không decode dữ liệu nguồn, nhưng không kiểm tra map còn mới hay không. Hãy chạy Lake Doctor sau khi thêm, xóa hoặc sửa file nguồn; dùng fingerprint BLAKE3 cùng Doctor nếu cần phát hiện nội dung đổi nhưng giữ nguyên dung lượng và mtime. Khi resolve slice, hệ thống chỉ so size và mtime; không hash lại toàn bộ tệp. Dynamic handler override dùng handler đã đăng ký và không có locator built-in; map thiếu hoặc stale sẽ fallback về reader thông thường và không dùng map nếu metadata được kiểm tra cho thấy tệp đã thay đổi.</p>
 <hr />
 <h2 id="lake-doctor">Lake Doctor</h2>
 <p><code>doctor_lake_map(dir_path, auto_heal)</code> so sánh hiện trạng đĩa với danh mục:</p>
@@ -1915,11 +1924,11 @@
 </tr>
 <tr>
 <td style="text-align: left;"><code>healthy_count</code></td>
-<td style="text-align: left;">Entry khớp danh mục hoàn toàn (đường dẫn + dung lượng + mtime)</td>
+<td style="text-align: left;">Entry khớp các kiểm tra catalog (đường dẫn + dung lượng + mtime; thêm content hash nếu <code>fingerprint="blake3"</code>)</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>modified_files</code></td>
-<td style="text-align: left;">Đường dẫn đã biết nhưng size/mtime thay đổi</td>
+<td style="text-align: left;">Đường dẫn đã biết nhưng không đạt kiểm tra freshness đã cấu hình (size/mtime, và BLAKE3 nếu bật)</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>unindexed_files</code></td>
@@ -1935,6 +1944,7 @@
 </tr>
 </tbody>
 </table>
+<p>Với <code>fingerprint="metadata"</code> mặc định, phân loại drift so sánh đường dẫn đã discovery, dung lượng và thời gian sửa đổi; không phát hiện đổi nội dung cùng dung lượng nếu mtime được giữ nguyên. Với <code>fingerprint="blake3"</code>, Lake Doctor cũng xác minh BLAKE3 content hash đã lưu. Slice chỉ kiểm tra đường dẫn, dung lượng và mtime; không hash toàn bộ file nguồn. Khi <code>auto_heal=True</code>, file mới và file đã sửa được đọc lại để dựng entry map. <code>HEALTHY</code> nghĩa là các kiểm tra đã cấu hình đều khớp, không phải baseline bảo đảm toàn vẹn nội dung bên ngoài.</p>
 <p><strong>Chữa lành</strong> dựng lại danh sách entry từ những gì còn tồn tại (bỏ <code>missing_files</code>, làm mới thống kê cho entry modified/unindexed) rồi ghi lại <code>.br_map.bazan</code>. Nếu đọc một file lỗi, thao tác dừng thay vì tạo catalog thiếu. Status chuyển thành <code>"HEALED"</code>. Không có <code>auto_heal=True</code> thì báo cáo thuần túy chẩn đoán.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">basaltic_red</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">br</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>

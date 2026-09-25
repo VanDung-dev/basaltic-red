@@ -1849,7 +1849,7 @@
 <p>Counted via <code>pq.read_metadata</code> + <code>os.path.getsize</code> in the notebook; volume scan is metadata-only (no full data read).</p>
 <hr />
 <h2 id="2-catalog-inspection-br_mapbazan">2. Catalog inspection (<code>.br_map.bazan</code>)</h2>
-<p><code>br.lake.create_map("data")</code> walks the directory and builds <code>.br_map.bazan</code>; loading the saved catalog uses <code>memmap2</code>. A full <code>doctor</code> call still walks the current file metadata to detect drift.</p>
+<p><code>br.lake.create_map("data")</code> walks the directory and builds <code>.br_map.bazan</code>; loading the saved catalog uses <code>memmap2</code>. A full <code>doctor</code> call still discovers files and checks their path, size, and modification time to detect catalog drift; this comparison does not use file-content hashes.</p>
 <table>
 <thead>
 <tr>
@@ -1888,7 +1888,7 @@
 <h2 id="4-single-file-operations">4. Single-file operations</h2>
 <p>One monthly batch (<code>yellow_tripdata_2025-12.parquet</code>, ~4,305,006 rows), used for the SQL and slicing demos:</p>
 <ul>
-<li>Slicing: <code>br.read.slice_rows(..., offset=0, limit=100)</code> returns in milliseconds (no full read).</li>
+<li>Slicing: the notebook demonstrates <code>br.read.slice_rows(..., offset=0, limit=100)</code>, but does not time that call separately. The API can use map locators to avoid unrelated blocks; latency depends on the file and cache.</li>
 <li>SQL: <code>br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")</code>, aggregation over the single file completes in ~0.1 s in the demo; handoff to DuckDB via <code>duckdb.from_arrow(stream.to_pyarrow())</code> is an Arrow FFI transfer.</li>
 </ul>
 <p>No claims about pandas/Postgres baselines, comparison depends on query and hardware.</p>

@@ -1832,37 +1832,95 @@
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="k">fn</span><span class="w"> </span><span class="nf">read_range_columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="cm">/* ... */</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">RecordBatch</span><span class="p">,</span><span class="w"> </span><span class="n">BazanError</span><span class="o">&gt;</span><span class="p">;</span>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>Handler trả về <code>OpenedSource</code> kiểu lazy, một Arrow schema kèm iterator batch dạng streaming. Các định dạng theo dòng (CSV, JSONL, XLSX) chia khối qua template dùng chung tại <code>plugins/base_templates/row_chunker.rs</code>; các định dạng cột (Parquet, IPC) stream thuần túy.</p>
+<p>Handler trả về <code>OpenedSource</code> kiểu lazy, một Arrow schema kèm iterator batch dạng streaming. Reader CSV/JSON và reader cột Parquet/IPC trả trực tiếp Arrow batch; adapter Avro, MessagePack và XLSX dùng <code>plugins/base_templates/row_chunker.rs</code> để chuyển row đã decode thành batch.</p>
 <hr />
 <h2 id="inh-dang-san-co">Định dạng sẵn có</h2>
-<p>Bảng tĩnh <code>HANDLERS</code> ánh xạ extension về handler:</p>
+<p><code>HANDLERS</code> trong <code>formats/mod.rs</code> hiện đăng ký 16 extension. Các alias dùng chung handler được gom cùng hàng.
+Việc quét locator và định tuyến slice nằm trong <a href="../../../../src/engine/map.rs"><code>map.rs</code></a> và <a href="../../../../src/engine/slice.rs"><code>slice.rs</code></a>.</p>
 <table>
 <thead>
 <tr>
-<th style="text-align: left;">Tier</th>
-<th style="text-align: left;">Extension</th>
-<th style="text-align: left;">Nguồn handler</th>
+<th style="text-align: left;">Extension(s)</th>
+<th style="text-align: left;">Schema, header, null và lỗi đọc</th>
+<th style="text-align: left;">Cắt dòng và Lake Map</th>
+<th style="text-align: left;">Cắt cột</th>
+<th style="text-align: left;">Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><strong>1, Core</strong></td>
-<td style="text-align: left;"><code>parquet</code>, <code>pq</code>, <code>feather</code>, <code>arrow</code>, <code>ipc</code></td>
-<td style="text-align: left;"><code>formats/core/parquet.rs</code>, <code>formats/core/arrow_ipc.rs</code></td>
+<td style="text-align: left;"><code>.parquet</code>, <code>.pq</code></td>
+<td style="text-align: left;">Giữ schema/type Arrow trong Parquet, giữ Arrow null; file/lỗi đọc được trả về.</td>
+<td style="text-align: left;">Checkpoint row group vật lý; map thiếu/cũ/không khớp thì dùng reader thường.</td>
+<td style="text-align: left;"><code>ProjectionMask</code> ở cả nhánh map và fallback.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/core/parquet.rs">parquet.rs</a></td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>2, Common</strong></td>
-<td style="text-align: left;"><code>csv</code>, <code>tsv</code>, <code>psv</code>, <code>txt</code>, <code>json</code>, <code>jsonl</code>, <code>ndjson</code></td>
-<td style="text-align: left;"><code>formats/common/csv.rs</code>, <code>formats/common/json.rs</code></td>
+<td style="text-align: left;"><code>.feather</code>, <code>.arrow</code>, <code>.ipc</code></td>
+<td style="text-align: left;">Schema/type Arrow IPC <strong>file</strong> và Arrow null; file/lỗi đọc được trả về.</td>
+<td style="text-align: left;">Lưu ordinal/khoảng dòng record batch; bắt đầu ở batch rồi skip cục bộ, không seek byte.</td>
+<td style="text-align: left;">Truyền index field đã chọn xuống IPC reader ở cả hai nhánh.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/core/arrow_ipc.rs">arrow_ipc.rs</a></td>
 </tr>
 <tr>
-<td style="text-align: left;"><strong>3, Pluggable adapters</strong></td>
-<td style="text-align: left;"><code>xlsx</code>, <code>avro</code>, <code>orc</code>, <code>msgpack</code></td>
-<td style="text-align: left;"><code>formats/plugins/adapters/</code></td>
+<td style="text-align: left;"><code>.csv</code>, <code>.psv</code>, <code>.txt</code></td>
+<td style="text-align: left;">Dòng đầu là header; delimiter <code>,</code>, <code>|</code>, <code>;</code>. Arrow suy luận type tối đa 100 record và dùng null mặc định; không có token null riêng. Lỗi parser/type được trả về.</td>
+<td style="text-align: left;">Byte checkpoint hiểu quote theo stride cấu hình; bỏ dòng vật lý rỗng.</td>
+<td style="text-align: left;">Nhánh map parse cột được chọn nhưng vẫn đọc byte của từng record; fallback có thể project trong Arrow CSV.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/csv.rs">csv.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.tsv</code></td>
+<td style="text-align: left;">Dòng đầu là header; mọi cột UTF-8 nullable; chính xác <code>\N</code> là null. Dòng ngắn đệm null; thừa field/lỗi parser gây lỗi.</td>
+<td style="text-align: left;">Byte checkpoint hiểu quote theo stride cấu hình; bỏ dòng vật lý rỗng.</td>
+<td style="text-align: left;">Nhánh map parse cột được chọn nhưng vẫn đọc byte của từng record; fallback có thể project trong Arrow CSV.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/csv.rs">csv.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.json</code>, <code>.jsonl</code></td>
+<td style="text-align: left;">JSON object mỗi dòng hoặc mảng top-level các object; schema suy luận tối đa 100 record; field thiếu/null thành null. JSON sai, value không tương thích hoặc phần tử mảng không phải object gây lỗi.</td>
+<td style="text-align: left;">Block dòng theo stride cấu hình: checkpoint đầu object nếu là mảng, nếu không checkpoint theo dòng.</td>
+<td style="text-align: left;">Đọc row range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/json.rs">json.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.ndjson</code></td>
+<td style="text-align: left;">Dạng kỳ vọng: mỗi dòng một object; schema suy luận tối đa 100 record; field thiếu/null thành null. JSON sai/value không tương thích gây lỗi; dòng cuối không cần newline.</td>
+<td style="text-align: left;">Byte checkpoint theo stride cấu hình của record không rỗng.</td>
+<td style="text-align: left;">Đọc row range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/common/json.rs">json.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.orc</code></td>
+<td style="text-align: left;">Schema/type Arrow; giữ Arrow null; lỗi mở/decode ORC được trả về.</td>
+<td style="text-align: left;">Checkpoint stripe vật lý; bắt đầu tại stripe chứa dòng đầu rồi skip cục bộ.</td>
+<td style="text-align: left;">Đọc đủ cột của range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/orc.rs">orc.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.avro</code></td>
+<td style="text-align: left;">Field record nullable. <code>long</code>/<code>int</code>/<code>double</code>/<code>boolean</code> → <code>Int64</code>/<code>Int32</code>/<code>Float64</code>/<code>Boolean</code>; union một nhánh khác null dùng mapping của nhánh đó. Type khác là UTF-8 nhưng chỉ string chuyển được; value null/không hỗ trợ thành null. OCF/schema/data sai gây lỗi.</td>
+<td style="text-align: left;">Checkpoint block Avro Object Container File; bắt đầu tại block chứa dòng đầu rồi skip cục bộ.</td>
+<td style="text-align: left;">Đọc đủ row của range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/avro.rs">avro.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.msgpack</code></td>
+<td style="text-align: left;">Không có header. Map đầu định nghĩa field/type (key chuỗi đặt tên và điền field; key khác thành tên <code>col</code> nhưng không điền field) và là row đầu; value trước bị bỏ qua. Integer/F32/F64/Boolean → <code>Int64</code>/<code>Float64</code>/<code>Boolean</code>; type khác UTF-8, chỉ giữ string. Thiếu/incompatible value và row không phải map thành null; key thừa bỏ qua; phần cuối hỏng gây lỗi đọc.</td>
+<td style="text-align: left;">Byte checkpoint theo stride cấu hình của top-level row kể từ map đầu; schema suy luận từ map đó trước khi đọc range.</td>
+<td style="text-align: left;">Đọc đủ row của range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/msgpack.rs">msgpack.rs</a></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>.xlsx</code></td>
+<td style="text-align: left;">Chỉ worksheet đầu; dòng đầu là header; cột dữ liệu UTF-8; cell rỗng thành null. Thiếu sheet đọc được gây lỗi; thiếu header trả schema rỗng.</td>
+<td style="text-align: left;">Block dòng logic theo stride cấu hình; Calamine vẫn materialize worksheet range.</td>
+<td style="text-align: left;">Đọc row range rồi project.</td>
+<td style="text-align: left;"><a href="../../../../src/engine/formats/plugins/adapters/excel.rs">excel.rs</a></td>
 </tr>
 </tbody>
 </table>
-<p>Các biến thể phân cách dùng chung một template (<code>plugins/base_templates/delimited.rs</code>), chỉ khác byte phân cách và cờ header.</p>
+<p>Mọi <code>slice_cols</code> giữ thứ tự cột yêu cầu và báo lỗi nếu thiếu field. Parquet, Arrow IPC/Feather và ORC chuyển phép chiếu xuống reader; CSV/TSV/PSV/TXT trên nhánh map parse cột được chọn nhưng vẫn đọc đủ byte của record. Nhánh map JSON, Avro, MsgPack và XLSX decode khoảng dòng được chọn rồi mới project. Map chỉ dùng khi size và modification time còn khớp. Map thiếu/cũ hoặc entry không khớp thì fallback; sidecar không đọc được trả lỗi. Handler động cho extension built-in bỏ qua locator built-in. Dynamic delimited dùng <code>plugins/base_templates/delimited.rs</code> với delimiter/header do người đăng ký chọn.</p>
 <hr />
 <h2 id="thu-tu-phan-giai-handler">Thứ tự phân giải Handler</h2>
 <p><code>resolve_handler_for_file()</code> thử lần lượt:</p>
@@ -1927,7 +1985,7 @@
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">table</span> <span class="o">=</span> <span class="n">br</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">slice_rows</span><span class="p">(</span><span class="s2">"data/custom.dat"</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">br</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">unregister_format</span><span class="p">(</span><span class="s2">"dat"</span><span class="p">)</span>  <span class="c1"># trả True nếu từng tồn tại</span>
 </span></code></pre></div>
-<p><code>handler_for()</code> ưu tiên handler đã đăng ký hơn built-in cùng extension. Điều này chỉ áp dụng cho luồng có dùng registry động. Các nhánh slice tối ưu theo map và reader DataFusion <code>ListingTable</code> của SQL dùng reader riêng nên không áp dụng override động; xem <a href="../datafusion/">SQL DataFusion</a>.</p>
+<p><code>handler_for()</code> ưu tiên handler đã đăng ký hơn built-in cùng extension. API slice giữ ưu tiên này kể cả khi có Lake Map; map không ghi locator built-in cho extension bị override và slice fallback sang handler đã đăng ký. Reader DataFusion <code>ListingTable</code> riêng của SQL không áp dụng override động; xem <a href="../datafusion/">SQL DataFusion</a>.</p>
 
 
 

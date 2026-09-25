@@ -1853,7 +1853,7 @@
 </tr>
 <tr>
 <td style="text-align: left;"><code>slice_cols(file_path, selected_cols, offset, limit)</code></td>
-<td style="text-align: left;">Như trên. Parquet đẩy phép chiếu xuống reader; XLSX, ORC, Avro, MsgPack, NDJSON/JSONL, JSON-array và CSV/TSV/PSV/TXT cùng Arrow IPC/Feather đọc từ boundary đã lập chỉ mục rồi mới chiếu các cột yêu cầu.</td>
+<td style="text-align: left;">Cùng cách phân giải vị trí. Parquet, Arrow IPC/Feather và ORC chuyển phép chiếu xuống reader. Delimited mapped parse cột được chọn nhưng vẫn đọc byte của từng record; định dạng theo dòng khác thường decode các dòng được chọn rồi mới project. Nếu không có locator phù hợp, handler có thể stream và bỏ qua dòng trước. Thứ tự cột đầu ra theo <code>selected_cols</code>.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>preview_sample(file_path, limit_rows)</code></td>
@@ -1861,7 +1861,7 @@
 </tr>
 </tbody>
 </table>
-<p>Cả hai phương thức slice đều phân giải handler qua <a href="../formats/">registry định dạng</a>, nên hoạt động với mọi định dạng được hỗ trợ chứ không riêng Parquet.</p>
+<p>Cả hai phương thức slice đều phân giải handler qua <a href="../formats/">registry định dạng</a>, nên hỗ trợ các định dạng đã đăng ký ngoài Parquet. Locator trong map tùy theo định dạng; handler fallback có thể stream và bỏ qua từ đầu. XLSX bắt đầu ở dòng logic đã lập chỉ mục sau khi Calamine materialize worksheet.</p>
 <hr />
 <h2 id="phan-loai-loi">Phân loại lỗi</h2>
 <p>Toàn bộ lỗi engine đi qua một enum duy nhất, <code>BazanError</code> trong <code>src/error.rs</code>, được ánh xạ sang Python bởi một hàm duy nhất (<code>src/pyapi/mod.rs</code>):</p>

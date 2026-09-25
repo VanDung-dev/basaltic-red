@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Deep dive into Apache Arrow zero-copy memory, SIMD bitmasks, and binary lake mapping">
+        <meta name="description" content="Apache Arrow interchange, SIMD bitmasks, and binary lake mapping">
       
       
         <meta name="author" content="Nguyễn Lê Văn Dũng">
@@ -681,10 +681,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-zero-copy-apache-arrow-architecture" class="md-nav__link">
+  <a href="#1-apache-arrow-interchange" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Zero-Copy Apache Arrow Architecture
+        1. Apache Arrow Interchange
       </span>
     </span>
   </a>
@@ -1727,10 +1727,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-zero-copy-apache-arrow-architecture" class="md-nav__link">
+  <a href="#1-apache-arrow-interchange" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        1. Zero-Copy Apache Arrow Architecture
+        1. Apache Arrow Interchange
       </span>
     </span>
   </a>
@@ -1793,8 +1793,8 @@
 <h1 id="core-concepts">Core Concepts</h1>
 <p>Understanding the foundational building blocks of <code>basaltic-red</code>.</p>
 <hr />
-<h2 id="1-zero-copy-apache-arrow-architecture">1. Zero-Copy Apache Arrow Architecture</h2>
-<p><code>basaltic-red</code> uses Apache Arrow's standard in-memory columnar format across all operations. When data is read from Parquet or IPC files, raw byte buffers are parsed directly into Arrow <code>RecordBatch</code> structures. When handing data off to Python libraries (Polars, PyArrow, DuckDB), pointer transfers via the Arrow C Data Interface prevent redundant memory copying.</p>
+<h2 id="1-apache-arrow-interchange">1. Apache Arrow Interchange</h2>
+<p><code>basaltic-red</code> uses Apache Arrow's standard in-memory columnar format across its operations. File readers decode Parquet, IPC, and other supported formats into Arrow <code>RecordBatch</code> values; reading compressed or encoded files is not zero-copy from disk. At the Rust/Python boundary, Arrow's C Data Interface can transfer compatible Arrow buffers without copying. Downstream libraries may still copy when a conversion or unsupported layout requires it.</p>
 <pre class="mermaid"><code>sequenceDiagram
     participant D as Disk (Parquet / IPC)
     participant R as Rust Arrow RecordBatch
@@ -1802,10 +1802,10 @@
     participant PL as Polars DataFrame
     participant DB as DuckDB Relation
 
-    D-&gt;&gt;R: memmap / FileReader parse
-    R-&gt;&gt;A: PyCapsule via Arrow C Data Interface
-    A--&gt;&gt;PL: zero-copy view
-    A--&gt;&gt;DB: zero-copy view</code></pre>
+    D-&gt;&gt;R: decode file into Arrow arrays
+    R-&gt;&gt;A: Arrow C Data Interface
+    A--&gt;&gt;PL: share compatible buffers
+    A--&gt;&gt;DB: Arrow interchange</code></pre>
 <hr />
 <h2 id="2-multi-chunk-simd-bitmask-engine">2. Multi-Chunk SIMD Bitmask Engine</h2>
 <p>Traditional filtering evaluates rules row-by-row or creates intermediate boolean masks in memory. <code>basaltic-red</code> evaluates rules directly into bitwise memory buffers (<code>Vec&lt;u64&gt;</code>), updating bit flags in-place.
@@ -1815,8 +1815,8 @@
 <h2 id="3-binary-lake-map-br_mapbazan-lake-doctor">3. Binary Lake Map (<code>.br_map.bazan</code>) &amp; Lake Doctor</h2>
 <p>Rather than rebuilding row counts and statistics from scratch, <code>basaltic-red</code> maintains an Arrow IPC binary catalog (<code>.br_map.bazan</code>) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
-- Warm catalog loads via <code>memmap2</code> (sub-millisecond in <code>demo.ipynb</code>; actual time depends on hardware/filesystem). Full doctor checks still inspect current file metadata.
-- <code>br.lake.doctor</code> detects drift (unindexed, modified, missing files) and incrementally heals the catalog.</p>
+- Loading an existing catalog uses <code>memmap2</code> (about 0.5 ms in the recorded <code>demo.ipynb</code> run; actual time depends on hardware/filesystem). Doctor still discovers current files and checks their path, size, and modification time.
+- <code>br.lake.doctor</code> detects discovered unindexed, modified, and missing files and can reindex the catalog. Its drift comparison uses path, size, and modification time rather than file-content hashes; healing rereads new or modified files to rebuild map entries.</p>
 
 
 
