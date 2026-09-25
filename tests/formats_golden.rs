@@ -1,11 +1,14 @@
 //! Golden tests: each format handler must reproduce the same filter result on
 //! the same 6-row taxi dataset. Fixtures are written in-memory, no static files.
 use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
 
 use tempfile::tempdir;
 
-use arrow::array::{Float64Array, Int64Array, RecordBatch};
+use arrow::array::{
+    Array, BooleanArray, Float64Array, Int32Array, Int64Array, RecordBatch, StringArray,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 
 use basaltic_red::engine::formats::handler_for;
@@ -106,6 +109,11 @@ fn golden_json_array() {
 }
 
 #[test]
+fn golden_json_line_delimited_objects() {
+    run_test("json", json_lines().as_bytes(), (6, 2, 4));
+}
+
+#[test]
 fn golden_jsonl_array() {
     run_test(
         "jsonl",
@@ -185,6 +193,113 @@ fn golden_avro() {
 }
 
 #[test]
+fn avro_nullable_unions_preserve_arrow_types_and_values_with_and_without_map() {
+    use apache_avro::types::Value;
+
+    let schema = apache_avro::Schema::parse_str(
+        r#"{"type":"record","name":"nullable_row","fields":[
+            {"name":"id","type":["null","long"]},
+            {"name":"amount","type":["null","double"]},
+            {"name":"count","type":["null","int"]},
+            {"name":"active","type":["boolean","null"]},
+            {"name":"label","type":["string","null"]}
+        ]}"#,
+    )
+    .unwrap();
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("nullable.avro");
+    let file = File::create(&path).unwrap();
+    {
+        let mut writer = apache_avro::Writer::new(&schema, file);
+        for (id, amount, count, active, label) in [
+            (
+                Value::Union(1, Box::new(Value::Long(7))),
+                Value::Union(0, Box::new(Value::Null)),
+                Value::Union(1, Box::new(Value::Int(3))),
+                Value::Union(0, Box::new(Value::Boolean(true))),
+                Value::Union(0, Box::new(Value::String("first".into()))),
+            ),
+            (
+                Value::Union(0, Box::new(Value::Null)),
+                Value::Union(1, Box::new(Value::Double(2.5))),
+                Value::Union(0, Box::new(Value::Null)),
+                Value::Union(1, Box::new(Value::Null)),
+                Value::Union(1, Box::new(Value::Null)),
+            ),
+        ] {
+            writer
+                .append(Value::Record(vec![
+                    ("id".into(), id),
+                    ("amount".into(), amount),
+                    ("count".into(), count),
+                    ("active".into(), active),
+                    ("label".into(), label),
+                ]))
+                .unwrap();
+        }
+        writer.flush().unwrap();
+    }
+
+    let streamed = handler_for("avro")
+        .unwrap()
+        .read_range(path.to_str().unwrap(), 0, 2, 1024)
+        .unwrap();
+
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    engine
+        .create_lake_map_native(dir.path().to_str().unwrap(), false)
+        .unwrap();
+    let batch = engine
+        .slice_rows_native(path.to_str().unwrap(), 0, 2)
+        .unwrap();
+    let assert_nullable_values = |batch: &RecordBatch| {
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let amounts = batch
+            .column_by_name("amount")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let counts = batch
+            .column_by_name("count")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        let active = batch
+            .column_by_name("active")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        let labels = batch
+            .column_by_name("label")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(ids.value(0), 7);
+        assert!(ids.is_null(1));
+        assert!(amounts.is_null(0));
+        assert_eq!(amounts.value(1), 2.5);
+        assert_eq!(counts.value(0), 3);
+        assert!(counts.is_null(1));
+        assert!(active.value(0));
+        assert!(active.is_null(1));
+        assert_eq!(labels.value(0), "first");
+        assert!(labels.is_null(1));
+    };
+
+    assert_nullable_values(&streamed);
+    assert_nullable_values(&batch);
+}
+
+#[test]
 fn golden_orc() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("data.orc");
@@ -208,15 +323,41 @@ fn golden_xlsx() {
         sheet
             .write_number(i as u32 + 1, 0, PASSENGERS[i] as f64)
             .unwrap();
-        sheet.write_number(i as u32 + 1, 1, FARES[i]).unwrap();
+        if i > 0 {
+            sheet.write_number(i as u32 + 1, 1, FARES[i]).unwrap();
+        }
         sheet.write_number(i as u32 + 1, 2, DISTANCES[i]).unwrap();
     }
+    let second_sheet = workbook.add_worksheet();
+    second_sheet.write_string(0, 0, "ignored_sheet").unwrap();
+    second_sheet.write_number(1, 0, 999.0).unwrap();
     let dir = tempdir().unwrap();
     let path = dir.path().join("data.xlsx");
     workbook.save(&path).unwrap();
     // XlsxHandler maps every cell to Utf8, so the typed filter sees no numeric
     // columns and every row passes clean (same as TSV).
     assert_taxi_stats("xlsx", path.to_str().unwrap(), (6, 6, 0));
+
+    let batch = MatrixEngine::new(1, 9, 0.01, 100.0)
+        .slice_rows_native(path.to_str().unwrap(), 0, PASSENGERS.len() + 1)
+        .unwrap();
+    assert_eq!(batch.num_rows(), PASSENGERS.len());
+    assert!(batch.schema().index_of("ignored_sheet").is_err());
+    let passenger_count = batch
+        .column_by_name("passenger_count")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(passenger_count.value(0), "1");
+    assert_eq!(passenger_count.value(5), "1");
+    let fare_amount = batch
+        .column_by_name("fare_amount")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert!(fare_amount.is_null(0));
 }
 
 #[test]
@@ -239,4 +380,124 @@ fn golden_msgpack() {
     }
     drop(out);
     assert_taxi_stats("msgpack", path.to_str().unwrap(), (6, 2, 4));
+}
+
+#[test]
+fn msgpack_truncated_tail_is_reported() {
+    use rmpv::Value;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("truncated.msgpack");
+    let mut out = File::create(&path).unwrap();
+    let row = Value::Map(vec![(Value::from("id"), Value::from(1))]);
+    rmpv::encode::write_value(&mut out, &row).unwrap();
+    out.write_all(&[0x81, 0xa2, b'i', b'd']).unwrap();
+    drop(out);
+
+    let handler = handler_for("msgpack").unwrap();
+    let source = handler.open(path.to_str().unwrap(), 1024).unwrap();
+    assert!(source.batches.collect::<Result<Vec<_>, _>>().is_err());
+}
+
+#[test]
+fn msgpack_uses_first_map_as_schema_and_counts_later_values_as_rows() {
+    use rmpv::Value;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("row_contract.msgpack");
+    let mut out = File::create(&path).unwrap();
+    let values = [
+        Value::from("ignored before schema"),
+        Value::Map(vec![
+            (Value::from("id"), Value::from(1)),
+            (Value::from("name"), Value::from("first")),
+            (
+                Value::from("payload"),
+                Value::Array(vec![Value::from("nested")]),
+            ),
+        ]),
+        Value::from(42),
+        Value::Map(vec![
+            (Value::from("id"), Value::from(3)),
+            (
+                Value::from("payload"),
+                Value::Map(vec![(Value::from("k"), Value::from("v"))]),
+            ),
+            (Value::from("extra"), Value::from("ignored")),
+        ]),
+    ];
+    for value in &values {
+        rmpv::encode::write_value(&mut out, value).unwrap();
+    }
+    drop(out);
+
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    engine
+        .create_lake_map_native(dir.path().to_str().unwrap(), false)
+        .unwrap();
+    let mapped = engine
+        .slice_rows_native(path.to_str().unwrap(), 0, 3)
+        .unwrap();
+    let ids = mapped
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(mapped.num_columns(), 3);
+    let names = mapped
+        .column_by_name("name")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let payloads = mapped
+        .column_by_name("payload")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(ids.value(0), 1);
+    assert!(ids.is_null(1));
+    assert_eq!(ids.value(2), 3);
+    assert_eq!(names.value(0), "first");
+    assert!(names.is_null(1));
+    assert!(names.is_null(2));
+    assert!(payloads.is_null(0));
+    assert!(payloads.is_null(1));
+    assert!(payloads.is_null(2));
+    assert!(mapped.column_by_name("extra").is_none());
+
+    std::fs::remove_file(basaltic_red::engine::map::resolve_map_path(dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(path.to_str().unwrap(), 0, 3)
+        .unwrap();
+    let streamed_ids = streamed
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    let streamed_names = streamed
+        .column_by_name("name")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let streamed_payloads = streamed
+        .column_by_name("payload")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(streamed_ids.value(0), 1);
+    assert!(streamed_ids.is_null(1));
+    assert_eq!(streamed_ids.value(2), 3);
+    assert_eq!(streamed_names.value(0), "first");
+    assert!(streamed_names.is_null(1));
+    assert!(streamed_names.is_null(2));
+    assert!(streamed_payloads.is_null(0));
+    assert!(streamed_payloads.is_null(1));
+    assert!(streamed_payloads.is_null(2));
+    assert!(streamed.column_by_name("extra").is_none());
 }

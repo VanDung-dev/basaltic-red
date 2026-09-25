@@ -172,6 +172,25 @@ fn create_multi_stripe_orc(path: &std::path::Path, rows: usize) {
     writer.close().unwrap();
 }
 
+fn create_nullable_orc(path: &std::path::Path) {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, true),
+        Field::new("label", DataType::Utf8, true),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Int64Array::from(vec![Some(1), None, Some(3)])),
+            Arc::new(StringArray::from(vec![Some("first"), Some("second"), None])),
+        ],
+    )
+    .unwrap();
+    let file = File::create(path).unwrap();
+    let mut writer = ArrowWriterBuilder::new(file, schema).try_build().unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
 fn create_multi_block_avro(path: &std::path::Path, rows: usize) {
     let schema = apache_avro::Schema::parse_str(
         r#"{"type":"record","name":"row","fields":[{"name":"id","type":"long"},{"name":"value","type":"long"}]}"#,
@@ -225,11 +244,96 @@ fn create_sample_csv(path: &std::path::Path, rows: usize) {
     writeln!(file, "id,name,value").unwrap();
     for value in 0..rows {
         if value == 65_535 {
-            writeln!(file, "{},\"line one\nline two\",{}", value, value * 10).unwrap();
+            writeln!(
+                file,
+                "{},\"line one\nline \"\"quoted\"\"\",{}",
+                value,
+                value * 10
+            )
+            .unwrap();
         } else {
             writeln!(file, "{},row{},{}", value, value, value * 10).unwrap();
         }
     }
+}
+
+fn create_csv_with_blank_lines(path: &std::path::Path, rows: usize) {
+    let mut file = File::create(path).unwrap();
+    file.write_all(b"id,value\r\n").unwrap();
+    for value in 0..rows {
+        if matches!(value, 7 | 32_768 | 65_535) {
+            file.write_all(b"\r\n").unwrap();
+        }
+        write!(file, "{value},{}", value * 10).unwrap();
+        if value + 1 < rows {
+            file.write_all(b"\r\n").unwrap();
+        }
+    }
+}
+
+fn assert_i64_map_boundary_and_fallback(
+    engine: &MatrixEngine,
+    file: &std::path::Path,
+    first_group: &RowGroupLocation,
+) {
+    let file_path = file.to_str().unwrap();
+    let offset = first_group.first_row + first_group.row_count - 1;
+    let expected_ids = [offset as i64, offset as i64 + 1];
+    let expected_values = [offset as i64 * 10, (offset as i64 + 1) * 10];
+    let selected = [String::from("value"), String::from("id")];
+
+    let assert_rows = |batch: &RecordBatch| {
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(ids.values(), &expected_ids);
+    };
+    let assert_columns = |batch: &RecordBatch| {
+        assert_eq!(batch.schema().fields()[0].name(), "value");
+        assert_eq!(batch.schema().fields()[1].name(), "id");
+        assert_eq!(
+            batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values(),
+            &expected_values
+        );
+        assert_eq!(
+            batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values(),
+            &expected_ids
+        );
+    };
+
+    let mapped_rows = engine.slice_rows_native(file_path, offset, 2).unwrap();
+    assert_rows(&mapped_rows);
+    let mapped_columns = engine
+        .slice_cols_native(file_path, &selected, offset, 2)
+        .unwrap();
+    assert_columns(&mapped_columns);
+    assert!(engine
+        .slice_cols_native(file_path, &[String::from("missing")], offset, 1)
+        .is_err());
+
+    std::fs::remove_file(resolve_map_path(file.parent().unwrap())).unwrap();
+    let streamed_rows = engine.slice_rows_native(file_path, offset, 2).unwrap();
+    assert_rows(&streamed_rows);
+    let streamed_columns = engine
+        .slice_cols_native(file_path, &selected, offset, 2)
+        .unwrap();
+    assert_columns(&streamed_columns);
+    assert!(engine
+        .slice_cols_native(file_path, &[String::from("missing")], offset, 1)
+        .is_err());
 }
 
 fn create_sample_tsv(path: &std::path::Path, rows: usize) {
@@ -371,16 +475,84 @@ fn test_lake_map_indexes_arrow_ipc_data() {
             .unwrap();
         assert_eq!(values.values(), &[4, 5], "{extension}");
 
+        let selected = [String::from("scaled"), String::from("value")];
         let batch = engine
-            .slice_cols_native(data_path.to_str().unwrap(), &[String::from("scaled")], 4, 2)
+            .slice_cols_native(data_path.to_str().unwrap(), &selected, 4, 2)
             .unwrap();
         assert_eq!(batch.schema().fields()[0].name(), "scaled");
+        assert_eq!(batch.schema().fields()[1].name(), "value");
         let scaled = batch
             .column(0)
             .as_any()
             .downcast_ref::<Int64Array>()
             .unwrap();
         assert_eq!(scaled.values(), &[40, 50], "{extension}");
+
+        let repeated = [
+            String::from("scaled"),
+            String::from("value"),
+            String::from("scaled"),
+        ];
+        let batch = engine
+            .slice_cols_native(data_path.to_str().unwrap(), &repeated, 4, 2)
+            .unwrap();
+        assert_eq!(
+            batch
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            ["scaled", "value", "scaled"]
+        );
+        assert_eq!(
+            batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values(),
+            &[40, 50],
+            "{extension}"
+        );
+
+        std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+        let fallback = engine
+            .slice_cols_native(data_path.to_str().unwrap(), &selected, 4, 2)
+            .unwrap();
+        assert_eq!(fallback.schema().fields()[0].name(), "scaled");
+        assert_eq!(fallback.schema().fields()[1].name(), "value");
+        assert_eq!(
+            fallback
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values(),
+            &[40, 50]
+        );
+
+        let fallback = engine
+            .slice_cols_native(data_path.to_str().unwrap(), &repeated, 4, 2)
+            .unwrap();
+        assert_eq!(
+            fallback
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            ["scaled", "value", "scaled"]
+        );
+        assert_eq!(
+            fallback
+                .column(2)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .values(),
+            &[40, 50]
+        );
     }
 }
 
@@ -616,6 +788,20 @@ fn test_lake_map_resolves_ndjson_byte_blocks_for_slice() {
             .value(0),
         69_999
     );
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    assert_eq!(
+        streamed
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        ids.values()
+    );
 }
 
 #[test]
@@ -648,6 +834,116 @@ fn test_lake_map_resolves_jsonl_alias_for_slice() {
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(values.values(), &[655_360, 655_370]);
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_536, 2)
+        .unwrap();
+    assert_eq!(
+        streamed
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        values.values()
+    );
+}
+
+#[test]
+fn test_lake_map_resolves_line_delimited_content_on_json_extension() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("lines.json");
+    create_sample_ndjson(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].row_count, 65_536);
+    assert_eq!(
+        resolve_ndjson_range(&file, 65_536, 2)
+            .unwrap()
+            .unwrap()
+            .offset,
+        0
+    );
+
+    let mapped = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_536, 2)
+        .unwrap();
+    let mapped_ids = mapped
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(mapped_ids.values(), &[65_536, 65_537]);
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_536, 2)
+        .unwrap();
+    let streamed_ids = streamed
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(streamed_ids.values(), mapped_ids.values());
+}
+
+#[test]
+fn test_lake_map_resolves_json_array_content_on_jsonl_extension() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("array.jsonl");
+    create_sample_json_array(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(row_groups.len(), 2);
+    assert_eq!(row_groups[0].row_count, 65_536);
+    assert_eq!(
+        resolve_json_array_range(&file, 65_540, 2)
+            .unwrap()
+            .unwrap()
+            .offset,
+        4
+    );
+
+    let mapped = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    let mapped_ids = mapped
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(mapped_ids.values(), &[65_540, 65_541]);
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    let streamed_ids = streamed
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(streamed_ids.values(), mapped_ids.values());
 }
 
 #[test]
@@ -703,6 +999,21 @@ fn test_lake_map_resolves_json_array_blocks_for_slice() {
         .downcast_ref::<StringArray>()
         .unwrap();
     assert_eq!(name.value(0), "brace { and } and escaped \"quote\"");
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_540, 2)
+        .unwrap();
+    assert_eq!(
+        streamed
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        ids.values()
+    );
 }
 
 #[test]
@@ -754,6 +1065,8 @@ fn test_lake_map_resolves_orc_stripes_for_slice() {
         values.values(),
         &[offset as i64 * 10, (offset as i64 + 1) * 10]
     );
+
+    assert_i64_map_boundary_and_fallback(&engine, &file, &row_groups[0]);
 }
 
 #[test]
@@ -805,6 +1118,8 @@ fn test_lake_map_resolves_avro_blocks_for_slice() {
         values.values(),
         &[offset as i64 * 10, (offset as i64 + 1) * 10]
     );
+
+    assert_i64_map_boundary_and_fallback(&engine, &file, &row_groups[0]);
 }
 
 #[test]
@@ -856,6 +1171,8 @@ fn test_lake_map_resolves_msgpack_blocks_for_slice() {
         values.values(),
         &[offset as i64 * 10, (offset as i64 + 1) * 10]
     );
+
+    assert_i64_map_boundary_and_fallback(&engine, &file, &row_groups[0]);
 }
 
 #[test]
@@ -904,6 +1221,192 @@ fn test_lake_map_resolves_xlsx_row_blocks_for_slice() {
         .unwrap();
     assert_eq!(values.value(0), (offset * 10).to_string());
     assert_eq!(values.value(1), ((offset + 1) * 10).to_string());
+
+    let boundary = row_groups[0].first_row + row_groups[0].row_count - 1;
+    let expected_ids = [boundary.to_string(), (boundary + 1).to_string()];
+    let expected_values = [
+        (boundary * 10).to_string(),
+        ((boundary + 1) * 10).to_string(),
+    ];
+    let selected = [String::from("value"), String::from("id")];
+    let assert_rows = |batch: &RecordBatch| {
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(ids.value(0), expected_ids[0]);
+        assert_eq!(ids.value(1), expected_ids[1]);
+    };
+    let assert_columns = |batch: &RecordBatch| {
+        assert_eq!(batch.schema().fields()[0].name(), "value");
+        assert_eq!(batch.schema().fields()[1].name(), "id");
+        let values = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let ids = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(values.value(0), expected_values[0]);
+        assert_eq!(values.value(1), expected_values[1]);
+        assert_eq!(ids.value(0), expected_ids[0]);
+        assert_eq!(ids.value(1), expected_ids[1]);
+    };
+
+    let mapped_rows = engine
+        .slice_rows_native(file.to_str().unwrap(), boundary, 2)
+        .unwrap();
+    assert_rows(&mapped_rows);
+    let mapped_columns = engine
+        .slice_cols_native(file.to_str().unwrap(), &selected, boundary, 2)
+        .unwrap();
+    assert_columns(&mapped_columns);
+    assert!(engine
+        .slice_cols_native(
+            file.to_str().unwrap(),
+            &[String::from("missing")],
+            boundary,
+            1
+        )
+        .is_err());
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed_rows = engine
+        .slice_rows_native(file.to_str().unwrap(), boundary, 2)
+        .unwrap();
+    assert_rows(&streamed_rows);
+    let streamed_columns = engine
+        .slice_cols_native(file.to_str().unwrap(), &selected, boundary, 2)
+        .unwrap();
+    assert_columns(&streamed_columns);
+    assert!(engine
+        .slice_cols_native(
+            file.to_str().unwrap(),
+            &[String::from("missing")],
+            boundary,
+            1
+        )
+        .is_err());
+}
+
+#[test]
+fn test_lake_map_empty_inputs_have_zero_rows_for_adapters() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let orc = temp_dir.path().join("empty.orc");
+    let avro = temp_dir.path().join("empty.avro");
+    let msgpack = temp_dir.path().join("empty.msgpack");
+    let xlsx = temp_dir.path().join("empty.xlsx");
+    create_multi_stripe_orc(&orc, 0);
+    create_multi_block_avro(&avro, 0);
+    File::create(&msgpack).unwrap();
+    create_multi_block_xlsx(&xlsx, 0);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    assert_eq!(map.total_rows, 0);
+    for file in [&orc, &avro, &msgpack, &xlsx] {
+        let rel_path = file.file_name().unwrap().to_string_lossy().into_owned();
+        let entry = map
+            .entries
+            .iter()
+            .find(|entry| entry.rel_path == rel_path)
+            .unwrap();
+        assert_eq!(entry.total_rows, 0, "{}", entry.rel_path);
+        let row_groups: Vec<RowGroupLocation> =
+            serde_json::from_str(&entry.row_groups_json).unwrap();
+        assert!(row_groups.iter().all(|group| group.row_count == 0));
+
+        let file_path = file.to_str().unwrap();
+        let mapped = engine.slice_rows_native(file_path, 0, 5).unwrap();
+        assert_eq!(mapped.num_rows(), 0, "{}", entry.rel_path);
+    }
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    for file in [&orc, &avro, &msgpack, &xlsx] {
+        let streamed = engine
+            .slice_rows_native(file.to_str().unwrap(), 0, 5)
+            .unwrap();
+        assert_eq!(streamed.num_rows(), 0, "{}", file.display());
+    }
+}
+
+#[test]
+fn test_lake_map_orc_nullable_values_match_fallback() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("nullable.orc");
+    create_nullable_orc(&file);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+
+    let selected = [String::from("label"), String::from("id")];
+    let assert_nullable = |batch: &RecordBatch| {
+        assert_eq!(batch.num_rows(), 3);
+        let labels = batch
+            .column_by_name("label")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(labels.value(0), "first");
+        assert_eq!(labels.value(1), "second");
+        assert!(labels.is_null(2));
+        assert_eq!(ids.value(0), 1);
+        assert!(ids.is_null(1));
+        assert_eq!(ids.value(2), 3);
+    };
+    let assert_selected = |batch: &RecordBatch| {
+        assert_eq!(batch.schema().fields()[0].name(), "label");
+        assert_eq!(batch.schema().fields()[1].name(), "id");
+        let labels = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let ids = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert!(labels.is_null(2));
+        assert!(ids.is_null(1));
+    };
+
+    let mapped = engine
+        .slice_rows_native(file.to_str().unwrap(), 0, 3)
+        .unwrap();
+    assert_nullable(&mapped);
+    let mapped_selected = engine
+        .slice_cols_native(file.to_str().unwrap(), &selected, 0, 3)
+        .unwrap();
+    assert_selected(&mapped_selected);
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 0, 3)
+        .unwrap();
+    assert_nullable(&streamed);
+    let streamed_selected = engine
+        .slice_cols_native(file.to_str().unwrap(), &selected, 0, 3)
+        .unwrap();
+    assert_selected(&streamed_selected);
 }
 
 #[test]
@@ -956,6 +1459,134 @@ fn test_lake_map_resolves_csv_quote_safe_blocks_for_slice() {
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(values.values(), &[655_360, 655_370]);
+
+    let assert_multiline_boundary = |batch: &RecordBatch| {
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let names = batch
+            .column_by_name("name")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let values = batch
+            .column_by_name("value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+
+        assert_eq!(ids.values(), &[65_535, 65_536]);
+        assert_eq!(names.value(0), "line one\nline \"quoted\"");
+        assert_eq!(names.value(1), "row65536");
+        assert_eq!(values.values(), &[655_350, 655_360]);
+    };
+
+    let mapped_boundary = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_535, 2)
+        .unwrap();
+    assert_multiline_boundary(&mapped_boundary);
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let fallback_boundary = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_535, 2)
+        .unwrap();
+    assert_multiline_boundary(&fallback_boundary);
+}
+
+#[test]
+fn test_lake_map_delimited_checkpoints_ignore_blank_physical_lines() {
+    let engine = MatrixEngine::new(1, 9, 0.01, 100.0);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file = temp_dir.path().join("blank_lines.csv");
+    create_csv_with_blank_lines(&file, 70_000);
+
+    engine
+        .create_lake_map_native(temp_dir.path().to_str().unwrap(), false)
+        .unwrap();
+    let map = load_lake_map_ipc(&resolve_map_path(temp_dir.path())).unwrap();
+    let row_groups: Vec<RowGroupLocation> =
+        serde_json::from_str(&map.entries[0].row_groups_json).unwrap();
+    assert_eq!(map.total_rows, 70_000);
+    assert_eq!(row_groups[0].row_count, 65_536);
+    assert_eq!(
+        row_groups
+            .iter()
+            .map(|group| group.row_count)
+            .sum::<usize>(),
+        map.total_rows as usize
+    );
+
+    let mapped = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_536, 2)
+        .unwrap();
+    let ids = mapped
+        .column_by_name("id")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(ids.values(), &[65_536, 65_537]);
+
+    let mapped_values = engine
+        .slice_cols_native(file.to_str().unwrap(), &[String::from("value")], 65_536, 2)
+        .unwrap();
+    assert_eq!(
+        mapped_values
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        &[655_360, 655_370]
+    );
+
+    let mapped_last_row = engine
+        .slice_rows_native(file.to_str().unwrap(), 69_999, 1)
+        .unwrap();
+    assert_eq!(
+        mapped_last_row
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        &[69_999]
+    );
+
+    std::fs::remove_file(resolve_map_path(temp_dir.path())).unwrap();
+    let streamed = engine
+        .slice_rows_native(file.to_str().unwrap(), 65_536, 2)
+        .unwrap();
+    assert_eq!(
+        streamed
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        ids.values()
+    );
+
+    let streamed_last_row = engine
+        .slice_rows_native(file.to_str().unwrap(), 69_999, 1)
+        .unwrap();
+    assert_eq!(
+        streamed_last_row
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .values(),
+        &[69_999]
+    );
 }
 
 #[test]
