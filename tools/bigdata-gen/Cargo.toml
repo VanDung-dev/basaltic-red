@@ -11,6 +11,7 @@ arrow-json = "58.3.0"                   # JSON/JSONL/NDJSON output
 
 # Parquet with zstd compression + Arrow conversion
 parquet = { version = "58.3.0", features = ["arrow", "zstd"] }
+orc-rust = { version = "0.8.0", default-features = false }
 
 # CLI argument parsing
 clap = { version = "4.6.4", features = ["derive"] }

@@ -1,7 +1,5 @@
 use anyhow::Result;
-use parquet::arrow::ArrowWriter;
-use parquet::basic::{Compression, ZstdLevel};
-use parquet::file::properties::WriterProperties;
+use orc_rust::ArrowWriterBuilder;
 use std::fs::File;
 
 use crate::gen::{chunk_iter, schema};
@@ -14,13 +12,9 @@ pub fn write_orc(
     cols: usize,
     progress: &ProgressItem,
 ) -> Result<()> {
-    // Note: ORC uses columnar storage similar to Parquet with ZSTD compression
     let file = File::create(path)?;
     let sch = schema(cols);
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-        .build();
-    let mut writer = ArrowWriter::try_new(file, sch, Some(props))?;
+    let mut writer = ArrowWriterBuilder::new(file, sch).try_build()?;
 
     for batch in chunk_iter(seed, total, cols) {
         let n = batch.num_rows();

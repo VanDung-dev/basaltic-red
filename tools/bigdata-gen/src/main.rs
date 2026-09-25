@@ -13,6 +13,7 @@ const ALL_FORMATS: &[&str] = &[
     "csv", "tsv", "psv", "txt", "json", "jsonl", "ndjson", "parquet", "feather", "avro", "xlsx",
     "orc", "msgpack",
 ];
+const FIXED_SCHEMA_FORMATS: &[&str] = &["json", "avro", "xlsx", "msgpack"];
 
 #[derive(Parser)]
 #[command(
@@ -37,7 +38,7 @@ struct Cli {
     #[arg(
         long = "cols",
         default_value = "30",
-        help = "Number of columns (default 30, max 100"
+        help = "Number of columns (1..100; JSON, Avro, XLSX, MsgPack require exactly 30)"
     )]
     cols: usize,
 
@@ -119,7 +120,7 @@ FORMATS:
 OPTIONS:
     --rows <NUM>                 Number of rows per format [default: 100000]
     --cols <NUM>                 Number of columns (1..100, default: 30)
-                                 Dynamically expands by repeating base schema
+                                 JSON, Avro, XLSX and MsgPack require exactly 30
     --output <PATH>              Output file path (single format only)
     --output-dir <DIR>           Output directory [default: bigdata_output]
     --seed <NUM>                 Random seed [default: 42]
@@ -144,6 +145,18 @@ fn main() -> anyhow::Result<()> {
     let cols = args.cols.clamp(1, 100);
 
     let fmts = resolve_formats(&args.format);
+    let fixed_schema_formats: Vec<&str> = fmts
+        .iter()
+        .map(String::as_str)
+        .filter(|fmt| FIXED_SCHEMA_FORMATS.contains(fmt))
+        .collect();
+    if cols != 30 && !fixed_schema_formats.is_empty() {
+        anyhow::bail!(
+            "formats {} require --cols 30 (received {})",
+            fixed_schema_formats.join(", "),
+            cols
+        );
+    }
 
     let seeds: Vec<u64> = fmts
         .iter()
