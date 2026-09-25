@@ -79,26 +79,29 @@ pub fn global_runtime() -> &'static tokio::runtime::Runtime {
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to start tokio runtime"))
 }
 
-/// Process-wide rayon pool with `threads` workers (built once per distinct
-/// thread count), so parallel jobs stop constructing a new pool per call.
-pub fn global_rayon_pool(threads: usize) -> &'static rayon::ThreadPool {
-    static POOLS: OnceLock<std::sync::Mutex<HashMap<usize, &'static rayon::ThreadPool>>> =
-        OnceLock::new();
-    use std::collections::HashMap;
-    let mut pools = POOLS
-        .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+/// Process-wide rayon pool cache retaining the last requested thread count.
+/// Active jobs hold an Arc while the cache switches to a different count.
+/// ponytail: alternating counts rebuild pools; use a bounded LRU if that becomes costly.
+pub fn global_rayon_pool(threads: usize) -> std::sync::Arc<rayon::ThreadPool> {
+    static POOL: OnceLock<
+        std::sync::Mutex<Option<(usize, std::sync::Arc<rayon::ThreadPool>)>>,
+    > = OnceLock::new();
+    let mut pool = POOL
+        .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    pools
-        .entry(threads)
-        .or_insert_with(|| {
-            // Leaked once per thread count: the pool is process-wide and lives
-            // for the whole run.
-            Box::leak(Box::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(threads)
-                    .build()
-                    .expect("failed to build rayon pool"),
-            ))
-        })
+    if let Some((cached_threads, pool)) = pool.as_ref() {
+        if *cached_threads == threads {
+            return std::sync::Arc::clone(pool);
+        }
+    }
+
+    let new_pool = std::sync::Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("failed to build rayon pool"),
+    );
+    *pool = Some((threads, std::sync::Arc::clone(&new_pool)));
+    new_pool
 }

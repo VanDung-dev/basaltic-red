@@ -44,8 +44,15 @@ fn first_non_ws_byte(path: &Path) -> Option<u8> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).ok()?;
     let mut buf = [0u8; 1024];
-    let n = f.read(&mut buf).ok()?;
-    buf[..n].iter().copied().find(|b| !b.is_ascii_whitespace())
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if let Some(byte) = buf[..n].iter().copied().find(|b| !b.is_ascii_whitespace()) {
+            return Some(byte);
+        }
+        if n == 0 {
+            return None;
+        }
+    }
 }
 
 /// DataFusion native reader for `ext`; `None` for msgpack/xlsx/orc/txt/mixed,
@@ -185,18 +192,19 @@ impl MatrixEngine {
         let mut modified_query = query_str.to_string();
 
         // Extract path enclosed in single quotes following FROM or JOIN
-        let detected_path = if let Some(caps) = TABLE_PATH_REGEX.captures(query_str) {
-            caps.get(1).map(|m| m.as_str().to_string())
-        } else if let Some(start_idx) = query_str.find('\'') {
-            query_str[start_idx + 1..]
-                .find('\'')
-                .map(|end_rel| query_str[start_idx + 1..start_idx + 1 + end_rel].to_string())
-        } else {
-            None
-        };
+        let detected_paths: Vec<_> = TABLE_PATH_REGEX
+            .captures_iter(query_str)
+            .filter_map(|caps| {
+                let path = caps.get(1)?;
+                Some((
+                    path.as_str().to_string(),
+                    path.start() - 1..path.end() + 1,
+                ))
+            })
+            .collect();
 
-        if let Some(path_str) = detected_path {
-            let path_str = path_str.as_str();
+        if let Some((detected_path, _)) = detected_paths.first() {
+            let path_str = detected_path.as_str();
             let path_obj = Path::new(path_str);
             let safe_path = crate::utils::validate_safe_path(path_obj)?;
             let path_obj = safe_path.as_path();
@@ -337,13 +345,22 @@ impl MatrixEngine {
                         ctx.register_table(table_name, Arc::new(mem_table))?;
                     }
 
-                    // Replace original `'path'` with registered virtual table name
-                let token_with_alias = format!("'{}' {}", path_str, primary_registered_name);
-                if modified_query.contains(&token_with_alias) {
-                    modified_query = modified_query.replace(&token_with_alias, &primary_registered_name);
-                } else {
-                    let target_token = format!("'{}'", path_str);
-                    modified_query = modified_query.replace(&target_token, &primary_registered_name);
+                // Replace only the FROM/JOIN path, preserving the existing br_target alias case.
+                let alias_suffix = " br_target";
+                let replacement_ranges: Vec<_> = detected_paths
+                    .iter()
+                    .filter(|(path, _)| path == detected_path)
+                    .map(|(_, range)| {
+                        let end = if query_str[range.end..].starts_with(alias_suffix) {
+                            range.end + alias_suffix.len()
+                        } else {
+                            range.end
+                        };
+                        range.start..end
+                    })
+                    .collect();
+                for range in replacement_ranges.into_iter().rev() {
+                    modified_query.replace_range(range, &primary_registered_name);
                 }
             }
         }

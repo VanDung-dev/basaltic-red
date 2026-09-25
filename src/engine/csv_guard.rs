@@ -2,17 +2,23 @@ use arrow::array::{ArrayRef, LargeStringArray, RecordBatch, StringArray};
 use arrow::datatypes::DataType;
 use std::sync::Arc;
 
-/// CSV Injection guard (OWASP): spreadsheet formulas start with `=`, `+`, `-`, `@`.
+/// CSV Injection guard (OWASP): spreadsheet formulas may start with `=`, `+`, `-`, or `@`.
 /// When such a cell is written to a CSV that a user later opens in Excel/Sheets,
 /// it is evaluated as a formula on the victim's machine. Neutralize by prefixing `'`.
-/// Numeric-looking negative values (`-5.0`) are left untouched.
+/// Leading control characters are also escaped; numeric-looking negative values remain intact.
 fn sanitize_cell(v: &str) -> String {
-    let first = v.chars().next();
-    let dangerous = match first {
-        Some('=') | Some('+') | Some('@') => true,
-        Some('-') => v.parse::<f64>().is_err(),
+    let trimmed = v.trim_start_matches(char::is_whitespace);
+    let first = trimmed.chars().next();
+    let control_prefix = v
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .any(|ch| matches!(ch, '\t' | '\r' | '\n'));
+    let formula_prefix = match first {
+        Some('=') | Some('+') | Some('@') | Some('＝') | Some('＋') | Some('＠') => true,
+        Some('-') | Some('－') => trimmed.parse::<f64>().is_err(),
         _ => false,
     };
+    let dangerous = control_prefix || formula_prefix;
     if dangerous {
         format!("'{}", v)
     } else {
