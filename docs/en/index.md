@@ -14,7 +14,7 @@ icon: material/home
 
 ## Overview
 
-`basaltic-red` is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (`.br_map.bazan`), row and column slicing without full reads, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as `pyarrow.Table` or `RecordBatch` objects for use with Polars, DuckDB, or pandas.
+`basaltic-red` is a Rust compute core for file-based data lakes with Python bindings. It provides a memory-mapped catalog (`.br_map.bazan`), format-aware row and column slicing, parallel quality filtering with per-row audit codes, and DataFusion SQL execution over Arrow batches. Results return as `pyarrow.Table` or `RecordBatch` objects for use with Polars, DuckDB, or pandas.
 
 Demo in [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb): NYC TLC Yellow Taxi 2009 to 2025, with 204 Parquet files, 29.66 GB, and 1,826,960,642 rows by 20 columns.
 
@@ -32,10 +32,10 @@ graph LR
 ## What it does
 
 - Catalog (`.br_map.bazan`): one Arrow IPC payload at the lake root; warm reads via `memmap2` avoid traversing directory trees. Doctor reports `HEALTHY`, `DRIFT_DETECTED`, or `HEALED`.
-- Slicing: `slice_rows` and `slice_cols` read only the requested rows and columns.
+- Slicing: `slice_rows` and `slice_cols` return the requested range. A healthy map lets supported readers skip unrelated blocks; some formats still decode extra data, and XLSX materializes the worksheet through Calamine.
 - Filtering: dynamic rules evaluated per batch; invalid rows carry an `audit_error_code` (`u64` bitmask, chunked when rules exceed 64).
-- SQL: DataFusion session; `execute_sql_stream` returns a `PyBatchIterator` whose `to_pyarrow()` method hands batches to Polars or DuckDB without copying.
-- Formats: custom delimited formats via `br.formats.register_delimited`; format-resolution paths can identify extension-less files by magic-byte sniffing, while `filter_files_parallel` requires a registered extension.
+- SQL: DataFusion session; `execute_sql_stream` returns a `PyBatchIterator` whose `to_pyarrow()` method hands Arrow batches to Polars or DuckDB. Compatible buffers may be shared at the Arrow interop boundary; readers and downstream conversions can still decode or materialize data.
+- Formats: custom delimited formats via `br.formats.register_delimited`; direct single-file reads can identify some extension-less files by magic-byte sniffing. Directory discovery for Lake Map, Lake Doctor, and `filter_files_parallel` is extension-based and requires an active handler.
 
 ---
 

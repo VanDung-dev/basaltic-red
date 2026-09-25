@@ -45,10 +45,10 @@ Implemented in `src/engine/slice.rs`; exposed through [`br.read.*`](../reference
 | Method | Behavior |
 | :--- | :--- |
 | `slice_rows(file_path, offset, limit)` | Parquet, ORC, Avro, and MsgPack resolve healthy `.br_map.bazan` native row groups/stripes/blocks; XLSX starts `XlsxRows` at an indexed logical worksheet row block (Calamine still materializes the sheet); NDJSON/JSONL and JSON-array seek to indexed checkpoints; CSV/TSV/PSV/TXT seek to indexed row blocks; Arrow IPC/Feather seek to the indexed RecordBatch. These paths then apply the local offset/limit; other formats stream and skip batches. |
-| `slice_cols(file_path, selected_cols, offset, limit)` | Same location resolution. Parquet pushes projection into the reader; XLSX, ORC, Avro, MsgPack, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT plus Arrow IPC/Feather read from the indexed boundary, then project the requested columns. |
+| `slice_cols(file_path, selected_cols, offset, limit)` | Same location resolution. Parquet, Arrow IPC/Feather, and ORC pass projection to their readers. Mapped delimited reads parse selected columns but still read each selected record's bytes; other row formats generally decode the selected rows, then project. When no locator applies, the handler may stream and skip rows first. Output columns follow `selected_cols` order. |
 | `preview_sample(file_path, limit_rows)` | Opens the first batch only and runs the **static** threshold filter; returns `(clean_table, trash_table)`. |
 
-Both slice methods resolve the handler through the [format registry](formats.md), so they work on every supported format, not just Parquet.
+Both slice methods resolve a handler through the [format registry](formats.md), so they support registered formats beyond Parquet. A map locator is format-specific, and a fallback handler may stream and skip from the beginning. XLSX starts at an indexed logical row after Calamine has materialized the worksheet.
 
 ---
 

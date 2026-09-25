@@ -24,7 +24,7 @@ sequenceDiagram
         DF-->>ENG: SendableRecordBatchStream
     end
     ENG-->>API: Arrow RecordBatches (≤ RAM budget)
-    API-->>PY: PyArrow Table / Polars / DuckDB (zero-copy)
+    API-->>PY: PyArrow values via Arrow C Data Interface (compatible buffers may be shared)
 ```
 
 ## Design Decisions
@@ -88,6 +88,6 @@ Resolution order: **dynamic registry** (`register_format`) → static table → 
 2. Filtering never mutates data, it decides membership only.
 3. Unknown columns / unsupported dtypes make a dynamic rule a no-op (never an error mid-stream).
 4. Every file access resolves through a `FormatHandler`; there is no format-specific branch outside `formats/`.
-5. Python-facing results are always PyArrow objects crossing via the zero-copy interface.
+5. APIs returning Arrow data expose PyArrow objects through Arrow's C Data Interface; compatible buffers may be shared at that boundary. Other APIs return scalars, tuples, or dictionaries.
 
 See also: [CODEBASE_REFERENCE.md](CODEBASE_REFERENCE.md) for the file-level map.

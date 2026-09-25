@@ -1,6 +1,6 @@
 ---
 title: Khái niệm cơ bản
-description: Tìm hiểu cấu trúc bộ nhớ Apache Arrow, cờ bitmask SIMD và bản đồ nhị phân
+description: Trao đổi dữ liệu Apache Arrow, bitmask SIMD và bản đồ nhị phân
 icon: material/lightbulb
 ---
 
@@ -10,9 +10,9 @@ Hiểu rõ nền tảng kiến trúc của `basaltic-red`.
 
 ---
 
-## 1. Kiến trúc Zero-Copy Apache Arrow
+## 1. Trao đổi dữ liệu Apache Arrow
 
-`basaltic-red` sử dụng định dạng bộ nhớ cột tiêu chuẩn của Apache Arrow cho mọi tác vụ. Khi đọc tệp Parquet hoặc IPC, dữ liệu nhị phân thô được phân tích trực tiếp thành cấu trúc `RecordBatch`. Khi chuyển tiếp sang Polars, PyArrow hay DuckDB, hệ thống chỉ hoán đổi con trỏ qua Arrow C Data Interface mà không copy byte dữ liệu.
+`basaltic-red` sử dụng định dạng bộ nhớ cột tiêu chuẩn Apache Arrow trong các thao tác. Reader giải mã Parquet, IPC và định dạng hỗ trợ khác thành `RecordBatch`; đọc file nén hoặc mã hóa không phải zero-copy từ ổ đĩa. Ở ranh giới Rust/Python, Arrow C Data Interface có thể chuyển buffer Arrow tương thích mà không copy. Thư viện phía sau vẫn có thể copy nếu cần chuyển đổi hoặc layout không tương thích.
 
 ```mermaid
 sequenceDiagram
@@ -22,10 +22,10 @@ sequenceDiagram
     participant PL as Polars DataFrame
     participant DB as DuckDB Relation
 
-    D->>R: parse qua memmap / FileReader
-    R->>A: PyCapsule qua Arrow C Data Interface
-    A-->>PL: view zero-copy
-    A-->>DB: view zero-copy
+    D->>R: giải mã file thành Arrow array
+    R->>A: Arrow C Data Interface
+    A-->>PL: dùng chung buffer tương thích
+    A-->>DB: trao đổi Arrow
 ```
 
 ---
@@ -42,5 +42,5 @@ Thay vì tạo các mảng boolean trung gian gây tốn RAM, `basaltic-red` c�
 
 Thay vì dựng lại số dòng và thống kê từ đầu, `basaltic-red` duy trì catalog `.br_map.bazan`:
 - Chứa đường dẫn tương đối, dung lượng, thời gian sửa đổi, số dòng và thống kê min/max từng cột.
-- Load catalog warm qua `memmap2` (sub-mili-giây trong `demo.ipynb`; thực tế tùy phần cứng/hệ thống file). Doctor đầy đủ vẫn kiểm tra metadata file hiện tại.
-- `br.lake.doctor` phát hiện drift (thiếu/sửa/chưa index) và tự động chữa lành catalog.
+- Load catalog đã tồn tại dùng `memmap2` (khoảng 0.5 ms trong lần chạy `demo.ipynb` đã ghi; thực tế tùy phần cứng/hệ thống file). Doctor vẫn discovery file hiện tại và kiểm tra đường dẫn, dung lượng, thời gian sửa đổi.
+- `br.lake.doctor` phát hiện file đã discovery bị thiếu index, sửa đổi hoặc mất tích và có thể lập chỉ mục lại catalog. So sánh drift dựa trên path, dung lượng và thời gian sửa đổi thay vì hash nội dung; khi chữa lành, công cụ đọc lại file mới hoặc đã sửa để dựng entry map.

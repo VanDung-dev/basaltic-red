@@ -6,18 +6,18 @@ icon: material/lightning-bolt
 
 # Hướng dẫn bắt đầu nhanh (5 phút)
 
-Hướng dẫn này giúp bạn nắm bắt chu trình vận hành chuẩn của `basaltic-red`.
+Hướng dẫn này trình bày quy trình cơ bản của `basaltic-red`: tạo hoặc sửa Lake Map, đọc khoảng dòng, lọc chất lượng dữ liệu và truy vấn SQL.
 
 ---
 
-## Bước 1: Khởi tạo Data Lake với Bác sĩ chẩn đoán (Lake Doctor)
+## Bước 1: Tạo hoặc sửa Lake Map
 
-Luôn bắt đầu bằng lệnh `br.lake.doctor` khi thao tác với thư mục dữ liệu:
+`doctor(auto_heal=True)` tạo catalog nếu chưa có hoặc lập chỉ mục lại phần metadata lệch cho các file được discovery theo extension hỗ trợ. Phát hiện drift so sánh đường dẫn, dung lượng và thời gian sửa đổi thay vì hash nội dung; auto-heal đọc lại file mới hoặc đã sửa để dựng lại entry.
 
 ```python
 import basaltic_red as br
 
-# Chẩn đoán và tự động tạo/đồng bộ bản đồ .br_map.bazan
+# Tạo catalog nếu thiếu, hoặc lập chỉ mục lại metadata bị lệch
 health = br.lake.doctor("data", auto_heal=True)
 print("Báo cáo sức khỏe Data Lake:")
 for k, v in health.items():
@@ -26,14 +26,14 @@ for k, v in health.items():
 
 ---
 
-## Bước 2: Cắt lát dữ liệu Zero-Copy
+## Bước 2: Đọc một khoảng dòng
 
-Đọc lát cắt dòng và cột từ tệp Parquet dung lượng lớn trong micro-giây:
+Khi có Lake Map khỏe, slice Parquet dùng vị trí row group để bỏ qua các group không liên quan. Reader vẫn giải mã giá trị được yêu cầu; độ trễ tùy layout file và cache.
 
 ```python
 import polars as pl
 
-# Đọc 100 dòng đầu tiên mà không tải toàn bộ tệp vào RAM
+# Đọc 100 dòng bằng API slice có hỗ trợ map
 arrow_table = br.read.slice_rows("data/yellow_tripdata_2025-01.parquet", offset=0, limit=100)
 df = pl.from_arrow(arrow_table)
 print(df.shape)  # (100, 20)
@@ -68,7 +68,7 @@ print(f"Số dòng rác (Trash) : {trash_df.height:,}")
 
 ---
 
-## Bước 4: Phân tích SQL Zero-Copy với DataFusion
+## Bước 4: Phân tích SQL dạng stream với DataFusion
 
 Đẩy thực thi truy vấn SQL và chuyển tiếp trực tiếp sang DuckDB hoặc Polars:
 
@@ -78,7 +78,7 @@ import duckdb
 # Luồng thực thi DataFusion SQL
 stream = br.sql.execute_sql_stream("SELECT passenger_count, AVG(fare_amount) AS avg_fare FROM 'data/output/clean_trips.parquet' GROUP BY passenger_count")
 
-# Chuyển tiếp zero-copy sang DuckDB
+# Bàn giao dữ liệu Arrow sang DuckDB
 duck_df = duckdb.from_arrow(stream.to_pyarrow()).df()
 print(duck_df)
 ```

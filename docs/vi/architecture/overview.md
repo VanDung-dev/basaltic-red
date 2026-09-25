@@ -23,7 +23,7 @@ Mỗi trang Thành phần đều ghi rõ file nguồn ngay trong nội dung. B�
 | Biên Python | `pyapi/` | Namespace `br.*`, chuyển tham số, nhả GIL, engine dùng chung | [Python API Reference](../reference/python-api.md) |
 | Lõi engine | `engine/mod.rs` | Struct `MatrixEngine` + ngưỡng chất lượng | [Lõi MatrixEngine](matrix-engine.md) |
 | Nhân động | `engine/dynamic_filter.rs` | Parse quy tắc + đánh giá bitmask đa khối | [Nhân SIMD Bitmask](simd-kernel.md) |
-| Cắt lát | `engine/slice.rs` | Đọc dòng/cột zero-copy, preview mẫu | [Lõi MatrixEngine](matrix-engine.md#thao-tac-cat-lat-slicing) |
+| Cắt lát | `engine/slice.rs` | Đọc khoảng dòng/cột, preview mẫu | [Lõi MatrixEngine](matrix-engine.md#thao-tac-cat-lat-slicing) |
 | Lọc song song | `engine/parallel_filter.rs`, `engine/partition.rs` | Lọc đa tệp Rayon, cắt tỉa kiểu Hive | [Đường ống Lọc](filtering-pipeline.md) |
 | Tầng định dạng | `engine/formats/` | Trait `FormatHandler`, registry, bộ sniff magic-byte | [Định dạng & Magic Byte](formats.md) |
 | Tầng SQL | `engine/sql.rs`, `pyapi/iterator.rs` | Phiên DataFusion, cầu nối `PyBatchIterator` | [Tầng SQL DataFusion](datafusion.md) |
@@ -51,13 +51,13 @@ sequenceDiagram
     ENG->>FMT: handler_for(ext) hoặc sniff magic-byte
     FMT-->>ENG: OpenedSource (luồng batch)
     ENG-->>API: Arrow RecordBatch
-    API-->>PY: pyarrow.Table (zero-copy)
+    API-->>PY: pyarrow.Table qua Arrow C Data Interface
 ```
 
 1. **Biên Python (`pyapi/`)**, chuyển đổi tham số, ánh xạ [`BazanError`](matrix-engine.md#phan-loai-loi) sang `PyValueError` / `PyRuntimeError` / `PyIOError`, và nhả GIL quanh phần việc native qua `py.detach`.
 2. **Lõi engine (`engine/`)**, nắm toàn bộ logic: phân giải định dạng, đọc streaming, lọc, lập kế hoạch SQL.
 3. **Tầng định dạng (`formats/`)**, mọi truy cập tệp được phân giải về một `FormatHandler` (tra extension trước, sniff magic-byte sau).
-4. **Biên interop**, kết quả quay lại PyArrow qua interface zero-copy; xem [Tầng SQL DataFusion](datafusion.md).
+4. **Biên interop**, API trả Arrow data đi qua Arrow C Data Interface; buffer tương thích có thể được dùng chung, còn reader vẫn giải mã dữ liệu trên đĩa. Xem [Tầng SQL DataFusion](datafusion.md).
 
 ---
 

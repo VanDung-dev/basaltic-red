@@ -30,7 +30,7 @@ Before planning, the engine registers the `FROM` target as a table named `br_tar
     | `json`, `jsonl`, `ndjson` | JsonFormat (newline-delimited objects) |
     | `arrow`, `ipc`, `feather` | ArrowFormat |
 
-    A *directory* of homogeneous extension registers as one ListingTable, enabling predicate & projection pushdown across all files.
+    A *directory* of homogeneous extension registers as one ListingTable, allowing DataFusion to apply supported predicate and projection pruning across files. The resulting IO savings depend on the file format and query plan.
 
 2. **Fallback MemTable**, for formats without a native DataFusion reader (`xlsx`, `avro`, `orc`, `msgpack`, `txt`, mixed directories) and for JSON files whose top level is an array (`[...]`). The file is read through the [format registry](formats.md), collected into a MemTable, then queried in memory.
 
@@ -62,13 +62,13 @@ Python-facing API:
 - `stream.to_pyarrow()` → complete PyArrow Table
 - `repr(stream)` → `PyBatchIterator(batches=N, rows=M)` (counts known eagerly; filled during consumption for lazy streams)
 
-The output feeds directly into Polars / DuckDB with no copy, see [Integrate with Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
+The Arrow C Data Interface can share compatible buffers when passing results to Polars or DuckDB. DataFusion still decodes input and a consumer may materialize or copy results; see [Integrate with Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
 
 ---
 
 ## What Gets Pushed Down
 
-On native ListingTables, DataFusion decodes only the row groups and columns your plan needs:
+For Parquet ListingTables, DataFusion can prune row groups and avoid reading unselected column chunks when the query plan and file metadata allow it. Other native formats can use the projection or filter support provided by their reader, but do not necessarily skip physical input in the same way.
 
 ```python
 # Reads only passenger_count + fare_amount column chunks, prunes row groups by predicate

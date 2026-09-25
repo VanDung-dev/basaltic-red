@@ -14,7 +14,7 @@ Utilities for file-based data lakes:
 * Memory-mapped lake map (`.br_map.bazan`): stores file metadata plus Parquet row-group/column-chunk locations, ORC stripe, Avro OCF block, MsgPack object-block locations, XLSX logical row blocks, NDJSON/JSONL, JSON-array, and CSV/TSV/PSV/TXT checkpoints, and Arrow IPC/Feather batch ordinals, with automated drift detection (`br.lake.doctor`). It is not a per-row byte index.
 * Slicing (`br.read`): healthy Parquet, ORC, Avro, and MsgPack maps resolve native/object boundaries; XLSX maps resolve logical worksheet row blocks (Calamine still materializes the worksheet range); line-oriented and JSON-array maps seek to checkpoints; delimited maps seek to quote-safe row blocks; and Arrow IPC/Feather maps seek to RecordBatch ordinals before reading. Other formats retain bounded streaming fallback without loading entire files into RAM.
 * Parallel data-quality filtering (`br.filter`): multi-threaded dynamic rule validation with per-row `u64` audit bitmasks that separate clean from invalid rows.
-* Embedded SQL execution (`br.sql`): runs in-memory DataFusion SQL queries over directories and hands RecordBatches to DuckDB or Polars without copying data.
+* Embedded SQL execution (`br.sql`): runs DataFusion SQL queries over directories and hands Arrow batches to DuckDB or Polars. The Arrow C Data Interface can share compatible buffers at the language boundary; SQL readers still decode input and consumers may materialize results.
 * Custom format registration & sniffing (`br.formats`): detects file types via magic bytes and enables user-defined delimiters without recompiling.
 
 Demo dataset in [`demo.ipynb`](demo.ipynb): NYC TLC Yellow Taxi 2009 to 2025, containing 204 Parquet files, 29.66 GB, and 1,826,960,642 rows by 20 columns.
@@ -29,7 +29,7 @@ Demo dataset in [`demo.ipynb`](demo.ipynb): NYC TLC Yellow Taxi 2009 to 2025, co
 | Storage format | Open files (Parquet, Arrow IPC, CSV, JSON, Avro, ORC) | Internal table storage and WAL files |
 | Network and ports | In-process via Arrow C Data Interface | TCP sockets and wire protocols |
 | Role in ecosystem | Pre-processing, cataloging, quality auditing, slicing | Persistent storage and query serving |
-| Interoperability | Direct zero-copy handoff to DuckDB, Polars, PyArrow | Client drivers and network serialization |
+| Interoperability | In-process Arrow C Data Interface handoff; compatible buffers may be shared | Client drivers and network serialization |
 
 ---
 
@@ -42,7 +42,7 @@ Numbers below are from a run of `demo.ipynb` on an Apple Silicon Mac. Results va
 | Catalog inspection (cold vs warm) | 204 files | Cold scan and map build took ~18.07 s; warm catalog load took ~0.5 ms (average over 5 runs). A full `doctor` call still checks current file metadata. |
 | Volume scan (metadata only) | 1,826,960,642 rows (36.5B cells) | Metadata read of row counts and file sizes completed in ~0.7 s. |
 | Full-lake quality filter | 1,826,960,642 rows, 5 rules | Took ~21 s using Rayon parallel read and filter (`filter_files_parallel`), yielding 1,780,228,507 clean rows and 46,732,135 invalid rows. |
-| Single-file SQL aggregation | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` took ~0.1 s, followed by zero-copy handoff to DuckDB or Polars. |
+| Single-file SQL aggregation | 4,305,006 rows (one monthly batch) | `GROUP BY` via `execute_sql_stream` took ~0.1 s, followed by an Arrow handoff to DuckDB or Polars; compatible buffers may be shared at the interop boundary. |
 
 Filtering uses plain Rust loops over Arrow arrays that LLVM auto-vectorizes. Audit codes are `u64` bitmasks per row (bit *i* corresponds to rule *i* failure, chunked when rules exceed 64).
 

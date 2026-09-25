@@ -6,18 +6,18 @@ icon: material/lightning-bolt
 
 # 5-Minute Quickstart Guide
 
-This guide walks you through the core workflow of `basaltic-red`: initializing a Data Lake, slicing data zero-copy, applying dynamic SIMD quality filters, and querying with SQL.
+This guide walks through a core `basaltic-red` workflow: creating or repairing a Lake Map, reading a row range, applying dynamic quality filters, and querying with SQL.
 
 ---
 
-## Step 1: Initialize Data Lake with Lake Doctor
+## Step 1: Create or Repair the Lake Map
 
-Always run `br.lake.doctor` when starting to work with a data directory:
+`doctor(auto_heal=True)` creates a missing catalog or repairs detected drift for files discovered by supported extension. Drift detection compares file paths, sizes, and modification times rather than file-content hashes; auto-heal rereads new or modified files to rebuild their entries.
 
 ```python
 import basaltic_red as br
 
-# Diagnose lake and generate .br_map.bazan catalog automatically
+# Create the catalog if missing, or reindex detected metadata drift
 health = br.lake.doctor("data", auto_heal=True)
 print("Lake Health Report:")
 for k, v in health.items():
@@ -26,14 +26,14 @@ for k, v in health.items():
 
 ---
 
-## Step 2: Zero-Copy Sample Slicing
+## Step 2: Read a Row Range
 
-Read row and column slices from large Parquet files in microseconds:
+With a healthy Lake Map, supported Parquet slices use row-group locations to avoid unrelated groups. The reader still decodes the requested values, and latency depends on the file layout and cache state.
 
 ```python
 import polars as pl
 
-# Slice rows [0..100] without reading the entire dataset
+# Read 100 rows through the map-assisted slice API
 arrow_table = br.read.slice_rows("data/yellow_tripdata_2025-01.parquet", offset=0, limit=100)
 df = pl.from_arrow(arrow_table)
 print(df.shape)  # (100, 20)
@@ -68,7 +68,7 @@ print(f"Trash rows : {trash_df.height:,}")
 
 ---
 
-## Step 4: Zero-Copy SQL Analytics with DataFusion
+## Step 4: Streaming SQL Analytics with DataFusion
 
 Stream query execution pushdown directly into Polars or DuckDB:
 
@@ -78,7 +78,7 @@ import duckdb
 # DataFusion SQL execution stream
 stream = br.sql.execute_sql_stream("SELECT passenger_count, AVG(fare_amount) AS avg_fare FROM 'data/output/clean_trips.parquet' GROUP BY passenger_count")
 
-# Zero-copy handoff to DuckDB or Polars
+# Arrow handoff to DuckDB or Polars
 duck_df = duckdb.from_arrow(stream.to_pyarrow()).df()
 print(duck_df)
 ```

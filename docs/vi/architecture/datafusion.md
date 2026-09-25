@@ -30,7 +30,7 @@ Trước khi lập kế hoạch, engine đăng ký đích `FROM` thành bảng t
     | `json`, `jsonl`, `ndjson` | JsonFormat (object phân tách bởi xuống dòng) |
     | `arrow`, `ipc`, `feather` | ArrowFormat |
 
-    Một *thư mục* đồng nhất extension đăng ký thành một ListingTable duy nhất, mở khóa predicate & projection pushdown trên toàn bộ tệp.
+    Một *thư mục* đồng nhất extension đăng ký thành một ListingTable duy nhất, cho phép DataFusion áp dụng predicate và projection pruning mà reader hỗ trợ trên các file. Mức IO tiết kiệm được tùy định dạng và query plan.
 
 2. **MemTable dự phòng**, cho định dạng không có reader DataFusion (`xlsx`, `avro`, `orc`, `msgpack`, `txt`, thư mục lẫn loại) và tệp JSON có tầng ngoài là mảng (`[...]`). Tệp được đọc qua [registry định dạng](formats.md), nạp vào MemTable rồi truy vấn trong RAM.
 
@@ -62,13 +62,13 @@ API phía Python:
 - `stream.to_pyarrow()` → PyArrow Table đầy đủ
 - `repr(stream)` → `PyBatchIterator(batches=N, rows=M)` (biết ngay với nguồn eager; điền dần khi tiêu thụ với nguồn lazy)
 
-Kết quả nạp thẳng vào Polars / DuckDB không copy, xem [Tích hợp Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
+Arrow C Data Interface có thể dùng chung buffer tương thích khi bàn giao kết quả cho Polars hoặc DuckDB. DataFusion vẫn giải mã dữ liệu đầu vào và consumer có thể materialize hoặc copy kết quả; xem [Tích hợp Polars & DuckDB](../how-to/integrate-polars-duckdb.md).
 
 ---
 
 ## Những gì được đẩy xuống
 
-Trên ListingTable thuần túy, DataFusion chỉ giải mã đúng row group và cột mà kế hoạch truy vấn cần:
+Với ListingTable Parquet, DataFusion có thể cắt tỉa row group và tránh đọc column chunk không được chọn khi query plan và metadata file cho phép. Định dạng native khác có thể dùng hỗ trợ projection hoặc filter của reader, nhưng không nhất thiết bỏ qua physical input theo cùng cách.
 
 ```python
 # Chỉ đọc column chunk passenger_count + fare_amount, cắt tỉa row group theo predicate

@@ -14,7 +14,7 @@ icon: material/home
 
 ## Tổng quan
 
-`basaltic-red` là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (`.br_map.bazan`), cắt lát dòng và cột không cần đọc toàn bộ file, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về `pyarrow.Table` hoặc `RecordBatch` để sử dụng trực tiếp với Polars, DuckDB, hoặc pandas.
+`basaltic-red` là lõi tính toán Rust cho data lake dạng file kèm liên kết Python. Chức năng chính bao gồm: catalog ánh xạ bộ nhớ (`.br_map.bazan`), cắt lát dòng và cột theo khả năng của từng định dạng, lọc chất lượng dữ liệu song song với mã audit theo dòng, và thực thi SQL qua DataFusion trên Arrow batch. Kết quả trả về `pyarrow.Table` hoặc `RecordBatch` để sử dụng với Polars, DuckDB hoặc pandas.
 
 Demo trong [`demo.ipynb`](https://github.com/VanDung-dev/basaltic-red/blob/master/demo.ipynb): NYC TLC Yellow Taxi từ năm 2009 đến 2025, gồm 204 file Parquet, dung lượng 29.66 GB, 1,826,960,642 dòng nhân 20 cột.
 
@@ -32,10 +32,10 @@ graph LR
 ## Chức năng chính
 
 - Catalog (`.br_map.bazan`): một payload Arrow IPC ở gốc lake; đọc warm qua `memmap2` tránh duyệt cây thư mục. Doctor trả về `HEALTHY`, `DRIFT_DETECTED`, hoặc `HEALED`.
-- Cắt lát: `slice_rows` và `slice_cols` chỉ đọc phần dữ liệu được yêu cầu.
+- Cắt lát: `slice_rows` và `slice_cols` trả về khoảng dữ liệu được yêu cầu. Map khỏe cho phép reader hỗ trợ bỏ qua block không liên quan; một số định dạng vẫn phải giải mã thêm dữ liệu, còn XLSX materialize worksheet qua Calamine.
 - Lọc: quy tắc động theo định dạng `cột toán_tử giá_trị`; dòng lỗi mang `audit_error_code` (bitmask `u64`, chia chunk khi số quy tắc vượt quá 64).
-- SQL: phiên DataFusion; `execute_sql_stream` trả về `PyBatchIterator`, `to_pyarrow()` bàn giao batch cho Polars hoặc DuckDB không qua sao chép.
-- Định dạng: đăng ký định dạng phân cách tùy chỉnh qua `br.formats.register_delimited`; các luồng phân giải định dạng có thể nhận diện tệp không có đuôi bằng magic byte, còn `filter_files_parallel` cần extension đã đăng ký.
+- SQL: phiên DataFusion; `execute_sql_stream` trả về `PyBatchIterator`, `to_pyarrow()` bàn giao Arrow batch cho Polars hoặc DuckDB. Buffer tương thích có thể được dùng chung ở ranh giới Arrow interop; reader và bước chuyển đổi phía sau vẫn có thể giải mã hoặc materialize dữ liệu.
+- Định dạng: đăng ký định dạng phân cách tùy chỉnh qua `br.formats.register_delimited`; đọc trực tiếp một file có thể nhận diện một số file không có extension bằng magic byte. Discovery thư mục của Lake Map, Lake Doctor và `filter_files_parallel` dựa trên extension và cần handler đang hoạt động.
 
 ---
 

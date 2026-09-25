@@ -1,10 +1,10 @@
 ---
-title: Phân tích SQL Zero-Copy
+title: Phân tích SQL qua Arrow Interop
 description: Chu trình phân tích dữ liệu kết hợp DataFusion, Polars và DuckDB
 icon: material/database-search
 ---
 
-# Luồng phân tích SQL Zero-Copy
+# Luồng phân tích SQL qua Arrow Interop
 
 ## Tích hợp truyền luồng kết quả
 
@@ -26,7 +26,7 @@ stream = br.sql.execute_sql_stream("""
     ORDER BY total_trips DESC
 """)
 
-# Chuyển đổi sang Polars DataFrame không qua copy bộ nhớ
+# Chuyển Arrow sang Polars; buffer tương thích có thể được dùng chung tại ranh giới interop
 df = pl.from_arrow(stream.to_pyarrow())
 print(df)
 ```

@@ -108,9 +108,9 @@ classDiagram
 
 | File | Contents |
 | :--- | :--- |
-| `mod.rs` | `OpenedSource` {schema, batches}, trait `FormatHandler` (open / process_file / read_range / *_columns), static `HANDLERS` table (15 ext), `StaticRefHandler`, dynamic registry (`register_format`/`unregister_format`/`list_supported_formats`), `handler_for()`, `sniff_format_from_bytes/file()` (PAR1, ARROW1, PK\x03\x04, Obj\x01, ORC, msgpack maps, `[`→json, `{`→ndjson, delimiter sniff), `resolve_handler_for_file()`, `maybe_hint_not_parquet()`, `clamp_batch_size()` |
+| `mod.rs` | `OpenedSource` {schema, batches}, trait `FormatHandler` (open / process_file / read_range / *_columns), static `HANDLERS` table (16 extensions), `StaticRefHandler`, dynamic registry (`register_format`/`unregister_format`/`list_supported_formats`), `handler_for()`, `sniff_format_from_bytes/file()` (PAR1, ARROW1, PK\x03\x04, Obj\x01, ORC, msgpack maps, `[`→json, `{`→ndjson, delimiter sniff), `resolve_handler_for_file()`, `maybe_hint_not_parquet()`, `clamp_batch_size()` |
 | `core/parquet.rs` | `open_parquet[_columns]()`, `ParquetHandler`, `process_and_write_lake_native()` (mirrored trees, ZSTD), `generate_gold_table_native()` (+ `_gold_metadata.json`) |
-| `core/arrow_ipc.rs` | `FeatherHandler` (memmap2 zero-copy reads) |
+| `core/arrow_ipc.rs` | `FeatherHandler`, Arrow IPC `FileReader`, native batch index, optional reader projection |
 | `common/csv.rs` | `open_delimited_csv[_columns]()` (schema inference over 100 rows + `rewind()`), handlers: CsvHandler, TsvHandler, PsvHandler, TxtHandler |
 | `common/json.rs` | JsonHandler, JsonlHandler, NdjsonHandler, `open_json_array()` (stream `[...]` as objects) |
 | `plugins/adapters/excel.rs` | `XlsxHandler` + `XlsxRows` iterator (calamine) |

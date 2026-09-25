@@ -1,10 +1,10 @@
 ---
-title: Zero-Copy SQL Analytics
+title: SQL Analytics with Arrow Interchange
 description: End-to-end analytical workflow with DataFusion, Polars, and DuckDB
 icon: material/database-search
 ---
 
-# Zero-Copy SQL Analytics Workflow
+# SQL Analytics with Arrow Interchange
 
 ## Stream Pushdown Integration
 
@@ -26,7 +26,7 @@ stream = br.sql.execute_sql_stream("""
     ORDER BY total_trips DESC
 """)
 
-# Convert to Polars DataFrame without memory copy
+# Convert Arrow output to Polars; compatible buffers may be shared at the interop boundary
 df = pl.from_arrow(stream.to_pyarrow())
 print(df)
 ```

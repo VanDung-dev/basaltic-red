@@ -30,21 +30,29 @@ pub trait FormatHandler: Send + Sync {
 }
 ```
 
-Handlers return a lazy `OpenedSource`, an Arrow schema plus a streaming batch iterator. Row-based formats (CSV, JSONL, XLSX) chunk their rows through shared templates in `plugins/base_templates/row_chunker.rs`; columnar formats (Parquet, IPC) stream natively.
+Handlers return a lazy `OpenedSource`, an Arrow schema plus a streaming batch iterator. The CSV/JSON readers and columnar Parquet/IPC readers yield Arrow batches directly; the Avro, MessagePack, and XLSX adapters use `plugins/base_templates/row_chunker.rs` to convert decoded rows into batches.
 
 ---
 
 ## Built-in Formats
 
-Static table `HANDLERS` maps extensions to handlers:
+`HANDLERS` in `formats/mod.rs` currently registers 16 extensions. Rows below group aliases that share one handler.
+Locator inspection and slice routing live in [`map.rs`](../../../src/engine/map.rs) and [`slice.rs`](../../../src/engine/slice.rs).
 
-| Tier | Extensions | Handler source |
-| :--- | :--- | :--- |
-| **1, Core** | `parquet`, `pq`, `feather`, `arrow`, `ipc` | `formats/core/parquet.rs`, `formats/core/arrow_ipc.rs` |
-| **2, Common** | `csv`, `tsv`, `psv`, `txt`, `json`, `jsonl`, `ndjson` | `formats/common/csv.rs`, `formats/common/json.rs` |
-| **3, Pluggable adapters** | `xlsx`, `avro`, `orc`, `msgpack` | `formats/plugins/adapters/` |
+| Extension(s) | Schema, header, nulls, and read errors | Row slicing and Lake Map | Column slicing | Source |
+| :--- | :--- | :--- | :--- | :--- |
+| `.parquet`, `.pq` | Stored Parquet Arrow schema/types; Arrow nulls preserved; invalid files or reads error. | Physical row-group checkpoints; missing/stale/nonmatching map uses the normal reader. | Parquet `ProjectionMask` on mapped and fallback paths. | [parquet.rs](../../../src/engine/formats/core/parquet.rs) |
+| `.feather`, `.arrow`, `.ipc` | Arrow IPC **file** schema/types; Arrow nulls preserved; invalid files or reads error. | Record-batch ordinal and row span; starts at that batch and skips locally, with no byte seek. | Selected field indices passed to the IPC reader on mapped and fallback paths. | [arrow_ipc.rs](../../../src/engine/formats/core/arrow_ipc.rs) |
+| `.csv`, `.psv`, `.txt` | First row header; delimiters `,`, `|`, `;`; Arrow infers types from up to 100 records and uses default null handling. No custom null token; parser/type errors propagate. | Quote-aware byte checkpoints at the configured stride; empty physical lines skipped. | Mapped reads parse selected columns but still read each selected record's bytes; fallback can project in Arrow CSV. | [csv.rs](../../../src/engine/formats/common/csv.rs) |
+| `.tsv` | First row header; all columns nullable UTF-8; exact `\N` is null. Short rows pad with nulls; extra fields/parser errors fail. | Quote-aware byte checkpoints at the configured stride; empty physical lines skipped. | Mapped reads parse selected columns but still read each selected record's bytes; fallback can project in Arrow CSV. | [csv.rs](../../../src/engine/formats/common/csv.rs) |
+| `.json`, `.jsonl` | Newline-delimited objects or a top-level array of object rows; schema inferred from up to 100 records; missing/null values become null. Invalid JSON, incompatible values, or non-object array elements error. | Configured-stride row blocks: object-start byte checkpoints for arrays, line checkpoints otherwise. | Reads the row range then projects. | [json.rs](../../../src/engine/formats/common/json.rs) |
+| `.ndjson` | Expected shape: one object per line; schema inferred from up to 100 records; missing/null values become null. Invalid JSON or incompatible values error; final record may omit newline. | Byte checkpoints at the configured stride of nonblank records. | Reads the row range then projects. | [json.rs](../../../src/engine/formats/common/json.rs) |
+| `.orc` | Arrow schema/types; Arrow nulls preserved; ORC open/decode errors propagate. | Physical stripe checkpoints; starts at the stripe containing the first requested row and skips locally. | Reads full columns for the range, then projects. | [orc.rs](../../../src/engine/formats/plugins/adapters/orc.rs) |
+| `.avro` | Record fields nullable; `long`/`int`/`double`/`boolean` → `Int64`/`Int32`/`Float64`/`Boolean`; one non-null union branch uses its mapping. Other types are UTF-8 but only strings convert; unsupported/null values become null. Invalid OCF/schema/data errors. | Avro Object Container File block checkpoints; starts at the containing block and skips locally. | Reads full rows for the range, then projects. | [avro.rs](../../../src/engine/formats/plugins/adapters/avro.rs) |
+| `.msgpack` | No header. First map defines fields/types (string keys name/populate fields; other keys fall back to `col` and do not populate fields) and is the first row; earlier values ignored. Integer/F32/F64/Boolean → `Int64`/`Float64`/`Boolean`; other types infer UTF-8, preserving strings only. Missing/incompatible values and non-map rows become null; extra keys ignored; truncated tails error. | Byte checkpoints at the configured stride of top-level rows from the first map; schema is inferred from that map before reading the range. | Reads full rows for the range, then projects. | [msgpack.rs](../../../src/engine/formats/plugins/adapters/msgpack.rs) |
+| `.xlsx` | First worksheet; first row is header; all data columns UTF-8; empty cells null. No readable first sheet errors; no header row yields an empty schema. | Configured-stride logical data-row blocks; Calamine still materializes the worksheet range. | Reads the row range, then projects. | [excel.rs](../../../src/engine/formats/plugins/adapters/excel.rs) |
 
-Delimited variants share one template (`plugins/base_templates/delimited.rs`) differing only in delimiter byte and header flag.
+All `slice_cols` calls preserve requested order and error if a field is missing. Parquet, Arrow IPC/Feather, and ORC push projection into their readers; mapped CSV/TSV/PSV/TXT parses selected columns while reading complete selected record bytes. JSON, Avro, MsgPack, and XLSX map paths decode the selected row range then project. Map entries require matching file size and modification time. Missing/stale entries or entries for another file fall back; an unreadable sidecar returns an error. Dynamic handlers for built-in extensions bypass built-in locators. Dynamic delimited handlers use `plugins/base_templates/delimited.rs` with registration-selected delimiter/header.
 
 ---
 
@@ -84,4 +92,4 @@ table = br.read.slice_rows("data/custom.dat", offset=0, limit=50)
 br.formats.unregister_format("dat")  # returns True if it existed
 ```
 
-`handler_for()` prefers a registered handler over a built-in handler for the same extension. This applies only when a code path uses the dynamic registry. Map-backed slice fast paths and SQL's native DataFusion `ListingTable` readers use dedicated readers and do not apply dynamic overrides; see [DataFusion SQL](datafusion.md).
+`handler_for()` prefers a registered handler over a built-in handler for the same extension. Slice APIs honor that override even when a Lake Map exists; the map records no built-in locator for the overridden extension and slicing falls back to the registered handler. SQL's native DataFusion `ListingTable` readers use their own format readers and do not apply dynamic overrides; see [DataFusion SQL](datafusion.md).

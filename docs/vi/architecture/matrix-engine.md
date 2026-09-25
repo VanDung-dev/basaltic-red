@@ -45,10 +45,10 @@ Cài đặt trong `src/engine/slice.rs`; phơi ra qua [`br.read.*`](../reference
 | Phương thức | Hành vi |
 | :--- | :--- |
 | `slice_rows(file_path, offset, limit)` | Parquet, ORC, Avro và MsgPack phân giải row group/stripe/block native khỏe từ `.br_map.bazan`; XLSX bắt đầu `XlsxRows` từ block dòng logic của worksheet đã lập chỉ mục (Calamine vẫn materialize worksheet); NDJSON/JSONL và JSON-array nhảy tới checkpoint đã lập chỉ mục; CSV/TSV/PSV/TXT nhảy tới block dòng đã lập chỉ mục; Arrow IPC/Feather nhảy tới RecordBatch đã lập chỉ mục. Các nhánh này sau đó áp dụng offset/limit cục bộ; định dạng khác vẫn stream và bỏ qua batch. |
-| `slice_cols(file_path, selected_cols, offset, limit)` | Như trên. Parquet đẩy phép chiếu xuống reader; XLSX, ORC, Avro, MsgPack, NDJSON/JSONL, JSON-array và CSV/TSV/PSV/TXT cùng Arrow IPC/Feather đọc từ boundary đã lập chỉ mục rồi mới chiếu các cột yêu cầu. |
+| `slice_cols(file_path, selected_cols, offset, limit)` | Cùng cách phân giải vị trí. Parquet, Arrow IPC/Feather và ORC chuyển phép chiếu xuống reader. Delimited mapped parse cột được chọn nhưng vẫn đọc byte của từng record; định dạng theo dòng khác thường decode các dòng được chọn rồi mới project. Nếu không có locator phù hợp, handler có thể stream và bỏ qua dòng trước. Thứ tự cột đầu ra theo `selected_cols`. |
 | `preview_sample(file_path, limit_rows)` | Mở batch đầu tiên và chạy bộ lọc **ngưỡng tĩnh**; trả về `(clean_table, trash_table)`. |
 
-Cả hai phương thức slice đều phân giải handler qua [registry định dạng](formats.md), nên hoạt động với mọi định dạng được hỗ trợ chứ không riêng Parquet.
+Cả hai phương thức slice đều phân giải handler qua [registry định dạng](formats.md), nên hỗ trợ các định dạng đã đăng ký ngoài Parquet. Locator trong map tùy theo định dạng; handler fallback có thể stream và bỏ qua từ đầu. XLSX bắt đầu ở dòng logic đã lập chỉ mục sau khi Calamine materialize worksheet.
 
 ---
 

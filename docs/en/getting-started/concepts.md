@@ -1,6 +1,6 @@
 ---
 title: Core Concepts
-description: Deep dive into Apache Arrow zero-copy memory, SIMD bitmasks, and binary lake mapping
+description: Apache Arrow interchange, SIMD bitmasks, and binary lake mapping
 icon: material/lightbulb
 ---
 
@@ -10,9 +10,9 @@ Understanding the foundational building blocks of `basaltic-red`.
 
 ---
 
-## 1. Zero-Copy Apache Arrow Architecture
+## 1. Apache Arrow Interchange
 
-`basaltic-red` uses Apache Arrow's standard in-memory columnar format across all operations. When data is read from Parquet or IPC files, raw byte buffers are parsed directly into Arrow `RecordBatch` structures. When handing data off to Python libraries (Polars, PyArrow, DuckDB), pointer transfers via the Arrow C Data Interface prevent redundant memory copying.
+`basaltic-red` uses Apache Arrow's standard in-memory columnar format across its operations. File readers decode Parquet, IPC, and other supported formats into Arrow `RecordBatch` values; reading compressed or encoded files is not zero-copy from disk. At the Rust/Python boundary, Arrow's C Data Interface can transfer compatible Arrow buffers without copying. Downstream libraries may still copy when a conversion or unsupported layout requires it.
 
 ```mermaid
 sequenceDiagram
@@ -22,10 +22,10 @@ sequenceDiagram
     participant PL as Polars DataFrame
     participant DB as DuckDB Relation
 
-    D->>R: memmap / FileReader parse
-    R->>A: PyCapsule via Arrow C Data Interface
-    A-->>PL: zero-copy view
-    A-->>DB: zero-copy view
+    D->>R: decode file into Arrow arrays
+    R->>A: Arrow C Data Interface
+    A-->>PL: share compatible buffers
+    A-->>DB: Arrow interchange
 ```
 
 ---
@@ -42,5 +42,5 @@ Traditional filtering evaluates rules row-by-row or creates intermediate boolean
 
 Rather than rebuilding row counts and statistics from scratch, `basaltic-red` maintains an Arrow IPC binary catalog (`.br_map.bazan`) inside the lake directory:
 - Contains relative paths, sizes, modification times, row counts, and per-column min/max stats.
-- Warm catalog loads via `memmap2` (sub-millisecond in `demo.ipynb`; actual time depends on hardware/filesystem). Full doctor checks still inspect current file metadata.
-- `br.lake.doctor` detects drift (unindexed, modified, missing files) and incrementally heals the catalog.
+- Loading an existing catalog uses `memmap2` (about 0.5 ms in the recorded `demo.ipynb` run; actual time depends on hardware/filesystem). Doctor still discovers current files and checks their path, size, and modification time.
+- `br.lake.doctor` detects discovered unindexed, modified, and missing files and can reindex the catalog. Its drift comparison uses path, size, and modification time rather than file-content hashes; healing rereads new or modified files to rebuild map entries.

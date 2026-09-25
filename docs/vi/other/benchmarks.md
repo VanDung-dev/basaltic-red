@@ -26,7 +26,7 @@ Kết quả từ một lần chạy [`demo.ipynb`](https://github.com/VanDung-de
 
 ## 2. Kiểm tra catalog (`.br_map.bazan`)
 
-`br.lake.create_map("data")` lần đầu quét thư mục và tạo `.br_map.bazan`; load catalog đã lưu dùng `memmap2`. Một lần `doctor` đầy đủ vẫn kiểm tra metadata của các file hiện tại.
+`br.lake.create_map("data")` lần đầu quét thư mục và tạo `.br_map.bazan`; load catalog đã lưu dùng `memmap2`. Một lần `doctor` đầy đủ vẫn discovery file và kiểm tra đường dẫn, dung lượng, thời gian sửa đổi để tìm drift catalog; phép so sánh này không dùng hash nội dung.
 
 | Chế độ | Số file | Thời gian (demo) |
 | :--- | :--- | :--- |
@@ -61,7 +61,7 @@ Vòng lặp lọc là Rust thuần trên Arrow array do LLVM tự vector hóa; k
 
 Một batch tháng (`yellow_tripdata_2025-12.parquet`, ~4,305,006 dòng) dùng cho demo SQL và slicing:
 
-- Cắt lát: `br.read.slice_rows(..., offset=0, limit=100)` xong trong mili-giây (không đọc toàn bộ file).
+- Cắt lát: notebook minh họa `br.read.slice_rows(..., offset=0, limit=100)` nhưng không đo riêng thời gian gọi đó. API có thể dùng locator trong map để bỏ qua block không liên quan; độ trễ tùy file và cache.
 - SQL: `br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")`, aggregation trên một file xong ~0.1 s trong demo; bàn giao sang DuckDB qua `duckdb.from_arrow(stream.to_pyarrow())` là truyền qua Arrow FFI.
 
 Không so sánh với pandas/Postgres, kết quả phụ thuộc truy vấn và phần cứng.

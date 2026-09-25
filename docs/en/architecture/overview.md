@@ -23,7 +23,7 @@ Each component page names its source files inline. The table below is the entry 
 | Python boundary | `pyapi/` | `br.*` namespaces, argument conversion, GIL release, shared engine | [Python API Reference](../reference/python-api.md) |
 | Engine core | `engine/mod.rs` | `MatrixEngine` struct + quality thresholds | [MatrixEngine Core](matrix-engine.md) |
 | Dynamic kernel | `engine/dynamic_filter.rs` | Rule parsing + multi-chunk bitmask evaluation | [SIMD Bitmask Kernel](simd-kernel.md) |
-| Slicing | `engine/slice.rs` | Zero-copy row/column reads, sample preview | [MatrixEngine Core](matrix-engine.md#slicing-primitives) |
+| Slicing | `engine/slice.rs` | Row/column range reads, sample preview | [MatrixEngine Core](matrix-engine.md#slicing-primitives) |
 | Parallel filter | `engine/parallel_filter.rs`, `engine/partition.rs` | Rayon multi-file filtering, Hive-style pruning | [Filtering Pipeline](filtering-pipeline.md) |
 | Format layer | `engine/formats/` | `FormatHandler` trait, registries, magic-byte sniffer | [Format Registry & Sniffing](formats.md) |
 | SQL layer | `engine/sql.rs`, `pyapi/iterator.rs` | DataFusion session, `PyBatchIterator` bridge | [DataFusion SQL Layer](datafusion.md) |
@@ -51,13 +51,13 @@ sequenceDiagram
     ENG->>FMT: handler_for(ext) or magic-byte sniff
     FMT-->>ENG: OpenedSource (batch stream)
     ENG-->>API: Arrow RecordBatch
-    API-->>PY: pyarrow.Table (zero-copy)
+    API-->>PY: pyarrow.Table via Arrow C Data Interface
 ```
 
 1. **Python boundary (`pyapi/`)**, converts arguments, maps [`BazanError`](matrix-engine.md#error-taxonomy) to `PyValueError` / `PyRuntimeError` / `PyIOError`, and releases the GIL around native work via `py.detach`.
 2. **Engine core (`engine/`)**, owns all logic: format resolution, streaming reads, filtering, SQL planning.
 3. **Format layer (`formats/`)**, every file access resolves to a `FormatHandler` (extension lookup first, then magic-byte sniffing).
-4. **Interop boundary**, results cross back as PyArrow objects through Arrow's zero-copy interface; see [DataFusion SQL Layer](datafusion.md).
+4. **Interop boundary**, Arrow-returning APIs cross back through Arrow's C Data Interface; compatible buffers may be shared, while file readers still decode on-disk data. See [DataFusion SQL Layer](datafusion.md).
 
 ---
 

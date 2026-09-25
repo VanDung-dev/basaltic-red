@@ -11,10 +11,10 @@
 `basaltic-red` không phải là cơ sở dữ liệu. Dự án không có tiến trình daemon chạy ngầm, không mở cổng socket mạng, và không dùng định dạng lưu trữ độc quyền. Đây là bộ công cụ bổ trợ được thiết kế để dùng chung với các công cụ phân tích hiện có như DuckDB, Polars, PyArrow, pandas và DataFusion.
 
 Các tiện ích cho data lake dạng file:
-* Catalog ánh xạ bộ nhớ (`.br_map.ipc`): nạp metadata dưới 0.5 ms qua OS `mmap`, tự động phát hiện lệch dữ liệu (`br.lake.doctor`) và hiển thị thanh tiến trình terminal.
-* Cắt lát dữ liệu zero-copy (`br.read`): đọc dải dòng hoặc chiếu cột mà không cần nạp toàn bộ file vào RAM.
+* Catalog Lake Map (`.br_map.bazan`): payload Arrow IPC ánh xạ bộ nhớ chứa metadata và locator theo định dạng; `br.lake.doctor` phát hiện lệch path/size/mtime. Thời gian load đo trong demo được ghi ở bảng benchmark bên dưới; lúc tạo map có thể hiển thị thanh tiến trình terminal.
+* Cắt lát (`br.read`): trả về dải dòng hoặc tập cột yêu cầu; mức dữ liệu phải đọc hoặc giải mã tùy định dạng và locator có sẵn.
 * Lọc chất lượng dữ liệu song song (`br.filter`): kiểm tra quy tắc động đa luồng với bitmask `u64` cho từng dòng để phân loại dòng hợp lệ và dòng lỗi.
-* Thực thi SQL nhúng (`br.sql`): chạy truy vấn DataFusion SQL trên thư mục file và bàn giao RecordBatch cho DuckDB hoặc Polars không qua sao chép bộ nhớ.
+* Thực thi SQL nhúng (`br.sql`): chạy truy vấn DataFusion SQL trên thư mục file và bàn giao Arrow batch cho DuckDB hoặc Polars. Arrow C Data Interface có thể dùng chung buffer tương thích tại ranh giới ngôn ngữ; reader SQL vẫn giải mã dữ liệu đầu vào và consumer có thể materialize kết quả.
 * Đăng ký định dạng tùy chỉnh & sniffing (`br.formats`): tự động nhận diện kiểu tệp qua magic byte và hỗ trợ ký tự phân cách tùy biến không cần biên dịch lại.
 
 Bộ dữ liệu demo trong [`demo.ipynb`](demo.ipynb): NYC TLC Yellow Taxi từ năm 2009 đến 2025, gồm 204 file Parquet, dung lượng 29.66 GB và 1,826,960,642 dòng nhân 20 cột.
@@ -29,7 +29,7 @@ Bộ dữ liệu demo trong [`demo.ipynb`](demo.ipynb): NYC TLC Yellow Taxi từ
 | Định dạng lưu trữ | Tệp tiêu chuẩn mở (Parquet, Arrow IPC, CSV, JSON, Avro, ORC) | Định dạng bảng và file WAL nội bộ |
 | Mạng và cổng kết nối | In-process qua Arrow C Data Interface | Socket TCP và giao thức mạng |
 | Vai trò trong hệ sinh thái | Tiền xử lý, tạo catalog, audit dữ liệu, cắt lát | Lưu trữ bền vững và phục vụ truy vấn |
-| Khả năng tương tác | Bàn giao zero-copy trực tiếp sang DuckDB, Polars, PyArrow | Cần driver client và tuần tự hóa qua mạng |
+| Khả năng tương tác | Bàn giao in-process qua Arrow C Data Interface; có thể dùng chung buffer tương thích | Cần driver client và tuần tự hóa qua mạng |
 
 ---
 
@@ -42,7 +42,7 @@ Số liệu dưới đây lấy từ một lần chạy `demo.ipynb` trên Apple
 | Kiểm tra catalog (cold vs warm) | 204 file | Quét cold và tạo map mất ~18.07 s; đọc warm qua `memmap2` mất ~0.5 ms (trung bình 5 lần). Đọc warm nhanh hơn vì không cần duyệt cây thư mục. |
 | Quét khối lượng (chỉ metadata) | 1,826,960,642 dòng (36.5B ô) | Đọc metadata số dòng và kích thước file hoàn tất trong ~0.7 s. |
 | Lọc chất lượng toàn lake | 1,826,960,642 dòng, 5 rule | Mất ~21 s khi dùng `filter_files_parallel` (đọc song song và lọc Rayon), cho ra 1,780,228,507 dòng sạch và 46,732,135 dòng rác. |
-| SQL aggregation một file | 4,305,006 dòng (một batch tháng) | `GROUP BY` qua `execute_sql_stream` mất ~0.1 s, sau đó bàn giao zero-copy sang DuckDB hoặc Polars. |
+| SQL aggregation một file | 4,305,006 dòng (một batch tháng) | `GROUP BY` qua `execute_sql_stream` mất ~0.1 s, sau đó bàn giao Arrow sang DuckDB hoặc Polars; buffer tương thích có thể được dùng chung ở ranh giới interop. |
 
 Vòng lặp lọc dùng code Rust thuần trên Arrow array và được LLVM tự vector hóa. Mã audit là bitmask `u64` theo từng dòng (bit *i* ứng với rule *i* vi phạm, chia chunk khi số rule vượt quá 64).
 

@@ -26,7 +26,7 @@ Counted via `pq.read_metadata` + `os.path.getsize` in the notebook; volume scan 
 
 ## 2. Catalog inspection (`.br_map.bazan`)
 
-`br.lake.create_map("data")` walks the directory and builds `.br_map.bazan`; loading the saved catalog uses `memmap2`. A full `doctor` call still walks the current file metadata to detect drift.
+`br.lake.create_map("data")` walks the directory and builds `.br_map.bazan`; loading the saved catalog uses `memmap2`. A full `doctor` call still discovers files and checks their path, size, and modification time to detect catalog drift; this comparison does not use file-content hashes.
 
 | Mode | Files | Time (demo) |
 | :--- | :--- | :--- |
@@ -61,7 +61,7 @@ Filtering is plain Rust loops over Arrow arrays (LLVM auto-vectorizes); not hand
 
 One monthly batch (`yellow_tripdata_2025-12.parquet`, ~4,305,006 rows), used for the SQL and slicing demos:
 
-- Slicing: `br.read.slice_rows(..., offset=0, limit=100)` returns in milliseconds (no full read).
+- Slicing: the notebook demonstrates `br.read.slice_rows(..., offset=0, limit=100)`, but does not time that call separately. The API can use map locators to avoid unrelated blocks; latency depends on the file and cache.
 - SQL: `br.sql.execute_sql_stream("SELECT ... GROUP BY passenger_count")`, aggregation over the single file completes in ~0.1 s in the demo; handoff to DuckDB via `duckdb.from_arrow(stream.to_pyarrow())` is an Arrow FFI transfer.
 
 No claims about pandas/Postgres baselines, comparison depends on query and hardware.
