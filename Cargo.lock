@@ -468,6 +468,7 @@ dependencies = [
  "arrow-json",
  "arrow-schema",
  "arrow-select",
+ "blake3",
  "calamine",
  "criterion",
  "datafusion",

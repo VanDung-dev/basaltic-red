@@ -36,6 +36,7 @@ datafusion = "54.0"                                             # SQL query engi
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"                                               # JSON handling
+blake3 = "1.8"                                                   # Optional per-file content fingerprints
 rmpv = { version = "1.0", features = ["with-serde"] }            # MessagePack value type (serde support)
 rmp-serde = "1.0"                                                # MessagePack serialization via serde
 
