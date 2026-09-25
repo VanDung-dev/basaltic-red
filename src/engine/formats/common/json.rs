@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use arrow::array::RecordBatch;
@@ -10,7 +10,7 @@ use crate::engine::formats::{
 };
 use crate::error::BazanError;
 
-/// Formatted Pretty Printed JSON Array Reader (Tier 2 Common)
+/// JSON array or newline-delimited object reader (Tier 2 Common)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonHandler;
 
@@ -41,7 +41,7 @@ impl FormatHandler for JsonHandler {
     }
 }
 
-/// JSONL Single-Line Compact JSON Array Reader ([{"id":1,...},{"id":2,...}])
+/// JSONL extension reader supporting object-per-line input and legacy top-level arrays.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonlHandler;
 
@@ -145,8 +145,8 @@ impl FormatHandler for NdjsonHandler {
 
 /// Streaming adapter that presents the elements of a top-level JSON array
 /// (`[ {...}, {...} ]`, compact or multi-line) as a bare object stream
-/// `{...} {...}`: the surrounding brackets and the top-level `,` separators
-/// are stripped. Single pass, O(batch) memory, no full-file DOM. arrow-json's
+/// `{...} {...}`. It validates the outer brackets and comma separators, then
+/// strips them. Single pass, O(batch) memory, no full-file DOM. arrow-json's
 /// tape decoder parses back-to-back values, so no separator is required.
 pub(crate) struct JsonArrayStream<R: Read> {
     inner: R,
@@ -155,6 +155,10 @@ pub(crate) struct JsonArrayStream<R: Read> {
     pos: usize,
     started: bool,
     finished: bool,
+    array_started: bool,
+    array_has_value: bool,
+    array_expect_value: bool,
+    trailer_validated: bool,
     in_string: bool,
     escaped: bool,
     depth: usize,
@@ -169,6 +173,10 @@ impl<R: Read> JsonArrayStream<R> {
             pos: 0,
             started: false,
             finished: false,
+            array_started: false,
+            array_has_value: false,
+            array_expect_value: false,
+            trailer_validated: false,
             in_string: false,
             escaped: false,
             depth: 0,
@@ -183,6 +191,10 @@ impl<R: Read> JsonArrayStream<R> {
             pos: 0,
             started: true,
             finished: false,
+            array_started: true,
+            array_has_value: false,
+            array_expect_value: true,
+            trailer_validated: false,
             in_string: false,
             escaped: false,
             depth: 0,
@@ -196,8 +208,11 @@ fn filter_chunk(
     in_string: &mut bool,
     escaped: &mut bool,
     depth: &mut usize,
+    array_started: &mut bool,
+    array_has_value: &mut bool,
+    array_expect_value: &mut bool,
     buf: &mut [u8],
-) -> usize {
+) -> io::Result<usize> {
     let mut out = 0usize;
     let mut i = 0usize;
     while i < buf.len() {
@@ -209,13 +224,49 @@ fn filter_chunk(
                 b' ' | b'\t' | b'\r' | b'\n' => continue,
                 b'[' => {
                     *started = true;
+                    *array_started = true;
+                    *array_expect_value = true;
                     continue;
                 }
                 _ => *started = true, // not an array: pass through, parser errors
             }
         }
         if *finished {
-            break;
+            if *array_started && !matches!(b, b' ' | b'\t' | b'\r' | b'\n') {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "non-whitespace after top-level JSON array",
+                ));
+            }
+            continue;
+        }
+
+        if *array_started && *depth == 0 && !*in_string {
+            match b {
+                b' ' | b'\t' | b'\r' | b'\n' => {
+                    buf[out] = b;
+                    out += 1;
+                }
+                b'{' if *array_expect_value => {
+                    *array_expect_value = false;
+                    *depth = 1;
+                    buf[out] = b;
+                    out += 1;
+                }
+                b',' if !*array_expect_value && *array_has_value => {
+                    *array_expect_value = true;
+                }
+                b']' if !*array_expect_value || !*array_has_value => {
+                    *finished = true;
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "JSON array rows must be objects separated by commas",
+                    ));
+                }
+            }
+            continue;
         }
 
         if *in_string {
@@ -247,16 +298,19 @@ fn filter_chunk(
                     *depth -= 1;
                     buf[out] = b;
                     out += 1;
-                } else if b == b']' {
+                    if *depth == 0 && *array_started {
+                        *array_has_value = true;
+                    }
+                } else if b == b']' && *array_started {
                     *finished = true;
                 } else {
-                    // stray top-level `}`: keep it, let the parser fail
+                    // Leave unmatched closers for the JSON parser to reject.
                     buf[out] = b;
                     out += 1;
                 }
             }
             b',' => {
-                if *depth > 0 {
+                if *depth > 0 || !*array_started {
                     buf[out] = b;
                     out += 1;
                 }
@@ -268,7 +322,7 @@ fn filter_chunk(
             }
         }
     }
-    out
+    Ok(out)
 }
 
 impl<R: Read> Read for JsonArrayStream<R> {
@@ -281,10 +335,35 @@ impl<R: Read> Read for JsonArrayStream<R> {
                 return Ok(n);
             }
             if self.finished {
+                if self.array_started && !self.trailer_validated {
+                    let mut trailing = [0u8; 8192];
+                    loop {
+                        let n = self.inner.read(&mut trailing)?;
+                        if n == 0 {
+                            self.trailer_validated = true;
+                            break;
+                        }
+                        if trailing[..n]
+                            .iter()
+                            .any(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "non-whitespace after top-level JSON array",
+                            ));
+                        }
+                    }
+                }
                 return Ok(0);
             }
             let n = self.inner.read(&mut self.buffer)?;
             if n == 0 {
+                if self.array_started && !self.finished {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "top-level JSON array is missing its closing bracket",
+                    ));
+                }
                 self.finished = true;
                 return Ok(0);
             }
@@ -294,8 +373,11 @@ impl<R: Read> Read for JsonArrayStream<R> {
                 &mut self.in_string,
                 &mut self.escaped,
                 &mut self.depth,
+                &mut self.array_started,
+                &mut self.array_has_value,
+                &mut self.array_expect_value,
                 &mut self.buffer[..n],
-            );
+            )?;
             self.pos = 0;
             if self.filled == 0 {
                 continue;
@@ -309,13 +391,6 @@ impl<R: Read> Read for JsonArrayStream<R> {
 pub fn open_json_array(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
     let batch_size = clamp_batch_size(batch_size);
     let schema = infer_json_array_schema(file_path)?;
-
-    if schema.fields().is_empty() {
-        return Ok(OpenedSource {
-            schema: Arc::new(Schema::empty()),
-            batches: Box::new(std::iter::empty()),
-        });
-    }
 
     let file = File::open(file_path)?;
     let stream = BufReader::new(JsonArrayStream::new(file));
@@ -356,6 +431,42 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unclosed_array_and_non_whitespace_after_array() {
+        for input in [b"[{\"a\":1}".as_slice(), b"[{\"a\":1}] trailing"] {
+            let mut stream = JsonArrayStream::new(input);
+            let mut output = Vec::new();
+            assert!(stream.read_to_end(&mut output).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_array_elements_and_separators() {
+        for input in [
+            b"[{\"a\":1}{\"a\":2}]".as_slice(),
+            b"[{\"a\":1},]",
+            b"[, {\"a\":1}]",
+            b"[{\"a\":1},,{\"a\":2}]",
+            b"[1]",
+        ] {
+            let mut stream = JsonArrayStream::new(input);
+            let mut output = Vec::new();
+            assert!(stream.read_to_end(&mut output).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn allows_json_whitespace_after_array() {
+        let mut stream = JsonArrayStream::new(b"[{\"a\":1}] \r\n".as_slice());
+        assert_eq!(read_all(stream), b"{\"a\":1}");
+    }
+
+    #[test]
+    fn accepts_empty_array() {
+        let mut stream = JsonArrayStream::new(b" [] ".as_slice());
+        assert!(read_all(&mut stream).is_empty());
+    }
+
+    #[test]
     fn open_json_array_streams_rows() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("basaltic_json_stream_{}.json", std::process::id()));
@@ -368,6 +479,23 @@ mod tests {
         assert_eq!(src.schema.fields().len(), 3);
         let rows: usize = src.batches.map(|b| b.unwrap().num_rows()).sum();
         assert_eq!(rows, 2);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn open_json_array_preserves_rows_with_empty_objects() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "basaltic_json_empty_objects_{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(&path, "[{}, {}, {}]").unwrap();
+
+        let src = open_json_array(path.to_str().unwrap(), 1024).unwrap();
+        assert!(src.schema.fields().is_empty());
+        let rows: usize = src.batches.map(|batch| batch.unwrap().num_rows()).sum();
+        assert_eq!(rows, 3);
+
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -131,10 +131,46 @@ pub fn read_delimited_range(
     delimiter: u8,
     force_utf8: bool,
 ) -> Result<RecordBatch, BazanError> {
+    read_delimited_range_with_columns(
+        file_path,
+        byte_offset,
+        offset,
+        limit,
+        batch_size,
+        delimiter,
+        force_utf8,
+        &[],
+    )
+}
+
+/// Read a delimited row range from a byte checkpoint, projecting columns in the parser.
+pub fn read_delimited_range_with_columns(
+    file_path: &str,
+    byte_offset: u64,
+    offset: usize,
+    limit: usize,
+    batch_size: usize,
+    delimiter: u8,
+    force_utf8: bool,
+    columns: &[String],
+) -> Result<RecordBatch, BazanError> {
     let schema = if force_utf8 {
         infer_tsv_schema(file_path)?
     } else {
         Arc::new(infer_csv_schema(file_path, delimiter)?)
+    };
+    let projection = columns
+        .iter()
+        .map(|name| {
+            schema
+                .index_of(name)
+                .map_err(|_| BazanError::Message(format!("Column '{}' not found in schema", name)))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let output_schema = if columns.is_empty() {
+        schema.clone()
+    } else {
+        Arc::new(schema.project(&projection)?)
     };
     let mut file = File::open(file_path)?;
     file.seek(SeekFrom::Start(byte_offset))?;
@@ -143,6 +179,9 @@ pub fn read_delimited_range(
         .with_delimiter(delimiter)
         .with_header(false)
         .with_batch_size(batch_size);
+    if !columns.is_empty() {
+        builder = builder.with_projection(projection);
+    }
     if force_utf8 {
         builder = builder
             .with_null_regex(tsv_null_regex().clone())
@@ -152,7 +191,7 @@ pub fn read_delimited_range(
 
     read_range_from_source(
         OpenedSource {
-            schema,
+            schema: output_schema,
             batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
         },
         offset,
