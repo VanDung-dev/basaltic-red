@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, Read, Write};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, UNIX_EPOCH};
 
-use arrow::array::{ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
+use arrow::array::{Array, ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
@@ -17,7 +18,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::formats::{
-    inspect_avro_blocks, inspect_msgpack_blocks, resolve_handler_for_file,
+    inspect_avro_blocks, inspect_msgpack_blocks, is_dynamic_format, resolve_handler_for_file,
 };
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
@@ -25,6 +26,115 @@ use crate::utils::discover_data_files;
 
 pub const DEFAULT_MAP_FILENAME: &str = ".br_map.bazan";
 pub const LEGACY_MAP_FILENAME: &str = ".br_map.ipc";
+const DEFAULT_CHECKPOINT_STRIDE_ROWS: usize = 64 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FingerprintPolicy {
+    Metadata,
+    Blake3,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LakeMapOptions {
+    pub checkpoint_stride_rows: NonZeroUsize,
+    pub fingerprint: FingerprintPolicy,
+    /// `None` means all currently supported stats; `Some([])` disables stats.
+    pub stats_columns: Option<Vec<String>>,
+}
+
+impl Default for LakeMapOptions {
+    fn default() -> Self {
+        Self {
+            checkpoint_stride_rows: NonZeroUsize::new(DEFAULT_CHECKPOINT_STRIDE_ROWS)
+                .expect("default checkpoint stride is non-zero"),
+            fingerprint: FingerprintPolicy::Metadata,
+            stats_columns: None,
+        }
+    }
+}
+
+impl LakeMapOptions {
+    pub fn new(
+        checkpoint_stride_rows: usize,
+        fingerprint: &str,
+        stats_columns: Option<Vec<String>>,
+    ) -> Result<Self, BazanError> {
+        let checkpoint_stride_rows =
+            NonZeroUsize::new(checkpoint_stride_rows).ok_or_else(|| {
+                BazanError::Message("checkpoint_stride_rows must be greater than zero".to_string())
+            })?;
+        let fingerprint = match fingerprint {
+            "metadata" => FingerprintPolicy::Metadata,
+            "blake3" => FingerprintPolicy::Blake3,
+            other => {
+                return Err(BazanError::Message(format!(
+                    "Unsupported map fingerprint policy: {other}"
+                )))
+            }
+        };
+        let stats_columns = stats_columns.map(|mut columns| {
+            columns.sort();
+            columns.dedup();
+            columns
+        });
+
+        Ok(Self {
+            checkpoint_stride_rows,
+            fingerprint,
+            stats_columns,
+        })
+    }
+
+    fn from_schema_metadata(metadata: &HashMap<String, String>) -> Result<Self, BazanError> {
+        match metadata.get("bazan.map_schema").map(String::as_str) {
+            None | Some("1") | Some("2") => Ok(Self::default()),
+            Some("3") => {
+                let stride = metadata
+                    .get("bazan.checkpoint_stride_rows")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .ok_or_else(|| {
+                        BazanError::Message("Invalid map checkpoint stride metadata".to_string())
+                    })?;
+                let stats_columns = metadata
+                    .get("bazan.stats_columns")
+                    .ok_or_else(|| {
+                        BazanError::Message("Missing map stats policy metadata".to_string())
+                    })
+                    .and_then(|value| {
+                        serde_json::from_str::<Option<Vec<String>>>(value).map_err(BazanError::from)
+                    })?;
+                let fingerprint = metadata.get("bazan.fingerprint").ok_or_else(|| {
+                    BazanError::Message("Missing map fingerprint policy metadata".to_string())
+                })?;
+                Self::new(stride, fingerprint, stats_columns)
+            }
+            Some(other) => Err(BazanError::Message(format!(
+                "Unsupported lake map schema: {other}"
+            ))),
+        }
+    }
+
+    fn schema_metadata(&self) -> Result<HashMap<String, String>, BazanError> {
+        Ok(HashMap::from([
+            (
+                "bazan.checkpoint_stride_rows".to_string(),
+                self.checkpoint_stride_rows.get().to_string(),
+            ),
+            (
+                "bazan.fingerprint".to_string(),
+                match &self.fingerprint {
+                    FingerprintPolicy::Metadata => "metadata",
+                    FingerprintPolicy::Blake3 => "blake3",
+                }
+                .to_string(),
+            ),
+            (
+                "bazan.stats_columns".to_string(),
+                serde_json::to_string(&self.stats_columns)?,
+            ),
+        ]))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnMinMax {
@@ -76,6 +186,7 @@ pub struct LakeMapEntry {
     pub total_rows: usize,
     pub stats_json: String,
     pub row_groups_json: String,
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +195,7 @@ pub struct LakeMap {
     pub total_files: usize,
     pub total_rows: usize,
     pub total_bytes: u64,
+    pub options: LakeMapOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,7 +430,11 @@ impl MapProgressTracker {
 }
 
 impl LakeMap {
-    pub fn new(mut entries: Vec<LakeMapEntry>) -> Self {
+    pub fn new(entries: Vec<LakeMapEntry>) -> Self {
+        Self::new_with_options(entries, LakeMapOptions::default())
+    }
+
+    pub fn new_with_options(mut entries: Vec<LakeMapEntry>, options: LakeMapOptions) -> Self {
         entries.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
         let mut first_global_row = 0usize;
         for entry in &mut entries {
@@ -334,11 +450,19 @@ impl LakeMap {
             total_files,
             total_rows,
             total_bytes,
+            options,
         }
     }
 
     /// Convert LakeMap into an Arrow RecordBatch for Zero-Copy IPC serialization
     pub fn to_record_batch(&self) -> Result<RecordBatch, BazanError> {
+        let mut schema_metadata = HashMap::from([
+            ("bazan.kind".to_string(), "lake_map".to_string()),
+            ("bazan.version".to_string(), "1".to_string()),
+            ("bazan.payload".to_string(), "arrow_ipc".to_string()),
+            ("bazan.map_schema".to_string(), "3".to_string()),
+        ]);
+        schema_metadata.extend(self.options.schema_metadata()?);
         let schema = Arc::new(Schema::new_with_metadata(
             vec![
                 Field::new("rel_path", DataType::Utf8, false),
@@ -348,13 +472,9 @@ impl LakeMap {
                 Field::new("stats_json", DataType::Utf8, false),
                 Field::new("first_global_row", DataType::UInt64, false),
                 Field::new("row_groups_json", DataType::Utf8, false),
+                Field::new("content_hash", DataType::Utf8, true),
             ],
-            HashMap::from([
-                ("bazan.kind".to_string(), "lake_map".to_string()),
-                ("bazan.version".to_string(), "1".to_string()),
-                ("bazan.payload".to_string(), "arrow_ipc".to_string()),
-                ("bazan.map_schema".to_string(), "2".to_string()),
-            ]),
+            schema_metadata,
         ));
 
         let rel_paths: Vec<&str> = self.entries.iter().map(|e| e.rel_path.as_str()).collect();
@@ -372,6 +492,11 @@ impl LakeMap {
             .iter()
             .map(|e| e.row_groups_json.as_str())
             .collect();
+        let content_hashes: Vec<Option<&str>> = self
+            .entries
+            .iter()
+            .map(|entry| entry.content_hash.as_deref())
+            .collect();
 
         let columns: Vec<ArrayRef> = vec![
             Arc::new(StringArray::from(rel_paths)),
@@ -381,6 +506,7 @@ impl LakeMap {
             Arc::new(StringArray::from(stats)),
             Arc::new(UInt64Array::from(first_rows)),
             Arc::new(StringArray::from(row_groups)),
+            Arc::new(StringArray::from(content_hashes)),
         ];
 
         RecordBatch::try_new(schema, columns).map_err(BazanError::from)
@@ -388,6 +514,24 @@ impl LakeMap {
 
     /// Load LakeMap from an Arrow RecordBatch
     pub fn from_record_batch(batch: &RecordBatch) -> Result<Self, BazanError> {
+        let options = LakeMapOptions::from_schema_metadata(batch.schema().metadata())?;
+        if batch.num_columns() < 5 || batch.num_columns() == 6 {
+            return Err(BazanError::Message(format!(
+                "Invalid lake map column count: {}",
+                batch.num_columns()
+            )));
+        }
+        if batch
+            .schema()
+            .metadata()
+            .get("bazan.map_schema")
+            .is_some_and(|version| version == "3")
+            && batch.num_columns() < 8
+        {
+            return Err(BazanError::Message(
+                "Lake map schema 3 requires the content_hash column".to_string(),
+            ));
+        }
         let rel_path_arr = batch
             .column(0)
             .as_any()
@@ -439,6 +583,18 @@ impl LakeMap {
         } else {
             None
         };
+        let content_hash_arr = batch
+            .schema()
+            .index_of("content_hash")
+            .ok()
+            .map(|column_index| {
+                batch
+                    .column(column_index)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| BazanError::Message("Invalid content_hash column".to_string()))
+            })
+            .transpose()?;
 
         let num_rows = batch.num_rows();
         let mut entries = Vec::with_capacity(num_rows);
@@ -454,10 +610,12 @@ impl LakeMap {
                 row_groups_json: row_groups_arr
                     .map(|arr| arr.value(i).to_string())
                     .unwrap_or_else(|| "[]".to_string()),
+                content_hash: content_hash_arr
+                    .and_then(|array| (!array.is_null(i)).then(|| array.value(i).to_string())),
             });
         }
 
-        Ok(Self::new(entries))
+        Ok(Self::new_with_options(entries, options))
     }
 
     pub fn locate_global_row(
@@ -508,19 +666,44 @@ fn is_parquet_path(file_path: &Path) -> bool {
 }
 
 fn is_ndjson_path(file_path: &Path) -> bool {
-    file_path
+    let extension = file_path
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(|value| {
-            value.eq_ignore_ascii_case("ndjson") || value.eq_ignore_ascii_case("jsonl")
-        })
+        .map(str::to_ascii_lowercase);
+    match extension.as_deref() {
+        Some("ndjson") => true,
+        Some("json" | "jsonl") => !is_json_array_path(file_path),
+        _ => false,
+    }
 }
 
 fn is_json_array_path(file_path: &Path) -> bool {
-    file_path
+    let extension = file_path
         .extension()
         .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("json"))
+        .map(str::to_ascii_lowercase);
+    match extension.as_deref() {
+        Some("json" | "jsonl") => first_json_token(file_path) == Some(b'['),
+        _ => false,
+    }
+}
+
+fn first_json_token(file_path: &Path) -> Option<u8> {
+    let mut reader = io::BufReader::new(File::open(file_path).ok()?);
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut buffer).ok()?;
+        if count == 0 {
+            return None;
+        }
+        if let Some(token) = buffer[..count]
+            .iter()
+            .copied()
+            .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        {
+            return Some(token);
+        }
+    }
 }
 
 fn is_orc_path(file_path: &Path) -> bool {
@@ -573,9 +756,10 @@ fn delimited_delimiter(file_path: &Path) -> Option<u8> {
     }
 }
 
-fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
-    const NDJSON_BLOCK_ROWS: usize = 64 * 1024;
-
+fn inspect_ndjson_row_groups(
+    file_path: &Path,
+    checkpoint_stride_rows: usize,
+) -> Result<Vec<RowGroupLocation>, BazanError> {
     let mut reader = io::BufReader::new(File::open(file_path)?);
     let mut line = Vec::new();
     let mut byte_offset = 0u64;
@@ -599,7 +783,7 @@ fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, 
 
         block_start.get_or_insert(line_start);
         row_count += 1;
-        if row_count == NDJSON_BLOCK_ROWS {
+        if row_count == checkpoint_stride_rows {
             let first_byte = block_start.take().expect("NDJSON block has a row");
             row_groups.push(RowGroupLocation {
                 ordinal: row_groups.len(),
@@ -631,9 +815,10 @@ fn inspect_ndjson_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, 
     Ok(row_groups)
 }
 
-fn inspect_json_array_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
-    const JSON_ARRAY_BLOCK_ROWS: usize = 64 * 1024;
-
+fn inspect_json_array_row_groups(
+    file_path: &Path,
+    checkpoint_stride_rows: usize,
+) -> Result<Vec<RowGroupLocation>, BazanError> {
     let mut reader = io::BufReader::new(File::open(file_path)?);
     let mut buffer = [0u8; 64 * 1024];
     let mut absolute_offset = 0u64;
@@ -683,7 +868,7 @@ fn inspect_json_array_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocatio
                         };
                         block_start.get_or_insert(start);
                         row_count += 1;
-                        if row_count == JSON_ARRAY_BLOCK_ROWS {
+                        if row_count == checkpoint_stride_rows {
                             let first_byte = block_start.take().expect("JSON block has a row");
                             row_groups.push(RowGroupLocation {
                                 ordinal: row_groups.len(),
@@ -773,8 +958,11 @@ fn inspect_avro_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, Ba
         .collect())
 }
 
-fn inspect_msgpack_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
-    Ok(inspect_msgpack_blocks(file_path)?
+fn inspect_msgpack_row_groups(
+    file_path: &Path,
+    checkpoint_stride_rows: usize,
+) -> Result<Vec<RowGroupLocation>, BazanError> {
+    Ok(inspect_msgpack_blocks(file_path, checkpoint_stride_rows)?
         .into_iter()
         .enumerate()
         .map(|(ordinal, block)| RowGroupLocation {
@@ -789,12 +977,14 @@ fn inspect_msgpack_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>,
         .collect())
 }
 
-fn inspect_xlsx_row_groups(total_rows: usize) -> Vec<RowGroupLocation> {
-    const XLSX_BLOCK_ROWS: usize = 64 * 1024;
+fn inspect_xlsx_row_groups(
+    total_rows: usize,
+    checkpoint_stride_rows: usize,
+) -> Vec<RowGroupLocation> {
     let mut row_groups = Vec::new();
     let mut first_row = 0usize;
     while first_row < total_rows {
-        let row_count = XLSX_BLOCK_ROWS.min(total_rows - first_row);
+        let row_count = checkpoint_stride_rows.min(total_rows - first_row);
         row_groups.push(RowGroupLocation {
             ordinal: row_groups.len(),
             first_row,
@@ -809,9 +999,10 @@ fn inspect_xlsx_row_groups(total_rows: usize) -> Vec<RowGroupLocation> {
     row_groups
 }
 
-fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>, BazanError> {
-    const CSV_BLOCK_ROWS: usize = 64 * 1024;
-
+fn inspect_delimited_row_groups(
+    file_path: &Path,
+    checkpoint_stride_rows: usize,
+) -> Result<Vec<RowGroupLocation>, BazanError> {
     let mut reader = io::BufReader::new(File::open(file_path)?);
     let mut buffer = [0u8; 64 * 1024];
     let mut absolute_offset = 0u64;
@@ -819,6 +1010,7 @@ fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation
     let mut header_seen = false;
     let mut in_quotes = false;
     let mut quote_pending = false;
+    let mut record_has_content = false;
     let mut first_row = 0usize;
     let mut row_count = 0usize;
     let mut block_start = None;
@@ -832,6 +1024,10 @@ fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation
 
         for &byte in &buffer[..bytes_read] {
             absolute_offset += 1;
+
+            if byte != b'\n' && (byte != b'\r' || in_quotes) {
+                record_has_content = true;
+            }
 
             if quote_pending {
                 if byte == b'"' {
@@ -850,25 +1046,29 @@ fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation
                 }
             } else if byte == b'\n' && !in_quotes {
                 let record_end = absolute_offset;
-                if header_seen {
-                    block_start.get_or_insert(record_start);
-                    row_count += 1;
-                    if row_count == CSV_BLOCK_ROWS {
-                        let first_byte = block_start.take().expect("CSV block has a row");
-                        row_groups.push(RowGroupLocation {
-                            ordinal: row_groups.len(),
-                            first_row,
-                            row_count,
-                            first_byte: Some(first_byte),
-                            total_byte_size: record_end.saturating_sub(first_byte),
-                            compressed_size: 0,
-                            columns: Vec::new(),
-                        });
-                        first_row = first_row.saturating_add(row_count);
-                        row_count = 0;
+                if record_has_content {
+                    if header_seen {
+                        block_start.get_or_insert(record_start);
+                        row_count += 1;
+                        if row_count == checkpoint_stride_rows {
+                            let first_byte = block_start.take().expect("CSV block has a row");
+                            row_groups.push(RowGroupLocation {
+                                ordinal: row_groups.len(),
+                                first_row,
+                                row_count,
+                                first_byte: Some(first_byte),
+                                total_byte_size: record_end.saturating_sub(first_byte),
+                                compressed_size: 0,
+                                columns: Vec::new(),
+                            });
+                            first_row = first_row.saturating_add(row_count);
+                            row_count = 0;
+                        }
                     }
-                } else {
-                    header_seen = true;
+                    record_has_content = false;
+                    if !header_seen {
+                        header_seen = true;
+                    }
                 }
                 record_start = record_end;
             }
@@ -876,7 +1076,7 @@ fn inspect_delimited_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation
     }
 
     if header_seen {
-        if record_start < absolute_offset {
+        if record_start < absolute_offset && record_has_content {
             block_start.get_or_insert(record_start);
             row_count += 1;
         }
@@ -962,7 +1162,11 @@ fn inspect_parquet_row_groups(file_path: &Path) -> Result<Vec<RowGroupLocation>,
 }
 
 /// Helper to extract stats, row count, and physical row-group locations from a single data file.
-fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry, BazanError> {
+fn inspect_file_entry(
+    root_dir: &Path,
+    file_path: &Path,
+    options: &LakeMapOptions,
+) -> Result<LakeMapEntry, BazanError> {
     let rel = file_path
         .strip_prefix(root_dir)
         .unwrap_or(file_path)
@@ -977,6 +1181,12 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    // In content-fingerprint mode, bracket the full inspection with hashes so
+    // the map never records locations/stats from bytes that changed mid-scan.
+    let initial_content_hash = match &options.fingerprint {
+        FingerprintPolicy::Metadata => None,
+        FingerprintPolicy::Blake3 => Some(blake3_file_hash(file_path)?),
+    };
 
     let file_str = file_path.to_str().unwrap_or("");
     let handler = resolve_handler_for_file(file_str).ok_or_else(|| {
@@ -985,6 +1195,10 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
             file_str
         ))
     })?;
+    let dynamic_override = file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(is_dynamic_format);
 
     let source = handler.open(file_str, 64 * 1024)?;
     let mut total_rows = 0usize;
@@ -1013,6 +1227,14 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
                 let col = batch.column_by_name(&name);
 
                 if let Some(col) = col {
+                    let selected = options
+                        .stats_columns
+                        .as_ref()
+                        .is_none_or(|columns| columns.iter().any(|column| column == field.name()));
+                    if !selected {
+                        continue;
+                    }
+
                     match field.data_type() {
                         DataType::Int64 => {
                             if let Some(arr) = col.as_any().downcast_ref::<Int64Array>() {
@@ -1080,24 +1302,41 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         }
     }
 
-    let row_groups_json = if is_parquet_path(file_path) {
+    let row_groups_json = if dynamic_override {
+        "[]".to_string()
+    } else if is_parquet_path(file_path) {
         serde_json::to_string(&inspect_parquet_row_groups(file_path)?)?
     } else if is_ndjson_path(file_path) {
-        serde_json::to_string(&inspect_ndjson_row_groups(file_path)?)?
+        serde_json::to_string(&inspect_ndjson_row_groups(
+            file_path,
+            options.checkpoint_stride_rows.get(),
+        )?)?
     } else if is_json_array_path(file_path) {
-        serde_json::to_string(&inspect_json_array_row_groups(file_path)?)?
+        serde_json::to_string(&inspect_json_array_row_groups(
+            file_path,
+            options.checkpoint_stride_rows.get(),
+        )?)?
     } else if is_orc_path(file_path) {
         serde_json::to_string(&inspect_orc_row_groups(file_path)?)?
     } else if is_avro_path(file_path) {
         serde_json::to_string(&inspect_avro_row_groups(file_path)?)?
     } else if is_msgpack_path(file_path) {
-        serde_json::to_string(&inspect_msgpack_row_groups(file_path)?)?
+        serde_json::to_string(&inspect_msgpack_row_groups(
+            file_path,
+            options.checkpoint_stride_rows.get(),
+        )?)?
     } else if is_xlsx_path(file_path) {
-        serde_json::to_string(&inspect_xlsx_row_groups(total_rows))?
+        serde_json::to_string(&inspect_xlsx_row_groups(
+            total_rows,
+            options.checkpoint_stride_rows.get(),
+        ))?
     } else if is_arrow_ipc_path(file_path) {
         serde_json::to_string(&arrow_row_groups)?
     } else if delimited_delimiter(file_path).is_some() {
-        serde_json::to_string(&inspect_delimited_row_groups(file_path)?)?
+        serde_json::to_string(&inspect_delimited_row_groups(
+            file_path,
+            options.checkpoint_stride_rows.get(),
+        )?)?
     } else {
         "[]".to_string()
     };
@@ -1107,6 +1346,33 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         columns: col_stats,
     };
     let stats_json = serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string());
+    let final_meta = fs::metadata(file_path)?;
+    let final_mtime_ms = final_meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    if final_meta.len() != size_bytes || final_mtime_ms != mtime_ms {
+        return Err(BazanError::Message(format!(
+            "Source changed while building lake map: {}",
+            file_path.display()
+        )));
+    }
+
+    let content_hash = match initial_content_hash {
+        None => None,
+        Some(initial_hash) => {
+            let final_hash = blake3_file_hash(file_path)?;
+            if final_hash != initial_hash {
+                return Err(BazanError::Message(format!(
+                    "Source content changed while building lake map: {}",
+                    file_path.display()
+                )));
+            }
+            Some(final_hash)
+        }
+    };
 
     Ok(LakeMapEntry {
         rel_path: rel,
@@ -1116,7 +1382,22 @@ fn inspect_file_entry(root_dir: &Path, file_path: &Path) -> Result<LakeMapEntry,
         total_rows,
         stats_json,
         row_groups_json,
+        content_hash,
     })
+}
+
+fn blake3_file_hash(file_path: &Path) -> Result<String, BazanError> {
+    let mut file = File::open(file_path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 /// Build full LakeMap for a directory in parallel using Rayon with live progress bar
@@ -1129,6 +1410,14 @@ pub fn build_lake_map_with_progress(
     dir_path: &Path,
     show_progress: bool,
 ) -> Result<LakeMap, BazanError> {
+    build_lake_map_with_options(dir_path, show_progress, LakeMapOptions::default())
+}
+
+pub fn build_lake_map_with_options(
+    dir_path: &Path,
+    show_progress: bool,
+    options: LakeMapOptions,
+) -> Result<LakeMap, BazanError> {
     if !dir_path.exists() || !dir_path.is_dir() {
         return Err(BazanError::Message(format!(
             "Directory does not exist: {:?}",
@@ -1138,7 +1427,7 @@ pub fn build_lake_map_with_progress(
 
     let files = discover_data_files(dir_path, None)?;
     if files.is_empty() {
-        return Ok(LakeMap::new(Vec::new()));
+        return Ok(LakeMap::new_with_options(Vec::new(), options));
     }
 
     // Filter out existing map file itself and collect initial file sizes
@@ -1163,13 +1452,13 @@ pub fn build_lake_map_with_progress(
     let entries: Result<Vec<LakeMapEntry>, BazanError> = valid_files_with_size
         .par_iter()
         .map(|(file, size)| {
-            let res = inspect_file_entry(dir_path, file);
+            let res = inspect_file_entry(dir_path, file, &options);
             tracker.inc(*size);
             res
         })
         .collect();
 
-    Ok(LakeMap::new(entries?))
+    Ok(LakeMap::new_with_options(entries?, options))
 }
 
 /// Save LakeMap to Arrow IPC payload format (`.br_map.bazan`).
@@ -1318,7 +1607,10 @@ pub fn resolve_parquet_range(
     };
 
     let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() || offset >= entry.total_rows {
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
         return Ok(Some(ResolvedParquetRange {
             row_groups: Vec::new(),
             offset: 0,
@@ -1694,6 +1986,10 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
     } else {
         None
     };
+    let options = existing_map
+        .as_ref()
+        .map(|map| map.options.clone())
+        .unwrap_or_default();
 
     let files_on_disk = discover_data_files(dir_path, None)?;
     let valid_disk_files: Vec<PathBuf> = files_on_disk
@@ -1731,8 +2027,21 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
     if let Some(map) = existing_map.take() {
         for entry in map.entries {
             indexed_rel_paths.insert(entry.rel_path.clone());
-            if let Some((_full_path, disk_size, disk_mtime)) = disk_map.get(&entry.rel_path) {
-                if *disk_size == entry.size_bytes && *disk_mtime == entry.mtime_ms {
+            if let Some((full_path, disk_size, disk_mtime)) = disk_map.get(&entry.rel_path) {
+                let metadata_matches =
+                    *disk_size == entry.size_bytes && *disk_mtime == entry.mtime_ms;
+                let healthy = if metadata_matches {
+                    match &options.fingerprint {
+                        FingerprintPolicy::Metadata => true,
+                        FingerprintPolicy::Blake3 => match entry.content_hash.as_deref() {
+                            Some(expected) => blake3_file_hash(full_path)? == expected,
+                            None => false,
+                        },
+                    }
+                } else {
+                    false
+                };
+                if healthy {
                     healthy_count += 1;
                     retained_entries.push(entry);
                 } else {
@@ -1775,7 +2084,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
         let new_entries: Result<Vec<LakeMapEntry>, BazanError> = files_to_reindex
             .par_iter()
             .map(|(p, size)| {
-                let res = inspect_file_entry(dir_path, p);
+                let res = inspect_file_entry(dir_path, p, &options);
                 tracker.inc(*size);
                 res
             })
@@ -1784,7 +2093,7 @@ pub fn doctor_lake_map(dir_path: &Path, auto_heal: bool) -> Result<DoctorReport,
         retained_entries.extend(new_entries?);
         retained_entries.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
 
-        let healed_map = LakeMap::new(retained_entries);
+        let healed_map = LakeMap::new_with_options(retained_entries, options);
         save_lake_map_ipc(&healed_map, &map_file)?;
         healed = true;
     }
@@ -1815,8 +2124,17 @@ impl MatrixEngine {
         dir_path: &str,
         show_progress: bool,
     ) -> Result<String, BazanError> {
+        self.create_lake_map_native_with_options(dir_path, show_progress, LakeMapOptions::default())
+    }
+
+    pub fn create_lake_map_native_with_options(
+        &self,
+        dir_path: &str,
+        show_progress: bool,
+        options: LakeMapOptions,
+    ) -> Result<String, BazanError> {
         let path = Path::new(dir_path);
-        let map = build_lake_map_with_progress(path, show_progress)?;
+        let map = build_lake_map_with_options(path, show_progress, options)?;
         let out_file = resolve_map_path(path);
         save_lake_map_ipc(&map, &out_file)?;
         Ok(out_file.to_string_lossy().to_string())

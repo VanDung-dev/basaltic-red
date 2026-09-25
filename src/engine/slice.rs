@@ -1,11 +1,12 @@
 use arrow::array::RecordBatch;
 
+use crate::engine::formats::plugins::adapters::orc::read_orc_range_columns;
 pub use crate::engine::formats::DEFAULT_MAX_BATCH_SIZE;
-use crate::engine::formats::{maybe_hint_not_parquet, resolve_handler_for_file};
+use crate::engine::formats::{is_dynamic_format, maybe_hint_not_parquet, resolve_handler_for_file};
 use crate::engine::formats::{
-    read_arrow_ipc_range, read_avro_range, read_delimited_range, read_json_array_range,
-    read_msgpack_range, read_ndjson_range, read_orc_range, read_parquet_range_from_row_groups,
-    read_xlsx_range,
+    read_arrow_ipc_range, read_arrow_ipc_range_columns, read_avro_range, read_delimited_range,
+    read_delimited_range_with_columns, read_json_array_range, read_msgpack_range,
+    read_ndjson_range, read_orc_range, read_parquet_range_from_row_groups, read_xlsx_range,
 };
 use crate::engine::map::{
     resolve_arrow_ipc_range, resolve_avro_range, resolve_delimited_range, resolve_json_array_range,
@@ -31,6 +32,16 @@ impl MatrixEngine {
             .to_lowercase();
 
         maybe_hint_not_parquet(file_path, &ext);
+
+        if is_dynamic_format(&ext) {
+            let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
+                BazanError::Message(format!(
+                    "Format for '{}' not supported or recognized",
+                    file_path
+                ))
+            })?;
+            return handler.read_range(file_path, offset, limit, DEFAULT_MAX_BATCH_SIZE);
+        }
 
         if matches!(ext.as_str(), "parquet" | "pq") {
             if let Some(resolved) = resolve_parquet_range(path, offset, limit)? {
@@ -137,7 +148,7 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "json" {
+        if matches!(ext.as_str(), "json" | "jsonl") {
             if let Some(resolved) = resolve_json_array_range(path, offset, limit)? {
                 return read_json_array_range(
                     file_path,
@@ -149,7 +160,7 @@ impl MatrixEngine {
             }
         }
 
-        if matches!(ext.as_str(), "ndjson" | "jsonl") {
+        if matches!(ext.as_str(), "json" | "jsonl" | "ndjson") {
             if let Some(resolved) = resolve_ndjson_range(path, offset, limit)? {
                 return read_ndjson_range(
                     file_path,
@@ -194,6 +205,32 @@ impl MatrixEngine {
 
         maybe_hint_not_parquet(file_path, &ext);
 
+        if is_dynamic_format(&ext) {
+            let handler = resolve_handler_for_file(file_path).ok_or_else(|| {
+                BazanError::Message(format!(
+                    "Format for '{}' not supported or recognized",
+                    file_path
+                ))
+            })?;
+            let batch = handler.read_range_columns(
+                file_path,
+                offset,
+                limit,
+                DEFAULT_MAX_BATCH_SIZE,
+                selected_cols,
+            )?;
+            let schema = batch.schema();
+            let indices = selected_cols
+                .iter()
+                .map(|col_name| {
+                    schema.index_of(col_name).map_err(|_| {
+                        BazanError::Message(format!("Column '{}' not found in schema", col_name))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(batch.project(&indices)?);
+        }
+
         if matches!(ext.as_str(), "parquet" | "pq") {
             if let Some(resolved) = resolve_parquet_range(path, offset, limit)? {
                 let batch = read_parquet_range_from_row_groups(
@@ -217,12 +254,13 @@ impl MatrixEngine {
 
         if ext == "orc" {
             if let Some(resolved) = resolve_orc_range(path, offset, limit)? {
-                let batch = read_orc_range(
+                let batch = read_orc_range_columns(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
                     limit,
                     DEFAULT_MAX_BATCH_SIZE,
+                    selected_cols,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
@@ -297,11 +335,12 @@ impl MatrixEngine {
 
         if matches!(ext.as_str(), "ipc" | "arrow" | "feather") {
             if let Some(resolved) = resolve_arrow_ipc_range(path, offset, limit)? {
-                let batch = read_arrow_ipc_range(
+                let batch = read_arrow_ipc_range_columns(
                     file_path,
                     resolved.batch_ordinal,
                     resolved.offset,
                     limit,
+                    selected_cols,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
@@ -321,7 +360,7 @@ impl MatrixEngine {
                 _ => b';',
             };
             if let Some(resolved) = resolve_delimited_range(path, offset, limit, delimiter)? {
-                let batch = read_delimited_range(
+                let batch = read_delimited_range_with_columns(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
@@ -329,6 +368,7 @@ impl MatrixEngine {
                     DEFAULT_MAX_BATCH_SIZE,
                     delimiter,
                     false,
+                    selected_cols,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
@@ -343,7 +383,7 @@ impl MatrixEngine {
 
         if ext == "tsv" {
             if let Some(resolved) = resolve_delimited_range(path, offset, limit, b'\t')? {
-                let batch = read_delimited_range(
+                let batch = read_delimited_range_with_columns(
                     file_path,
                     resolved.byte_offset,
                     resolved.offset,
@@ -351,6 +391,7 @@ impl MatrixEngine {
                     DEFAULT_MAX_BATCH_SIZE,
                     b'\t',
                     true,
+                    selected_cols,
                 )?;
                 let schema = batch.schema();
                 let mut indices = Vec::new();
@@ -363,7 +404,7 @@ impl MatrixEngine {
             }
         }
 
-        if ext == "json" {
+        if matches!(ext.as_str(), "json" | "jsonl") {
             if let Some(resolved) = resolve_json_array_range(path, offset, limit)? {
                 let batch = read_json_array_range(
                     file_path,
@@ -383,7 +424,7 @@ impl MatrixEngine {
             }
         }
 
-        if matches!(ext.as_str(), "ndjson" | "jsonl") {
+        if matches!(ext.as_str(), "json" | "jsonl" | "ndjson") {
             if let Some(resolved) = resolve_ndjson_range(path, offset, limit)? {
                 let batch = read_ndjson_range(
                     file_path,
