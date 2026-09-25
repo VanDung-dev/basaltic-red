@@ -1,9 +1,9 @@
 use arrow::array::RecordBatch;
 use arrow_array::RecordBatchReader;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
-use parquet::file::metadata::PageIndexPolicy;
 use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::basic::Compression;
+use parquet::file::metadata::PageIndexPolicy;
 use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use std::fs::{create_dir_all, write, File};
