@@ -67,6 +67,29 @@ fn infer_csv_schema(file_path: &str, delimiter: u8) -> Result<Schema, BazanError
     Ok(format.infer_schema(&mut file, Some(100))?.0)
 }
 
+pub(crate) fn build_delimited_source(
+    file: File,
+    schema: Schema,
+    batch_size: usize,
+    delimiter: u8,
+    has_header: bool,
+    projection: Option<Vec<usize>>,
+) -> Result<OpenedSource, BazanError> {
+    let mut builder = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
+        .with_delimiter(delimiter)
+        .with_header(has_header)
+        .with_batch_size(clamp_batch_size(batch_size));
+    if let Some(indices) = projection {
+        builder = builder.with_projection(indices);
+    }
+    let reader = builder.build(file)?;
+
+    Ok(OpenedSource {
+        schema: Arc::new(schema),
+        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
+    })
+}
+
 pub fn open_delimited_csv(
     file_path: &str,
     batch_size: usize,
@@ -74,18 +97,7 @@ pub fn open_delimited_csv(
 ) -> Result<OpenedSource, BazanError> {
     let schema = infer_csv_schema(file_path, delimiter)?;
     let file = File::open(file_path)?;
-
-    let batch_size = clamp_batch_size(batch_size);
-    let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
-        .with_delimiter(delimiter)
-        .with_header(true)
-        .with_batch_size(batch_size)
-        .build(file)?;
-
-    Ok(OpenedSource {
-        schema: Arc::new(schema),
-        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-    })
+    build_delimited_source(file, schema, batch_size, delimiter, true, None)
 }
 
 /// Delimited CSV opener with column projection (arrow-csv `with_projection`).
@@ -107,18 +119,7 @@ pub fn open_delimited_csv_columns(
         );
     }
 
-    let batch_size = clamp_batch_size(batch_size);
-    let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema.clone()))
-        .with_delimiter(delimiter)
-        .with_header(true)
-        .with_batch_size(batch_size)
-        .with_projection(indices)
-        .build(file)?;
-
-    Ok(OpenedSource {
-        schema: Arc::new(schema),
-        batches: Box::new(reader.map(|r| r.map_err(BazanError::from))),
-    })
+    build_delimited_source(file, schema, batch_size, delimiter, true, Some(indices))
 }
 
 /// Read a CSV row range starting at a quote-safe byte checkpoint.
