@@ -67,8 +67,7 @@ pub fn read_arrow_ipc_range_columns(
 
 impl FormatHandler for FeatherHandler {
     fn open(&self, file_path: &str, _batch_size: usize) -> Result<OpenedSource, BazanError> {
-        let file = File::open(file_path)?;
-        let reader = ArrowFileReader::try_new(file, None)?;
+        let reader = open_ipc_reader(file_path, &[])?;
         let schema = reader.schema().clone();
 
         Ok(OpenedSource {
