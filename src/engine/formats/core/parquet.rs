@@ -16,7 +16,7 @@ use crate::engine::formats::{
 };
 use crate::engine::MatrixEngine;
 use crate::error::BazanError;
-use crate::utils::discover_parquet_files;
+use crate::utils::discover_data_files;
 
 /// Shared streaming opener for Parquet.
 pub fn open_parquet(file_path: &str, batch_size: usize) -> Result<OpenedSource, BazanError> {
@@ -180,7 +180,7 @@ impl MatrixEngine {
         _batch_size: usize,
     ) -> Result<(usize, usize, usize, usize), BazanError> {
         let base_input_path = Path::new(input_dir);
-        let files = discover_parquet_files(base_input_path, partition_filter)?;
+        let files = discover_data_files(base_input_path, partition_filter)?;
         let total_files = files.len();
 
         let writer_props = WriterProperties::builder()
@@ -261,7 +261,7 @@ impl MatrixEngine {
     ) -> Result<(usize, usize, String), BazanError> {
         let batch_size = clamp_batch_size(batch_size);
         let base_input_path = Path::new(input_dir);
-        let files = discover_parquet_files(base_input_path, partition_filter)?;
+        let files = discover_data_files(base_input_path, partition_filter)?;
         let total_files = files.len();
 
         let writer_props = WriterProperties::builder()
