@@ -10,6 +10,34 @@ use super::{
     ResolvedXlsxRange, RowGroupLocation,
 };
 
+fn resolve_byte_checkpoint(
+    file_path: &Path,
+    offset: usize,
+) -> Result<Option<(u64, usize)>, BazanError> {
+    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
+        return Ok(None);
+    };
+
+    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
+    if row_groups.is_empty() {
+        return Ok(None);
+    }
+    if offset >= entry.total_rows {
+        return Ok(Some((entry.size_bytes, 0)));
+    }
+
+    let Some(group) = row_groups.iter().find(|group| {
+        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
+    }) else {
+        return Ok(None);
+    };
+    let Some(byte_offset) = group.first_byte else {
+        return Ok(None);
+    };
+
+    Ok(Some((byte_offset, offset.saturating_sub(group.first_row))))
+}
+
 /// Resolve a file-local row range to the Parquet row groups that contain it.
 ///
 /// Returns `None` when no compatible, healthy map is available so callers can
@@ -69,34 +97,12 @@ pub fn resolve_ndjson_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedNdjsonRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedNdjsonRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedNdjsonRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 /// Resolve a JSON-array row range to the byte checkpoint containing its first object.
@@ -109,34 +115,12 @@ pub fn resolve_json_array_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedJsonArrayRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedJsonArrayRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedJsonArrayRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 /// Resolve an ORC row range to the stripe checkpoint containing its first row.
@@ -149,34 +133,12 @@ pub fn resolve_orc_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedOrcRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedOrcRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedOrcRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 /// Resolve an Avro row range to the OCF block containing its first row.
@@ -189,34 +151,12 @@ pub fn resolve_avro_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedAvroRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedAvroRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedAvroRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 /// Resolve a MessagePack object range to the checkpoint containing its first object.
@@ -229,34 +169,12 @@ pub fn resolve_msgpack_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedMsgpackRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedMsgpackRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedMsgpackRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 /// Resolve an XLSX data-row range to a logical worksheet block.
@@ -337,34 +255,12 @@ pub fn resolve_delimited_range(
         return Ok(None);
     }
 
-    let Some(entry) = resolve_healthy_map_entry(file_path)? else {
-        return Ok(None);
-    };
-
-    let row_groups: Vec<RowGroupLocation> = serde_json::from_str(&entry.row_groups_json)?;
-    if row_groups.is_empty() {
-        return Ok(None);
-    }
-    if offset >= entry.total_rows {
-        return Ok(Some(ResolvedCsvRange {
-            byte_offset: entry.size_bytes,
-            offset: 0,
-        }));
-    }
-
-    let Some(group) = row_groups.iter().find(|group| {
-        offset >= group.first_row && offset < group.first_row.saturating_add(group.row_count)
-    }) else {
-        return Ok(None);
-    };
-    let Some(byte_offset) = group.first_byte else {
-        return Ok(None);
-    };
-
-    Ok(Some(ResolvedCsvRange {
-        byte_offset,
-        offset: offset.saturating_sub(group.first_row),
-    }))
+    resolve_byte_checkpoint(file_path, offset).map(|range| {
+        range.map(|(byte_offset, offset)| ResolvedCsvRange {
+            byte_offset,
+            offset,
+        })
+    })
 }
 
 pub fn resolve_csv_range(
